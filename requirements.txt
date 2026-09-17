@@ -1,0 +1,10 @@
+# Application Compta Connect — dépendances d'exécution
+Flask>=3.0
+segno>=1.6          # génération des QR codes (ISO 18004)
+Pillow>=10.0        # rendu du QR code
+numpy>=1.26
+openpyxl>=3.1       # export Excel du pointage
+
+# Tests uniquement
+pytest>=8.0
+pyzbar>=0.1.9       # nécessite la bibliothèque système libzbar0

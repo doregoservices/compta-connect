@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block titre %}{{ f.titre }} — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>{{ f.titre }}</h2>
+  <a class="bouton secondaire" href="{{ url_for('page_formations') }}">← Toutes les formations</a>
+</div>
+
+<div class="grille col2">
+  <div class="carte">
+    <h3>Informations</h3>
+    <div class="deux-cols">
+      <div><span class="muet">Formateur</span><br><strong>{{ f.formateur or '—' }}</strong></div>
+      <div><span class="muet">Date</span><br><strong>{{ f.date | fdate }} à {{ f.heure or '—' }}</strong></div>
+      <div><span class="muet">Durée</span><br><strong>{{ f.duree or '—' }}</strong></div>
+      <div><span class="muet">Format</span><br><strong>{{ f.mode }}</strong></div>
+      <div><span class="muet">Lieu</span><br><strong>{{ f.lieu or '—' }}</strong></div>
+      <div><span class="muet">Participation</span><br>
+        <strong>{% if f.cout %}{{ f.cout | fcfa }} FCFA{% else %}Gratuit{% endif %}</strong></div>
+      <div><span class="muet">Places</span><br>
+        <strong>{{ inscriptions | length }}{% if f.places %} / {{ f.places }}{% endif %}</strong></div>
+      <div><span class="muet">Statut</span><br>
+        <span class="badge {{ 'b-ouvert' if f.statut == 'ouverte' else 'b-ferme' }}">{{ f.statut }}</span></div>
+    </div>
+    {% if f.description %}<div class="separateur"></div><p>{{ f.description }}</p>{% endif %}
+    {% if f.lien %}<p><a href="{{ f.lien }}" target="_blank">🔗 Lien de connexion</a></p>{% endif %}
+
+    <div class="separateur"></div>
+    <h3>Modifier</h3>
+    <form method="post" action="{{ url_for('modifier_formation', fid=f.id) }}" class="grille-form">
+      <div class="champ plein"><label for="titre">Titre</label>
+        <input id="titre" name="titre" value="{{ f.titre }}" required></div>
+      <div class="champ"><label for="formateur">Formateur</label>
+        <input id="formateur" name="formateur" value="{{ f.formateur }}"></div>
+      <div class="champ"><label for="date">Date</label>
+        <input id="date" name="date" type="date" value="{{ f.date }}"></div>
+      <div class="champ"><label for="heure">Heure</label>
+        <input id="heure" name="heure" type="time" value="{{ f.heure }}"></div>
+      <div class="champ"><label for="duree">Durée</label>
+        <input id="duree" name="duree" value="{{ f.duree }}"></div>
+      <div class="champ"><label for="mode">Format</label>
+        <select id="mode" name="mode">
+          {% for m in ['En ligne', 'Présentiel', 'Hybride'] %}
+          <option {{ 'selected' if f.mode == m }}>{{ m }}</option>{% endfor %}
+        </select></div>
+      <div class="champ"><label for="lieu">Lieu ou plateforme</label>
+        <input id="lieu" name="lieu" value="{{ f.lieu }}"></div>
+      <div class="champ"><label for="cout">Participation (FCFA)</label>
+        <input id="cout" name="cout" type="number" value="{{ f.cout }}"></div>
+      <div class="champ"><label for="places">Places</label>
+        <input id="places" name="places" type="number" value="{{ f.places }}"></div>
+      <div class="champ"><label for="statut">Statut</label>
+        <select id="statut" name="statut">
+          {% for s in ['ouverte', 'complete', 'en cours', 'terminee', 'annulee'] %}
+          <option {{ 'selected' if f.statut == s }}>{{ s }}</option>{% endfor %}
+        </select></div>
+      <div class="champ plein"><label for="lien">Lien de connexion</label>
+        <input id="lien" name="lien" value="{{ f.lien }}"></div>
+      <div class="champ plein"><label for="description">Description</label>
+        <textarea id="description" name="description" rows="3">{{ f.description }}</textarea></div>
+      <div class="champ plein actions"><button class="bouton" type="submit">Enregistrer</button></div>
+    </form>
+  </div>
+
+  <div class="carte">
+    <h3>Inscrire un participant</h3>
+    <form method="post" action="{{ url_for('inscrire_formation', fid=f.id) }}" class="grille-form">
+      <div class="champ plein"><label for="membre_id">Membre du réseau</label>
+        <select id="membre_id" name="membre_id">
+          <option value="">— ou personne extérieure ci-dessous —</option>
+          {% for m in membres %}<option value="{{ m.id }}">{{ m.code }} — {{ m.nom }}</option>{% endfor %}
+        </select></div>
+      <div class="champ"><label for="nom">Nom (si extérieur)</label><input id="nom" name="nom"></div>
+      <div class="champ"><label for="telephone">Téléphone</label><input id="telephone" name="telephone"></div>
+      <div class="champ plein actions"><button class="bouton" type="submit">Inscrire</button></div>
+    </form>
+
+    <div class="separateur"></div>
+    <h3>Liste des participants ({{ inscriptions | length }})</h3>
+    <div class="tableau-scroll">
+    <table>
+      <thead><tr><th>Nom</th><th>Téléphone</th><th>Inscrit le</th><th class="centré">Présent</th><th></th></tr></thead>
+      <tbody>
+        {% for i in inscriptions %}
+        <tr>
+          <td>{{ i.nom }}</td>
+          <td class="mono">{{ i.telephone | tel or '—' }}</td>
+          <td>{{ i.date_inscription | fdate }}</td>
+          <td class="centré">
+            <form method="post" action="{{ url_for('basculer_presence', iid=i.id) }}">
+              <button class="bouton petit {{ '' if i.present else 'secondaire' }}" type="submit">
+                {{ 'présent' if i.present else 'absent' }}</button>
+            </form>
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('supprimer_inscription', iid=i.id) }}"
+                  onsubmit="return confirm('Annuler cette inscription ?')">
+              <button class="bouton petit danger" type="submit">✕</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}<tr><td colspan="5" class="muet">Aucun inscrit pour le moment.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    <p class="muet" style="margin-top:10px">
+      Le bouton « présent / absent » sert à faire l'appel le jour de la formation.
+    </p>
+  </div>
+</div>
+{% endblock %}

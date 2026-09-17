@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block titre %}Activités — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<h2>Activités du réseau</h2>
+<p class="sous-titre">Réunions, assemblées, actions de solidarité, rencontres professionnelles.</p>
+
+<div class="carte marge">
+  <h3>Créer une activité</h3>
+  <form method="post" action="{{ url_for('nouvelle_activite') }}" class="grille-form">
+    <div class="champ plein"><label for="titre">Titre *</label><input id="titre" name="titre" required></div>
+    <div class="champ"><label for="categorie">Catégorie</label>
+      <select id="categorie" name="categorie">
+        {% for c in ['Rencontre', 'Réunion', 'Solidarité', 'Formation', 'Réseautage', 'Assemblée', 'Autre'] %}
+        <option>{{ c }}</option>{% endfor %}
+      </select></div>
+    <div class="champ"><label for="date">Date</label><input id="date" name="date" type="date"></div>
+    <div class="champ"><label for="heure">Heure</label><input id="heure" name="heure" type="time"></div>
+    <div class="champ"><label for="mode">Format</label>
+      <select id="mode" name="mode"><option>Présentiel</option><option>En ligne</option><option>Hybride</option></select></div>
+    <div class="champ"><label for="lieu">Lieu</label><input id="lieu" name="lieu"></div>
+    <div class="champ"><label for="cout">Participation (FCFA)</label>
+      <input id="cout" name="cout" type="number" value="0"></div>
+    <div class="champ"><label for="organisateur">Organisateur</label>
+      <input id="organisateur" name="organisateur"></div>
+    <div class="champ plein"><label for="description">Description</label>
+      <textarea id="description" name="description" rows="3"></textarea></div>
+    <div class="champ plein actions"><button class="bouton" type="submit">Créer l'activité</button></div>
+  </form>
+</div>
+
+{% for a in activites %}
+<div class="carte marge">
+  <div class="entete-carte">
+    <h3>{{ a.titre }} <span class="badge b-neutre">{{ a.categorie }}</span></h3>
+    <span class="badge {{ 'b-ouvert' if a.statut == 'planifiee' else 'b-ferme' }}">{{ a.statut }}</span>
+  </div>
+  <div class="deux-cols">
+    <div><span class="muet">Date</span><br><strong>{{ a.date | fdate }} à {{ a.heure or '—' }}</strong></div>
+    <div><span class="muet">Format / lieu</span><br><strong>{{ a.mode }} — {{ a.lieu or '—' }}</strong></div>
+    <div><span class="muet">Participation</span><br>
+      <strong>{% if a.cout %}{{ a.cout | fcfa }} FCFA{% else %}Gratuit{% endif %}</strong></div>
+    <div><span class="muet">Organisateur</span><br><strong>{{ a.organisateur or '—' }}</strong></div>
+  </div>
+  {% if a.description %}<p style="margin-top:10px">{{ a.description }}</p>{% endif %}
+
+  <div class="separateur"></div>
+  <div class="grille col2">
+    <div>
+      <h3>Participants ({{ a.nb_participants }})</h3>
+      <ul class="liste-simple">
+        {% for p in a.participants %}
+        <li>{{ p.nom }}
+          <form method="post" action="{{ url_for('annuler_participation', pid=p.id) }}" style="display:inline">
+            <button class="bouton petit danger" type="submit">✕</button>
+          </form>
+        </li>
+        {% else %}<li class="muet">Aucun participant inscrit.</li>{% endfor %}
+      </ul>
+    </div>
+    <div>
+      <h3>Inscrire un membre</h3>
+      <form method="post" action="{{ url_for('participer', aid=a.id) }}" class="en-ligne">
+        <div class="champ"><label for="membre_{{ a.id }}">Membre</label>
+          <select id="membre_{{ a.id }}" name="membre_id" required>
+            <option value="">Choisir…</option>
+            {% for m in membres %}<option value="{{ m.id }}">{{ m.code }} — {{ m.nom }}</option>{% endfor %}
+          </select></div>
+        <button class="bouton" type="submit">Inscrire</button>
+      </form>
+      <div class="separateur"></div>
+      <details>
+        <summary class="muet" style="cursor:pointer">Modifier / supprimer cette activité</summary>
+        <form method="post" action="{{ url_for('modifier_activite', aid=a.id) }}" class="grille-form" style="margin-top:10px">
+          <div class="champ plein"><label for="t{{ a.id }}">Titre</label>
+            <input id="t{{ a.id }}" name="titre" value="{{ a.titre }}" required></div>
+          <div class="champ"><label for="c{{ a.id }}">Catégorie</label>
+            <select id="c{{ a.id }}" name="categorie">
+              {% for c in ['Rencontre', 'Réunion', 'Solidarité', 'Formation', 'Réseautage', 'Assemblée', 'Autre'] %}
+              <option {{ 'selected' if a.categorie == c }}>{{ c }}</option>{% endfor %}
+            </select></div>
+          <div class="champ"><label for="d{{ a.id }}">Date</label>
+            <input id="d{{ a.id }}" name="date" type="date" value="{{ a.date }}"></div>
+          <div class="champ"><label for="h{{ a.id }}">Heure</label>
+            <input id="h{{ a.id }}" name="heure" type="time" value="{{ a.heure }}"></div>
+          <div class="champ"><label for="m{{ a.id }}">Format</label>
+            <select id="m{{ a.id }}" name="mode">
+              {% for m in ['Présentiel', 'En ligne', 'Hybride'] %}
+              <option {{ 'selected' if a.mode == m }}>{{ m }}</option>{% endfor %}
+            </select></div>
+          <div class="champ"><label for="l{{ a.id }}">Lieu</label>
+            <input id="l{{ a.id }}" name="lieu" value="{{ a.lieu }}"></div>
+          <div class="champ"><label for="k{{ a.id }}">Participation</label>
+            <input id="k{{ a.id }}" name="cout" type="number" value="{{ a.cout }}"></div>
+          <div class="champ"><label for="o{{ a.id }}">Organisateur</label>
+            <input id="o{{ a.id }}" name="organisateur" value="{{ a.organisateur }}"></div>
+          <div class="champ"><label for="s{{ a.id }}">Statut</label>
+            <select id="s{{ a.id }}" name="statut">
+              {% for s in ['planifiee', 'en cours', 'terminee', 'annulee'] %}
+              <option {{ 'selected' if a.statut == s }}>{{ s }}</option>{% endfor %}
+            </select></div>
+          <div class="champ plein"><label for="desc{{ a.id }}">Description</label>
+            <textarea id="desc{{ a.id }}" name="description" rows="2">{{ a.description }}</textarea></div>
+          <div class="champ plein actions"><button class="bouton" type="submit">Enregistrer</button></div>
+        </form>
+        <form method="post" action="{{ url_for('supprimer_activite', aid=a.id) }}" style="margin-top:10px"
+              onsubmit="return confirm('Supprimer cette activité et ses participations ?')">
+          <button class="bouton danger" type="submit">Supprimer l'activité</button>
+        </form>
+      </details>
+    </div>
+  </div>
+</div>
+{% else %}
+<div class="carte"><p class="muet">Aucune activité enregistrée.</p></div>
+{% endfor %}
+{% endblock %}

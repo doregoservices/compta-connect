@@ -1,0 +1,20 @@
+# Base de données : contient les données personnelles des membres, jamais versionnée
+app/*.db
+app/*.db-journal
+*.sqlite3
+
+# Secrets et configuration locale
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+
+# Système
+.DS_Store

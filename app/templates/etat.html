@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block titre %}État de pointage — {{ pt.libelle }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>État des cotisations — {{ pt.libelle }}</h2>
+  <button class="bouton secondaire" onclick="window.print()">🖨 Imprimer / PDF</button>
+</div>
+
+<div class="carte marge">
+  <p>
+    <strong>{{ cfg.reseau }}</strong> — {{ cfg.slogan }}<br>
+    <span class="muet">Mois : {{ pt.libelle }} · échéance {{ pt.echeance | fdate }} ·
+      édité le {{ now() }}</span>
+  </p>
+  <div class="deux-cols" style="margin-top:10px">
+    <div>Cotisation mensuelle : <strong>{{ cfg.cotisation | fcfa }} FCFA</strong></div>
+    <div>Membres concernés : <strong>{{ pt.totaux.nb_membres }}</strong></div>
+    <div>Total dû : <strong>{{ pt.totaux.du | fcfa }} FCFA</strong></div>
+    <div>Total encaissé : <strong>{{ pt.totaux.verse | fcfa }} FCFA</strong></div>
+    <div>Reste à encaisser : <strong>{{ pt.totaux.manquant | fcfa }} FCFA</strong></div>
+    <div>Taux de recouvrement : <strong>{{ pt.totaux.taux_montant }} %</strong></div>
+  </div>
+</div>
+
+<div class="carte marge">
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Nom</th><th>Téléphone</th><th class="num">Dû</th><th class="num">Versé</th>
+        <th class="num">Reliquat</th><th>Statut</th><th>Nb</th></tr>
+    </thead>
+    <tbody>
+      {% for l in pt.lignes %}
+      <tr>
+        <td class="mono">{{ l.membre.code }}</td>
+        <td>{{ l.membre.nom }}</td>
+        <td class="mono">{{ l.membre.telephone | tel or '—' }}</td>
+        <td class="num">{{ l.du | fcfa }}</td>
+        <td class="num">{{ l.verse | fcfa }}</td>
+        <td class="num">{{ l.reliquat | fcfa if l.reliquat else '—' }}</td>
+        <td>{{ l.statut | lower }}</td>
+        <td class="num">{{ l.nb_paiements }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3"><strong>TOTAL</strong></td>
+        <td class="num"><strong>{{ pt.totaux.du | fcfa }}</strong></td>
+        <td class="num"><strong>{{ pt.totaux.verse | fcfa }}</strong></td>
+        <td class="num"><strong>{{ pt.totaux.manquant | fcfa }}</strong></td>
+        <td colspan="2"><strong>{{ pt.totaux.taux_montant }} %</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="carte">
+  <p class="muet">
+    Arrêté le présent état à <strong>{{ pt.totaux.verse | fcfa }} FCFA</strong> encaissés sur
+    {{ pt.totaux.du | fcfa }} FCFA dus pour {{ pt.libelle }}.
+  </p>
+  <div class="deux-cols" style="margin-top:26px">
+    <div>Le trésorier<br><br><br>_______________________</div>
+    <div>Le président du réseau<br><br><br>_______________________</div>
+  </div>
+</div>
+{% endblock %}

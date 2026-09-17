@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block titre %}Cotisations — {{ pt.libelle }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Pointage des cotisations — {{ pt.libelle }}</h2>
+  <form method="get" class="en-ligne">
+    <div class="champ">
+      <label for="mois">Mois</label>
+      <input type="month" name="mois" id="mois" value="{{ mois }}" onchange="this.form.submit()">
+    </div>
+    <a class="bouton secondaire" href="{{ url_for('export_pointage_xlsx', mois=mois) }}">⬇ Excel</a>
+    <a class="bouton secondaire" href="{{ url_for('export_pointage', mois=mois) }}">⬇ CSV</a>
+    <a class="bouton secondaire" href="{{ url_for('etat', mois=mois) }}" target="_blank">🖨 État imprimable</a>
+    <a class="bouton" href="{{ url_for('export_relances', mois=mois) }}">⬇ Relances WhatsApp</a>
+  </form>
+</div>
+<p class="sous-titre">
+  Échéance : <strong>{{ pt.echeance | fdate }}</strong> ·
+  cotisation {{ cfg.cotisation | fcfa }} FCFA · caisse « {{ cfg.caisse_nom }} »
+</p>
+
+<div class="grille kpi" style="margin-bottom:16px">
+  <div class="carte kpi-carte"><div class="libelle">Recouvré</div>
+    <div class="valeur">{{ pt.totaux.taux_montant }} %</div>
+    <div class="detail">{{ pt.totaux.verse | fcfa }} / {{ pt.totaux.du | fcfa }} FCFA</div></div>
+  <div class="carte kpi-carte"><div class="libelle">À jour</div>
+    <div class="valeur">{{ pt.totaux.nb_payes }}</div>
+    <div class="detail">dont {{ pt.totaux.nb_avances }} avec avance</div></div>
+  <div class="carte kpi-carte"><div class="libelle">Partiels</div>
+    <div class="valeur">{{ pt.totaux.nb_partiels }}</div><div class="detail">acomptes reçus</div></div>
+  <div class="carte kpi-carte"><div class="libelle">Impayés</div>
+    <div class="valeur">{{ pt.totaux.nb_impayes }}</div>
+    <div class="detail">{{ pt.totaux.manquant | fcfa }} FCFA dus</div></div>
+</div>
+
+{% if orphelins %}
+<div class="alerte">
+  <strong>{{ orphelins | length }} paiement(s) en attente de pointage.</strong>
+  Argent reçu mais membre non identifié automatiquement.
+  <form method="post" action="{{ url_for('lancer_rapprochement') }}" style="display:inline">
+    <button class="bouton petit or" type="submit">Relancer le pointage automatique</button>
+  </form>
+  <a class="bouton petit secondaire" href="{{ url_for('page_paiements') }}">Pointer manuellement</a>
+</div>
+{% endif %}
+
+<div class="carte marge">
+  <div class="entete-carte">
+    <h3>État membre par membre</h3>
+    <span class="muet">Le statut se met à jour dès qu'un paiement est enregistré ou importé.</span>
+  </div>
+  <div class="tableau-scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>Code</th><th>Membre</th><th class="num">Dû</th><th class="num">Versé</th>
+        <th class="num">Reliquat</th><th>Statut</th><th>Motif à transmettre</th><th>Paiements</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in pt.lignes %}
+      <tr>
+        <td class="mono">{{ l.membre.code }}</td>
+        <td>
+          {{ l.membre.nom }}
+          {% if not l.membre.actif %}<span class="badge b-ferme">inactif</span>{% endif %}
+        </td>
+        <td class="num">{{ l.du | fcfa }}</td>
+        <td class="num">{{ l.verse | fcfa }}</td>
+        <td class="num">{{ l.reliquat | fcfa if l.reliquat else '—' }}</td>
+        <td><span class="badge b-{{ l.statut | lower }}">{{ l.statut | lower }}</span></td>
+        <td><span class="code-ref">{{ l.reference }}</span></td>
+        <td class="muet">
+          {% if l.nb_paiements %}{{ l.nb_paiements }} versement(s){% else %}—{% endif %}
+          {% if l.avances %}<br><span class="badge b-avance">{{ l.avances | fcfa }} d'avance</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="carte" id="relances">
+  <div class="entete-carte">
+    <h3>Relances à envoyer ({{ relances | length }})</h3>
+    <span class="muet">Chaque message contient le montant, le motif obligatoire et le canal de paiement.</span>
+  </div>
+  {% if relances %}
+    {% for r in relances %}
+    <div style="border:1px solid var(--bord); border-radius:10px; padding:12px 14px; margin-bottom:10px">
+      <div class="entete-carte" style="margin-bottom:6px">
+        <strong>{{ r.nom }}</strong>
+        {% if r.telephone %}
+        <a class="bouton petit" target="_blank"
+           href="https://wa.me/{{ r.telephone }}?text={{ r.message | urlencode }}">Ouvrir dans WhatsApp</a>
+        {% else %}<span class="muet">numéro manquant</span>{% endif %}
+      </div>
+      <pre style="white-space:pre-wrap; font-family:inherit; margin:0; font-size:13.5px">{{ r.message }}</pre>
+    </div>
+    {% endfor %}
+    <a class="bouton secondaire" href="{{ url_for('export_relances', mois=mois) }}">⬇ Télécharger toutes les relances</a>
+  {% else %}
+    <p class="muet">Tout le monde est à jour pour {{ pt.libelle }}. 🎉</p>
+  {% endif %}
+</div>
+{% endblock %}

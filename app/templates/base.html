@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titre %}{{ cfg.reseau }}{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block entete_sup %}{% endblock %}
+</head>
+<body>
+<header class="entete">
+  <h1>{{ cfg.reseau }}</h1>
+  <div class="slogan">{{ cfg.slogan }}</div>
+  <div class="liens">
+    <a href="{{ url_for('payer') }}" target="_blank">🔗 Page publique de paiement</a>
+    <a href="{{ url_for('portail') }}">👤 Espace membre</a>
+    {% if cfg.groupe_whatsapp %}<a href="{{ cfg.groupe_whatsapp }}" target="_blank">WhatsApp</a>{% endif %}
+    {% if cfg.page_facebook %}<a href="{{ cfg.page_facebook }}" target="_blank">Facebook</a>{% endif %}
+    <a href="{{ url_for('page_parametres') }}">Paramètres</a>
+  </div>
+  <nav class="nav">
+    <a href="{{ url_for('dashboard') }}"      class="{{ 'actif' if page == 'dashboard' }}">Tableau de bord</a>
+    <a href="{{ url_for('page_membres') }}"    class="{{ 'actif' if page == 'membres' }}">Membres</a>
+    <a href="{{ url_for('page_cotisations') }}" class="{{ 'actif' if page == 'cotisations' }}">Cotisations</a>
+    <a href="{{ url_for('page_workflow') }}" class="{{ 'actif' if page == 'workflow' }}">Cycle mensuel</a>
+    <a href="{{ url_for('page_paiements') }}"  class="{{ 'actif' if page == 'paiements' }}">Paiements</a>
+    <a href="{{ url_for('page_formations') }}" class="{{ 'actif' if page == 'formations' }}">Formations</a>
+    <a href="{{ url_for('page_offres') }}"     class="{{ 'actif' if page == 'offres' }}">Offres d'emploi</a>
+    <a href="{{ url_for('page_activites') }}"  class="{{ 'actif' if page == 'activites' }}">Activités</a>
+  </nav>
+</header>
+
+<main class="contenu">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for categorie, message in messages %}
+      <div class="flash {{ categorie }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block contenu %}{% endblock %}
+</main>
+</body>
+</html>

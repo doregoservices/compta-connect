@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block titre %}Paramètres — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<h2>Paramètres du réseau</h2>
+<p class="sous-titre">Ces informations apparaissent sur la page publique de paiement et dans les relances.</p>
+
+<form method="post">
+  <div class="carte marge">
+    <h3>Identité du réseau</h3>
+    <div class="grille-form">
+      <div class="champ"><label for="reseau">Nom du réseau</label>
+        <input id="reseau" name="reseau" value="{{ cfg.reseau }}"></div>
+      <div class="champ plein"><label for="slogan">Slogan</label>
+        <input id="slogan" name="slogan" value="{{ cfg.slogan }}"></div>
+      <div class="champ"><label for="tresorier">Trésorier / responsable caisse</label>
+        <input id="tresorier" name="tresorier" value="{{ cfg.tresorier }}"></div>
+      <div class="champ"><label for="tresorier_tel">Téléphone du trésorier</label>
+        <input id="tresorier_tel" name="tresorier_tel" value="{{ cfg.tresorier_tel }}"></div>
+      <div class="champ"><label for="contact_email">Email de contact</label>
+        <input id="contact_email" name="contact_email" value="{{ cfg.contact_email }}"></div>
+      <div class="champ"><label for="groupe_whatsapp">Lien du groupe WhatsApp</label>
+        <input id="groupe_whatsapp" name="groupe_whatsapp" value="{{ cfg.groupe_whatsapp }}"></div>
+      <div class="champ"><label for="page_facebook">Lien de la page Facebook</label>
+        <input id="page_facebook" name="page_facebook" value="{{ cfg.page_facebook }}"></div>
+    </div>
+  </div>
+
+  <div class="carte marge">
+    <h3>Cotisations</h3>
+    <div class="grille-form">
+      <div class="champ"><label for="cotisation">Cotisation mensuelle (FCFA)</label>
+        <input id="cotisation" name="cotisation" type="number" value="{{ cfg.cotisation }}"></div>
+      <div class="champ"><label for="jour_echeance">Jour d'échéance dans le mois</label>
+        <input id="jour_echeance" name="jour_echeance" type="number" min="1" max="28"
+               value="{{ cfg.jour_echeance }}"></div>
+      <div class="champ"><label for="caisse_nom">Nom de la caisse</label>
+        <input id="caisse_nom" name="caisse_nom" value="{{ cfg.caisse_nom }}"></div>
+      <div class="champ"><label for="caisse_telephone">Numéro de la caisse</label>
+        <input id="caisse_telephone" name="caisse_telephone" value="{{ cfg.caisse_telephone }}"></div>
+    </div>
+  </div>
+
+  <div class="carte marge">
+    <h3>Canaux de paiement acceptés</h3>
+    <p class="muet">Seuls les canaux cochés <em>et</em> renseignés apparaissent sur la page publique de paiement.</p>
+    <div class="grille-form">
+      <div class="champ check"><input type="checkbox" id="canal_wave" name="canal_wave" value="1"
+        {{ 'checked' if cfg.canal_wave }}><label for="canal_wave">Accepter Wave</label></div>
+      <div class="champ"><label for="wave_numero">Numéro Wave</label>
+        <input id="wave_numero" name="wave_numero" value="{{ cfg.wave_numero }}"></div>
+      <div class="champ"><label for="wave_nom">Titulaire du compte</label>
+        <input id="wave_nom" name="wave_nom" value="{{ cfg.wave_nom }}"></div>
+
+      <div class="champ check"><input type="checkbox" id="canal_om" name="canal_om" value="1"
+        {{ 'checked' if cfg.canal_om }}><label for="canal_om">Accepter Orange Money</label></div>
+      <div class="champ"><label for="om_numero">Numéro Orange Money</label>
+        <input id="om_numero" name="om_numero" value="{{ cfg.om_numero }}"></div>
+      <div class="champ"><label for="om_nom">Titulaire du compte</label>
+        <input id="om_nom" name="om_nom" value="{{ cfg.om_nom }}"></div>
+
+      <div class="champ check"><input type="checkbox" id="canal_mtn" name="canal_mtn" value="1"
+        {{ 'checked' if cfg.canal_mtn }}><label for="canal_mtn">Accepter MTN MoMo</label></div>
+      <div class="champ"><label for="mtn_numero">Numéro MTN MoMo</label>
+        <input id="mtn_numero" name="mtn_numero" value="{{ cfg.mtn_numero }}"></div>
+      <div class="champ"><label for="mtn_nom">Titulaire du compte</label>
+        <input id="mtn_nom" name="mtn_nom" value="{{ cfg.mtn_nom }}"></div>
+
+      <div class="champ check"><input type="checkbox" id="canal_banque" name="canal_banque" value="1"
+        {{ 'checked' if cfg.canal_banque }}><label for="canal_banque">Accepter le virement bancaire</label></div>
+      <div class="champ"><label for="banque_nom">Banque / titulaire</label>
+        <input id="banque_nom" name="banque_nom" value="{{ cfg.banque_nom }}"></div>
+      <div class="champ"><label for="banque_iban">IBAN / RIB</label>
+        <input id="banque_iban" name="banque_iban" value="{{ cfg.banque_iban }}"></div>
+
+      <div class="champ plein"><label for="instructions">Consignes supplémentaires aux membres</label>
+        <textarea id="instructions" name="instructions" rows="3">{{ cfg.instructions }}</textarea></div>
+    </div>
+  </div>
+
+  <div class="carte marge">
+    <h3>Relances automatiques par email <span class="badge b-neutre">facultatif</span></h3>
+    <p class="muet">
+      Les relances partent par WhatsApp par défaut. Si vous renseignez un relais SMTP,
+      le bouton « Générer / envoyer » du cycle mensuel envoie aussi un email à chaque membre
+      en retard dont l'adresse est renseignée. Utilisez un mot de passe d'application,
+      jamais votre mot de passe habituel.
+    </p>
+    <div class="grille-form">
+      <div class="champ"><label for="smtp_hote">Serveur SMTP</label>
+        <input id="smtp_hote" name="smtp_hote" value="{{ cfg.smtp_hote }}" placeholder="smtp.gmail.com"></div>
+      <div class="champ"><label for="smtp_port">Port</label>
+        <input id="smtp_port" name="smtp_port" value="{{ cfg.smtp_port }}" placeholder="587"></div>
+      <div class="champ"><label for="smtp_utilisateur">Identifiant</label>
+        <input id="smtp_utilisateur" name="smtp_utilisateur" value="{{ cfg.smtp_utilisateur }}"></div>
+      <div class="champ"><label for="smtp_motdepasse">Mot de passe d'application</label>
+        <input id="smtp_motdepasse" name="smtp_motdepasse" type="password" value="{{ cfg.smtp_motdepasse }}"></div>
+      <div class="champ"><label for="smtp_expediteur">Adresse d'expédition</label>
+        <input id="smtp_expediteur" name="smtp_expediteur" value="{{ cfg.smtp_expediteur }}"
+               placeholder="cotisations@comptaconnect.ci"></div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="bouton" type="submit">Enregistrer les paramètres</button>
+  </div>
+</form>
+
+<div class="carte marge" style="margin-top:16px">
+  <h3>Page publique de paiement</h3>
+  <p class="muet">À épingler dans le groupe WhatsApp et sur la page Facebook. Chaque membre ajoute son code.</p>
+  <div class="mono" style="background:var(--fond); padding:10px; border-radius:8px; word-break:break-all">
+    {{ url_for('payer', _external=True) }}
+  </div>
+  <p style="margin-top:10px"><a class="bouton secondaire" href="{{ url_for('payer') }}" target="_blank">Ouvrir la page</a></p>
+</div>
+
+<div class="carte">
+  <h3>Zone sensible</h3>
+  <p class="muet">Réinitialise la base et recharge le jeu de démonstration. Toutes vos données sont perdues :
+     exportez d'abord vos membres et vos paiements.</p>
+  <form method="post" onsubmit="return confirm('Réinitialiser TOUTES les données ?')">
+    <input type="hidden" name="action" value="reinitialiser">
+    <button class="bouton danger" type="submit">Réinitialiser la base</button>
+  </form>
+</div>
+{% endblock %}

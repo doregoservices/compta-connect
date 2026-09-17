@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block titre %}Importer un relevé — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<h2>Importer un relevé de mobile money</h2>
+<p class="sous-titre">
+  Le pointage automatique reconnaît chaque membre grâce au motif du transfert, au numéro
+  de téléphone ou au nom. Plus le motif contient la référence <span class="code-ref">CCaamm###</span>,
+  plus le pointage est fiable.
+</p>
+
+<div class="grille col2">
+  <div class="carte">
+    <h3>1. Récupérer le relevé</h3>
+    <ul>
+      <li><strong>Wave</strong> : application → Historique → exporter / copier les transactions.</li>
+      <li><strong>Orange Money</strong> : application → Historique → relevé des opérations.</li>
+      <li>Vous pouvez aussi copier-coller directement depuis Excel ou Google Sheets.</li>
+    </ul>
+    <h3 style="margin-top:14px">2. Format attendu</h3>
+    <p class="muet">Une ligne d'en-tête puis une ligne par transaction :</p>
+    <pre class="mono" style="background:var(--fond); padding:10px; border-radius:8px; overflow-x:auto">date;montant;canal;expediteur;telephone;libelle
+03/09/2026;5000;Wave;KOUASSI Aya;0708112233;CC2609001
+05/09/2026;5000;Orange Money;YAO SERGE;0544556677;CC2609002</pre>
+    <p class="muet">
+      Les noms de colonnes sont reconnus automatiquement (date, montant, opérateur/canal,
+      émetteur/expéditeur, numéro/téléphone, motif/libellé/référence).
+      Les colonnes inutiles sont ignorées.
+    </p>
+  </div>
+
+  <div class="carte">
+    <h3>Importer maintenant</h3>
+    <form method="post" enctype="multipart/form-data">
+      <div class="champ plein"><label for="fichier">Fichier CSV (facultatif)</label>
+        <input id="fichier" name="fichier" type="file" accept=".csv,.txt,.tsv"></div>
+      <div class="champ plein" style="margin-top:10px">
+        <label for="texte">…ou collez les lignes ici</label>
+        <textarea id="texte" name="texte" rows="8"
+          placeholder="date;montant;canal;expediteur;telephone;libelle"></textarea>
+      </div>
+      <div class="en-ligne" style="margin-top:10px">
+        <div class="champ"><label for="mois">Mois de cotisation par défaut</label>
+          <input id="mois" name="mois" type="month" value="{{ now()[:7] }}"></div>
+        <div class="champ"><label for="sep">Séparateur</label>
+          <select id="sep" name="sep">
+            <option value=";">Point-virgule ( ; )</option>
+            <option value=",">Virgule ( , )</option>
+            <option value="tab">Tabulation (Excel)</option>
+          </select></div>
+        <button class="bouton" type="submit">Importer et pointer</button>
+      </div>
+    </form>
+    <div class="separateur"></div>
+    <p class="muet">
+      « Mois par défaut » sert uniquement aux paiements qui ne contiennent aucune référence :
+      ils sont affectés à ce mois si le montant correspond à un seul membre.
+    </p>
+  </div>
+</div>
+{% endblock %}

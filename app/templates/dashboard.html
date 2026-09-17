@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block titre %}Tableau de bord — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Tableau de bord — {{ pt.libelle }}</h2>
+  <form method="get" class="en-ligne">
+    <div class="champ">
+      <label for="mois">Mois de cotisation</label>
+      <select name="mois" id="mois" onchange="this.form.submit()">
+        {% for m in mois_dispo %}
+          <option value="{{ m }}" {{ 'selected' if m == mois }}>{{ m | fdate }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </form>
+</div>
+
+{% if orphelins %}
+<div class="alerte">
+  <strong>{{ orphelins | length }} paiement(s) non rapproché(s).</strong>
+  Le pointage automatique n'a pas pu les attribuer à un membre (motif absent ou numéro inconnu).
+  <form method="post" action="{{ url_for('lancer_rapprochement') }}" style="display:inline">
+    <button class="bouton petit or" type="submit">Relancer le pointage automatique</button>
+  </form>
+  <a class="bouton petit secondaire" href="{{ url_for('page_paiements') }}">Pointer manuellement</a>
+</div>
+{% endif %}
+
+<div class="grille kpi">
+  <div class="carte kpi-carte">
+    <div class="libelle">Taux de recouvrement</div>
+    <div class="valeur">{{ pt.totaux.taux_montant }} %</div>
+    <div class="barre" style="margin-top:6px"><span style="width:{{ pt.totaux.taux_montant }}%"></span></div>
+    <div class="detail">{{ pt.totaux.verse | fcfa }} / {{ pt.totaux.du | fcfa }} FCFA</div>
+  </div>
+  <div class="carte kpi-carte">
+    <div class="libelle">Membres à jour</div>
+    <div class="valeur">{{ pt.totaux.nb_payes }}<span style="font-size:16px;color:var(--gris)"> / {{ pt.totaux.nb_membres }}</span></div>
+    <div class="detail">{{ pt.totaux.nb_partiels }} partiel(s) · {{ pt.totaux.nb_impayes }} impayé(s)</div>
+  </div>
+  <div class="carte kpi-carte">
+    <div class="libelle">Reste à encaisser</div>
+    <div class="valeur">{{ pt.totaux.manquant | fcfa }}</div>
+    <div class="detail">FCFA · échéance {{ pt.echeance | fdate }}</div>
+  </div>
+  <div class="carte kpi-carte">
+    <div class="libelle">Membres actifs</div>
+    <div class="valeur">{{ stats.membres_actifs }}</div>
+    <div class="detail">cotisation {{ cfg.cotisation | fcfa }} FCFA / mois</div>
+  </div>
+  <div class="carte kpi-carte">
+    <div class="libelle">Vie du réseau</div>
+    <div class="valeur">{{ stats.formations }} · {{ stats.offres }}</div>
+    <div class="detail">formations · offres d'emploi ouvertes</div>
+  </div>
+</div>
+
+{% if en_retard and pt.totaux.nb_impayes %}
+<div class="alerte" style="margin-top:16px">
+  L'échéance du {{ pt.echeance | fdate }} est dépassée : <strong>{{ pt.totaux.nb_impayes }} membre(s)</strong>
+  n'ont pas réglé leur cotisation de {{ pt.libelle }}.
+  <a class="bouton petit" href="{{ url_for('page_cotisations') }}#relances">Préparer les relances WhatsApp</a>
+</div>
+{% endif %}
+
+<div class="grille col2" style="margin-top:16px">
+  <div class="carte">
+    <div class="entete-carte">
+      <h3>Pointage du mois — aperçu</h3>
+      <a href="{{ url_for('page_cotisations', mois=mois) }}">Voir le détail →</a>
+    </div>
+    <div class="tableau-scroll">
+    <table>
+      <thead><tr><th>Code</th><th>Membre</th><th class="num">Versé</th><th class="centre">Statut</th></tr></thead>
+      <tbody>
+        {% for l in pt.lignes[:8] %}
+        <tr>
+          <td class="mono">{{ l.membre.code }}</td>
+          <td>{{ l.membre.nom }}</td>
+          <td class="num">{{ l.verse | fcfa }} / {{ l.du | fcfa }}</td>
+          <td><span class="badge b-{{ l.statut | lower }}">{{ l.statut | lower }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="carte">
+    <div class="entete-carte">
+      <h3>Historique du recouvrement</h3>
+      <a href="{{ url_for('export_pointage', mois=mois) }}">Exporter Excel / CSV</a>
+    </div>
+    {% if historique %}
+    <table>
+      <thead><tr><th>Mois</th><th class="num">Encaissé</th><th class="num">Taux</th><th class="num">Impayés</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td><a href="{{ url_for('dashboard', mois=h.mois) }}">{{ h.libelle }}</a></td>
+          <td class="num">{{ h.verse | fcfa }}</td>
+          <td class="num">{{ h.taux_montant }} %</td>
+          <td class="num">{{ h.nb_impayes }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muet">Aucun paiement enregistré pour l'instant.</p>{% endif %}
+  </div>
+</div>
+
+<div class="grille col2" style="margin-top:16px">
+  <div class="carte">
+    <div class="entete-carte">
+      <h3>Prochaines formations</h3>
+      <a href="{{ url_for('page_formations') }}">Gérer →</a>
+    </div>
+    {% if formations %}
+    <ul class="liste-simple">
+      {% for f in formations %}
+      <li>
+        <strong>{{ f.titre }}</strong><br>
+        <span class="muet">{{ f.date | fdate }} à {{ f.heure or '—' }} · {{ f.mode }} · {{ f.lieu or '—' }}
+          {% if f.cout %}· {{ f.cout | fcfa }} FCFA{% else %}· gratuit{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muet">Aucune formation ouverte.</p>{% endif %}
+  </div>
+
+  <div class="carte">
+    <div class="entete-carte">
+      <h3>Offres d'emploi en cours</h3>
+      <a href="{{ url_for('page_offres') }}">Gérer →</a>
+    </div>
+    {% if offres %}
+    <ul class="liste-simple">
+      {% for o in offres %}
+      <li>
+        <strong>{{ o.titre }}</strong> — {{ o.entreprise or '—' }}<br>
+        <span class="muet">{{ o.ville or '—' }} · {{ o.contrat }}
+          {% if o.date_limite %}· avant le {{ o.date_limite | fdate }}{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="muet">Aucune offre ouverte.</p>{% endif %}
+  </div>
+</div>
+
+{% if activites %}
+<div class="carte marge" style="margin-top:16px">
+  <div class="entete-carte">
+    <h3>Activités à venir</h3>
+    <a href="{{ url_for('page_activites') }}">Gérer →</a>
+  </div>
+  <ul class="liste-simple">
+    {% for a in activites %}
+    <li><strong>{{ a.titre }}</strong> — <span class="badge b-neutre">{{ a.categorie }}</span><br>
+      <span class="muet">{{ a.date | fdate }} à {{ a.heure or '—' }} · {{ a.mode }} · {{ a.lieu or '—' }}</span></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

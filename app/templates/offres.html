@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block titre %}Offres d'emploi — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<h2>Offres d'emploi du réseau</h2>
+<p class="sous-titre">Postes partagés entre membres et candidatures reçues, suivies jusqu'au recrutement.</p>
+
+<div class="carte marge">
+  <h3>Publier une offre</h3>
+  <form method="post" action="{{ url_for('nouvelle_offre') }}" class="grille-form">
+    <div class="champ plein"><label for="titre">Intitulé du poste *</label>
+      <input id="titre" name="titre" required placeholder="Comptable unique (PME)"></div>
+    <div class="champ"><label for="entreprise">Entreprise</label><input id="entreprise" name="entreprise"></div>
+    <div class="champ"><label for="ville">Ville</label><input id="ville" name="ville"></div>
+    <div class="champ"><label for="contrat">Type de contrat</label>
+      <select id="contrat" name="contrat">
+        {% for c in ['CDI', 'CDD', 'Stage', 'Mission', 'Freelance', 'Alternance'] %}<option>{{ c }}</option>{% endfor %}
+      </select></div>
+    <div class="champ"><label for="remuneration">Rémunération</label>
+      <input id="remuneration" name="remuneration" placeholder="350 000 - 450 000 FCFA"></div>
+    <div class="champ"><label for="date_publication">Date de publication</label>
+      <input id="date_publication" name="date_publication" type="date" value="{{ aujourdhui() }}"></div>
+    <div class="champ"><label for="date_limite">Date limite de candidature</label>
+      <input id="date_limite" name="date_limite" type="date"></div>
+    <div class="champ"><label for="contact">Personne à contacter</label><input id="contact" name="contact"></div>
+    <div class="champ"><label for="email">Email / téléphone de contact</label><input id="email" name="email"></div>
+    <div class="champ plein"><label for="description">Missions</label>
+      <textarea id="description" name="description" rows="3"></textarea></div>
+    <div class="champ plein"><label for="profil">Profil recherché</label>
+      <textarea id="profil" name="profil" rows="3"></textarea></div>
+    <div class="champ plein actions"><button class="bouton" type="submit">Publier l'offre</button></div>
+  </form>
+</div>
+
+<div class="carte">
+  <h3>{{ offres | length }} offre(s)</h3>
+  <div class="tableau-scroll">
+  <table>
+    <thead>
+      <tr><th>Poste</th><th>Entreprise</th><th>Ville</th><th>Contrat</th><th>Rémunération</th>
+        <th>Limite</th><th class="num">Candidats</th><th>Statut</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for o in offres %}
+      <tr>
+        <td><a href="{{ url_for('detail_offre', oid=o.id) }}"><strong>{{ o.titre }}</strong></a></td>
+        <td>{{ o.entreprise or '—' }}</td>
+        <td>{{ o.ville or '—' }}</td>
+        <td><span class="badge b-neutre">{{ o.contrat }}</span></td>
+        <td>{{ o.remuneration or '—' }}</td>
+        <td>{{ o.date_limite | fdate }}</td>
+        <td class="num">{{ o.nb_candidats }}</td>
+        <td><span class="badge {{ 'b-ouvert' if o.statut == 'ouverte' else 'b-ferme' }}">{{ o.statut }}</span></td>
+        <td class="actions">
+          <a class="bouton petit secondaire" href="{{ url_for('detail_offre', oid=o.id) }}">Gérer</a>
+          <form method="post" action="{{ url_for('supprimer_offre', oid=o.id) }}"
+                onsubmit="return confirm('Supprimer cette offre et ses candidatures ?')">
+            <button class="bouton petit danger" type="submit">✕</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="9" class="muet">Aucune offre publiée.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}

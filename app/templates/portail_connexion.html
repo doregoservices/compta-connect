@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block titre %}Espace membre — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div style="max-width:520px; margin:24px auto">
+  <div class="carte">
+    <h2>Espace membre</h2>
+    <p class="muet">
+      Consultez votre situation de cotisation, inscrivez-vous aux formations,
+      postulez aux offres d'emploi et participez aux activités du réseau.
+    </p>
+    <form method="post" class="grille-form" style="margin-top:14px">
+      <div class="champ plein">
+        <label for="code">Votre code membre (3 chiffres)</label>
+        <input id="code" name="code" inputmode="numeric" maxlength="3" required autofocus
+               placeholder="042">
+      </div>
+      <div class="champ plein">
+        <label for="fin_tel">Les 4 derniers chiffres de votre numéro de téléphone</label>
+        <input id="fin_tel" name="fin_tel" inputmode="numeric" maxlength="4" required
+               placeholder="2233">
+      </div>
+      <div class="champ plein actions">
+        <button class="bouton" type="submit">Se connecter</button>
+      </div>
+    </form>
+    <div class="separateur"></div>
+    <p class="muet">
+      Votre code vous a été communiqué par le trésorier du réseau. Il figure aussi dans le
+      motif de paiement qui vous est demandé chaque mois
+      (ex. <span class="code-ref">CC2609042</span> pour le membre 042).
+    </p>
+    <p class="muet">
+      Pas encore de code ? <a href="{{ url_for('payer') }}">Vérifiez d'abord votre situation ici</a>,
+      puis écrivez au trésorier
+      {% if cfg.tresorier_tel %}au <span class="mono">{{ cfg.tresorier_tel | tel }}</span>{% endif %}.
+    </p>
+  </div>
+</div>
+{% endblock %}

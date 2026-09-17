@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block titre %}Mon espace — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Bonjour {{ moi.nom.split(' ')[0] }} 👋</h2>
+  <div class="en-ligne">
+    <span class="muet">code membre <span class="code-ref">{{ moi.code }}</span></span>
+    <form method="post" action="{{ url_for('portail_deconnexion') }}">
+      <button class="bouton secondaire petit" type="submit">Se déconnecter</button>
+    </form>
+  </div>
+</div>
+
+<div class="grille col2">
+  <div class="carte">
+    <h3>Ma cotisation — {{ ST.libelle_mois(mois) }}</h3>
+    <div class="deux-cols">
+      <div><span class="muet">Montant dû</span><br><strong>{{ ligne.du | fcfa }} FCFA</strong></div>
+      <div><span class="muet">Déjà réglé</span><br><strong>{{ ligne.verse | fcfa }} FCFA</strong></div>
+    </div>
+    <div style="margin:12px 0">
+      {% if ligne.statut == 'PAYE' %}
+        <span class="badge b-paye">à jour</span>
+        <p class="muet">Merci, votre cotisation est bien enregistrée. 🎉</p>
+      {% elif ligne.statut == 'AVANCE' %}
+        <span class="badge b-avance">avance</span>
+        <p class="muet">{{ ligne.avances | fcfa }} FCFA d'avance sur les mois suivants.</p>
+      {% elif ligne.statut == 'PARTIEL' %}
+        <span class="badge b-partiel">partiel</span>
+        <p>Il reste <strong>{{ ligne.reliquat | fcfa }} FCFA</strong> à régler.</p>
+      {% elif ligne.statut == 'EXONERE' %}
+        <span class="badge b-exonere">exonéré</span>
+      {% else %}
+        <span class="badge b-impaye">non réglée</span>
+      {% endif %}
+    </div>
+
+    <div class="ref-encadre">
+      <div class="label">Motif à saisir lors du transfert</div>
+      <div class="valeur">{{ ligne.reference }}</div>
+      <div class="label" style="margin-top:6px">Sans ce motif, votre paiement n'est pas crédité automatiquement</div>
+    </div>
+    <div class="qr">{{ qr(ligne.reference, 180) | safe }}</div>
+
+    <div class="separateur"></div>
+    <h3>Où envoyer</h3>
+    {% for c in canaux %}
+    <div class="canal">
+      <div style="flex:1">
+        <div class="nom">{{ c.nom }}</div>
+        <div class="numero">{{ c.numero }}</div>
+        <div class="detail">{{ c.titulaire }}</div>
+      </div>
+      {% if c.nom != 'Virement bancaire' %}
+      <div style="padding:6px; background:#fff; border-radius:8px">{{ qr(c.numero, 84) | safe }}</div>
+      {% endif %}
+    </div>
+    {% else %}<p class="muet">Aucun canal configuré pour l'instant.</p>{% endfor %}
+  </div>
+
+  <div class="carte">
+    <h3>Mon historique de cotisation</h3>
+    {% if historique %}
+    <table>
+      <thead><tr><th>Mois</th><th class="num">Dû</th><th class="num">Versé</th><th>Statut</th></tr></thead>
+      <tbody>
+        {% for h in historique %}
+        <tr>
+          <td>{{ h.libelle }}</td>
+          <td class="num">{{ h.du | fcfa }}</td>
+          <td class="num">{{ h.verse | fcfa }}</td>
+          <td><span class="badge b-{{ h.statut | lower }}">{{ h.statut | lower }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muet">Aucun paiement enregistré pour l'instant.</p>{% endif %}
+    <p class="muet" style="margin-top:10px">
+      Une erreur sur votre historique ? Écrivez au trésorier
+      {% if cfg.tresorier_tel %}au <span class="mono">{{ cfg.tresorier_tel | tel }}</span>{% endif %}.
+    </p>
+  </div>
+</div>
+
+<div class="grille col2" style="margin-top:16px">
+  <div class="carte">
+    <h3>Formations</h3>
+    {% if mes_formations %}
+    <h3 class="muet" style="font-size:13px">Mes inscriptions</h3>
+    <ul class="liste-simple">
+      {% for i in mes_formations %}
+      <li>
+        <strong>{{ i.titre }}</strong> — {{ i.date_formation | fdate }} à {{ i.heure or '—' }}
+        <span class="badge {{ 'b-paye' if i.present else 'b-neutre' }}">{{ 'présent' if i.present else 'inscrit' }}</span>
+        <form method="post" action="{{ url_for('portail_annuler_inscription', iid=i.id) }}" style="display:inline"
+              onsubmit="return confirm('Annuler cette inscription ?')">
+          <button class="bouton petit danger" type="submit">✕</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="separateur"></div>
+    {% endif %}
+    {% if formations_ouvertes %}
+    <h3 class="muet" style="font-size:13px">Ouvertes à l'inscription</h3>
+    {% for f in formations_ouvertes %}
+    <div style="border:1px solid var(--bord); border-radius:10px; padding:11px 13px; margin-bottom:8px">
+      <strong>{{ f.titre }}</strong><br>
+      <span class="muet">{{ f.date | fdate }} à {{ f.heure or '—' }} · {{ f.mode }}
+        · {% if f.cout %}{{ f.cout | fcfa }} FCFA{% else %}gratuit{% endif %}</span>
+      <form method="post" action="{{ url_for('portail_inscrire_formation', fid=f.id) }}" style="margin-top:6px">
+        <button class="bouton petit" type="submit">Je m'inscris</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% elif not mes_formations %}<p class="muet">Aucune formation ouverte pour l'instant.</p>{% endif %}
+  </div>
+
+  <div class="carte">
+    <h3>Offres d'emploi</h3>
+    {% if mes_candidatures %}
+    <h3 class="muet" style="font-size:13px">Mes candidatures</h3>
+    <ul class="liste-simple">
+      {% for c in mes_candidatures %}
+      <li><strong>{{ c.titre }}</strong> — {{ c.entreprise or '—' }}
+        <span class="badge b-{{ c.statut }}">{{ c.statut }}</span></li>
+      {% endfor %}
+    </ul>
+    <div class="separateur"></div>
+    {% endif %}
+    {% if offres_ouvertes %}
+    {% for o in offres_ouvertes %}
+    <div style="border:1px solid var(--bord); border-radius:10px; padding:11px 13px; margin-bottom:8px">
+      <strong>{{ o.titre }}</strong> — {{ o.entreprise or '—' }}<br>
+      <span class="muet">{{ o.ville or '—' }} · {{ o.contrat }}
+        {% if o.date_limite %}· avant le {{ o.date_limite | fdate }}{% endif %}</span>
+      <details style="margin-top:6px">
+        <summary class="muet" style="cursor:pointer">Postuler</summary>
+        <form method="post" action="{{ url_for('portail_candidater', oid=o.id) }}" class="grille-form" style="margin-top:8px">
+          <div class="champ plein"><label for="email{{ o.id }}">Mon email</label>
+            <input id="email{{ o.id }}" name="email" value="{{ moi.email or '' }}"></div>
+          <div class="champ plein"><label for="msg{{ o.id }}">Motivation</label>
+            <textarea id="msg{{ o.id }}" name="message" rows="2"></textarea></div>
+          <div class="champ plein actions"><button class="bouton petit" type="submit">Envoyer ma candidature</button></div>
+        </form>
+      </details>
+    </div>
+    {% endfor %}
+    {% elif not mes_candidatures %}<p class="muet">Aucune offre ouverte pour l'instant.</p>{% endif %}
+  </div>
+</div>
+
+<div class="carte" style="margin-top:16px">
+  <h3>Activités du réseau</h3>
+  {% if mes_activites %}
+  <ul class="liste-simple">
+    {% for a in mes_activites %}
+    <li><strong>{{ a.titre }}</strong> — {{ a.date | fdate }} à {{ a.heure or '—' }}
+      <span class="badge b-neutre">{{ a.categorie }}</span></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if activites_ouvertes %}
+  <div class="separateur"></div>
+  {% for a in activites_ouvertes %}
+  <div style="border:1px solid var(--bord); border-radius:10px; padding:11px 13px; margin-bottom:8px">
+    <strong>{{ a.titre }}</strong> — {{ a.date | fdate }} à {{ a.heure or '—' }} · {{ a.mode }}<br>
+    <span class="muet">{{ a.lieu or '—' }}{% if a.cout %} · {{ a.cout | fcfa }} FCFA{% endif %}</span>
+    <form method="post" action="{{ url_for('portail_participer', aid=a.id) }}" style="margin-top:6px">
+      <button class="bouton petit" type="submit">Je participe</button>
+    </form>
+  </div>
+  {% endfor %}
+  {% elif not mes_activites %}<p class="muet">Aucune activité planifiée.</p>{% endif %}
+</div>
+{% endblock %}

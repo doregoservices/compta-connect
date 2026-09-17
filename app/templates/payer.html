@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cotisation {{ cfg.reseau }} — {{ libelle }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="public">
+  <div class="logo">
+    <h1>{{ cfg.reseau }}</h1>
+    <p>{{ cfg.slogan }}</p>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for categorie, message in messages %}
+      <div class="flash {{ categorie }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="carte marge">
+    <h3>Vérifier ma situation</h3>
+    <form method="post" action="{{ url_for('payer_recherche') }}" class="en-ligne">
+      <input type="hidden" name="mois" value="{{ mois }}">
+      <div class="champ" style="flex:1">
+        <label for="q">Mon code membre (3 chiffres) ou mon nom</label>
+        <input id="q" name="q" value="{{ moi.code if moi else '' }}" placeholder="042" autofocus>
+      </div>
+      <button class="bouton" type="submit">Vérifier</button>
+    </form>
+  </div>
+
+  {% if moi %}
+  <div class="carte marge">
+    <h3>Bonjour {{ moi.nom.split(' ')[0] }} 👋</h3>
+    <div class="deux-cols">
+      <div><span class="muet">Cotisation {{ libelle }}</span><br>
+        <strong>{{ ligne.du | fcfa }} FCFA</strong></div>
+      <div><span class="muet">Déjà réglé</span><br><strong>{{ ligne.verse | fcfa }} FCFA</strong></div>
+    </div>
+    <div style="margin-top:10px">
+      {% if ligne.statut == 'PAYE' %}
+        <span class="badge b-paye">à jour</span>
+        <p class="muet">Merci, votre cotisation de {{ libelle }} est bien enregistrée. 🎉</p>
+      {% elif ligne.statut == 'AVANCE' %}
+        <span class="badge b-avance">avance</span>
+        <p class="muet">Vous avez versé {{ ligne.verse | fcfa }} FCFA, soit {{ ligne.avances | fcfa }} FCFA
+          d'avance sur les mois suivants.</p>
+      {% elif ligne.statut == 'PARTIEL' %}
+        <span class="badge b-partiel">paiement partiel</span>
+        <p>Il reste <strong>{{ ligne.reliquat | fcfa }} FCFA</strong> à régler pour {{ libelle }}.</p>
+      {% elif ligne.statut == 'EXONERE' %}
+        <span class="badge b-exonere">exonéré</span>
+        <p class="muet">Vous êtes dispensé de cotisation ce mois-ci.</p>
+      {% else %}
+        <span class="badge b-impaye">non réglée</span>
+        <p>Échéance : <strong>{{ echeance | fdate }}</strong>.</p>
+      {% endif %}
+    </div>
+
+    <div class="ref-encadre">
+      <div class="label">Motif à saisir lors du transfert</div>
+      <div class="valeur">{{ ligne.reference }}</div>
+      <div class="label" style="margin-top:6px">C'est ce code qui permet de vous créditer automatiquement</div>
+    </div>
+
+    <div class="qr">
+      {{ qr(ligne.reference, 200) | safe }}
+      <div class="muet" style="margin-top:6px">À scanner ou à recopier dans le motif du transfert</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="carte marge">
+    <h3>Comment régler ma cotisation de {{ libelle }}</h3>
+    <div class="etape"><div class="n">1</div>
+      <div>Ouvrez votre application de mobile money et choisissez <strong>Transfert d'argent</strong>.</div></div>
+    <div class="etape"><div class="n">2</div>
+      <div>Envoyez <strong>{{ (ligne.reliquat if moi and ligne.statut == 'PARTIEL' else cfg.cotisation) | fcfa }} FCFA</strong>
+        vers l'un des numéros ci-dessous.</div></div>
+    <div class="etape"><div class="n">3</div>
+      <div>Dans le champ <strong>motif / référence</strong>, saisissez exactement
+        <span class="code-ref">{{ ligne.reference if moi else 'CCaamm + votre code' }}</span>.</div></div>
+    <div class="etape"><div class="n">4</div>
+      <div>Envoyez la capture du reçu dans le groupe : le trésorier valide et votre ligne passe en
+        <span class="badge b-paye">à jour</span> automatiquement.</div></div>
+
+    <div class="separateur"></div>
+    {% for c in canaux %}
+    <div class="canal">
+      <div style="flex:1">
+        <div class="nom">{{ c.nom }}</div>
+        <div class="numero">{{ c.numero }}</div>
+        <div class="detail">{{ c.titulaire }}{% if c.detail %} · {{ c.detail }}{% endif %}</div>
+      </div>
+      {% if c.nom != 'Virement bancaire' %}
+      <div class="qr" style="padding:6px">{{ qr(c.numero, 96) | safe }}</div>
+      {% endif %}
+    </div>
+    {% else %}
+    <p class="muet">Aucun canal de paiement n'est encore configuré : le trésorier doit renseigner ses numéros
+      dans les paramètres.</p>
+    {% endfor %}
+
+    {% if cfg.instructions %}
+    <div class="separateur"></div>
+    <p>{{ cfg.instructions }}</p>
+    {% endif %}
+  </div>
+
+  <div class="carte marge">
+    <h3>Mon espace membre</h3>
+    <p class="muet">Consultez votre historique, inscrivez-vous aux formations et postulez aux offres d'emploi.</p>
+    <p><a class="bouton secondaire" href="{{ url_for('portail') }}">Se connecter à mon espace</a></p>
+  </div>
+
+  <div class="carte">
+    <h3>Une question ?</h3>
+    <p class="muet">
+      {% if cfg.tresorier %}Trésorier : <strong>{{ cfg.tresorier }}</strong>
+        {% if cfg.tresorier_tel %}— <span class="mono">{{ cfg.tresorier_tel | tel }}</span>{% endif %}<br>{% endif %}
+      {% if cfg.contact_email %}Email : {{ cfg.contact_email }}<br>{% endif %}
+      {% if cfg.groupe_whatsapp %}<a href="{{ cfg.groupe_whatsapp }}" target="_blank">Écrire dans le groupe WhatsApp</a>{% endif %}
+    </p>
+  </div>
+
+  <p class="muet" style="text-align:center; margin-top:18px">
+    {{ cfg.reseau }} · page générée automatiquement · {{ now() }}
+  </p>
+</div>
+</body>
+</html>

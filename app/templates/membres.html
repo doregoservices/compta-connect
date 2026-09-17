@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block titre %}Membres — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Membres du réseau</h2>
+  <a class="bouton secondaire" href="{{ url_for('export_membres') }}">⬇ Exporter la liste</a>
+</div>
+
+<div class="carte marge">
+  <h3>Ajouter un membre</h3>
+  <p class="muet">Le code à 3 chiffres est généré automatiquement : c'est lui qui figure dans le motif de paiement.</p>
+  <form method="post" action="{{ url_for('nouveau_membre') }}" class="grille-form">
+    <div class="champ"><label for="nom">Nom et prénoms *</label><input id="nom" name="nom" required></div>
+    <div class="champ"><label for="telephone">Téléphone (WhatsApp)</label>
+      <input id="telephone" name="telephone" placeholder="07 08 11 22 33"></div>
+    <div class="champ"><label for="email">Email</label><input id="email" name="email"></div>
+    <div class="champ"><label for="ville">Ville</label><input id="ville" name="ville"></div>
+    <div class="champ"><label for="specialite">Spécialité</label><input id="specialite" name="specialite"></div>
+    <div class="champ"><label for="cotisation">Cotisation mensuelle (FCFA)</label>
+      <input id="cotisation" name="cotisation" type="number" value="{{ cfg.cotisation }}"></div>
+    <div class="champ"><label for="date_adhesion">Date d'adhésion</label>
+      <input id="date_adhesion" name="date_adhesion" type="date"></div>
+    <div class="champ plein actions">
+      <button class="bouton" type="submit">Ajouter le membre</button>
+    </div>
+  </form>
+</div>
+
+<div class="carte marge">
+  <h3>Importer une liste existante</h3>
+  <p class="muet">
+    Collez une ligne par membre au format
+    <span class="mono">nom;telephone;email;ville;specialite</span>
+    (le séparateur peut être un point-virgule, une virgule ou une tabulation — c'est le format d'Excel).
+    Les doublons de nom sont ignorés.
+  </p>
+  <form method="post" action="{{ url_for('importer_membres') }}">
+    <div class="champ plein">
+      <textarea name="texte" rows="5" placeholder="KOUAME Adjoua;0708091011;Abidjan;Comptable générale
+DIALLO Mamadou;0544556677;Bouaké;Fiscaliste"></textarea>
+    </div>
+    <div class="en-ligne" style="margin-top:10px">
+      <div class="champ"><label for="sep">Séparateur</label>
+        <select id="sep" name="sep">
+          <option value=";">Point-virgule ( ; )</option>
+          <option value=",">Virgule ( , )</option>
+          <option value="tab">Tabulation (Excel)</option>
+        </select>
+      </div>
+      <div class="champ"><label for="cot">Cotisation par défaut</label>
+        <input id="cot" name="cotisation" type="number" value="{{ cfg.cotisation }}"></div>
+      <button class="bouton" type="submit">Importer</button>
+    </div>
+  </form>
+</div>
+
+<div class="carte">
+  <div class="entete-carte">
+    <h3>{{ membres | length }} membre(s) enregistré(s)</h3>
+    <span class="muet">Statut de cotisation : {{ mois | fdate }}</span>
+  </div>
+  <div class="tableau-scroll">
+  <table>
+    <thead>
+      <tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Email</th><th>Ville</th><th>Spécialité</th>
+        <th class="num">Cotisation</th><th class="num">Versé</th><th>Statut</th><th>Lien de paiement</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for m in membres %}
+      {% set l = lignes.get(m.id) %}
+      <tr>
+        <td class="mono">{{ m.code }}</td>
+        <td>{{ m.nom }}{% if not m.actif %} <span class="badge b-ferme">inactif</span>
+            {% elif m.exonere %} <span class="badge b-exonere">exonéré</span>{% endif %}</td>
+        <td class="mono">{{ m.telephone | tel or '—' }}</td>
+        <td>{{ m.email or '—' }}</td>
+        <td>{{ m.ville or '—' }}</td>
+        <td>{{ m.specialite or '—' }}</td>
+        <td class="num">{{ m.cotisation | fcfa }}</td>
+        <td class="num">{{ (l.verse | fcfa) if l else '—' }}</td>
+        <td>{% if l %}<span class="badge b-{{ l.statut | lower }}">{{ l.statut | lower }}</span>
+            {% else %}<span class="badge b-neutre">—</span>{% endif %}</td>
+        <td class="actions">
+          <a class="bouton petit secondaire" target="_blank"
+             href="{{ url_for('payer', code=m.code) }}">Page perso</a>
+          <button class="bouton petit secondaire" type="button" onclick="editer({{ m.id }})">Éditer</button>
+          <form method="post" action="{{ url_for('supprimer_membre', mid=m.id) }}"
+                onsubmit="return confirm('Supprimer {{ m.nom }} ainsi que ses paiements, inscriptions et candidatures ?')">
+            <button class="bouton petit danger" type="submit">✕</button>
+          </form>
+        </td>
+      </tr>
+      <tr class="ligne-edit" id="edit-{{ m.id }}" hidden>
+        <td colspan="11" style="background:var(--fond)">
+          <form method="post" action="{{ url_for('modifier_membre', mid=m.id) }}" class="grille-form">
+            <div class="champ"><label>Code</label><input name="code" value="{{ m.code }}"></div>
+            <div class="champ"><label>Nom *</label><input name="nom" value="{{ m.nom }}" required></div>
+            <div class="champ"><label>Téléphone</label><input name="telephone" value="{{ m.telephone }}"></div>
+            <div class="champ"><label>Email</label><input name="email" value="{{ m.email or '' }}"></div>
+            <div class="champ"><label>Ville</label><input name="ville" value="{{ m.ville }}"></div>
+            <div class="champ"><label>Spécialité</label><input name="specialite" value="{{ m.specialite }}"></div>
+            <div class="champ"><label>Cotisation</label>
+              <input name="cotisation" type="number" value="{{ m.cotisation }}"></div>
+            <div class="champ"><label>Adhésion</label>
+              <input name="date_adhesion" type="date" value="{{ m.date_adhesion or '' }}"></div>
+            <div class="champ check"><input type="checkbox" id="actif-{{ m.id }}" name="actif" value="1"
+              {{ 'checked' if m.actif }}><label for="actif-{{ m.id }}">Membre actif</label></div>
+            <div class="champ check"><input type="checkbox" id="exo-{{ m.id }}" name="exonere" value="1"
+              {{ 'checked' if m.exonere }}><label for="exo-{{ m.id }}">Exonéré de cotisation</label></div>
+            <div class="champ plein actions">
+              <button class="bouton petit" type="submit">Enregistrer</button>
+              <button class="bouton petit secondaire" type="button"
+                onclick="document.getElementById('edit-{{ m.id }}').hidden = true">Annuler</button>
+            </div>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+<script>
+  // ouvre le formulaire d'édition en ligne d'un membre
+  function editer(id) {
+    document.querySelectorAll('.ligne-edit').forEach(function (l) { l.hidden = true; });
+    document.getElementById('edit-' + id).hidden = false;
+  }
+</script>
+{% endblock %}

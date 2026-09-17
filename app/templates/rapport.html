@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block titre %}Rapport {{ pt.libelle }} — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Rapport mensuel — {{ pt.libelle }}</h2>
+  <button class="bouton secondaire" onclick="window.print()">🖨 Imprimer / PDF</button>
+</div>
+
+<div class="carte marge">
+  <h3>1. Situation financière</h3>
+  <div class="deux-cols">
+    <div>Cotisation mensuelle : <strong>{{ cfg.cotisation | fcfa }} FCFA</strong></div>
+    <div>Membres concernés : <strong>{{ pt.totaux.nb_membres }}</strong></div>
+    <div>Total dû : <strong>{{ pt.totaux.du | fcfa }} FCFA</strong></div>
+    <div>Total encaissé : <strong>{{ pt.totaux.verse | fcfa }} FCFA</strong></div>
+    <div>Reste à encaisser : <strong>{{ pt.totaux.manquant | fcfa }} FCFA</strong></div>
+    <div>Taux de recouvrement : <strong>{{ pt.totaux.taux_montant }} %</strong></div>
+    <div>Membres à jour : <strong>{{ pt.totaux.nb_payes }}</strong></div>
+    <div>Paiements partiels : <strong>{{ pt.totaux.nb_partiels }}</strong></div>
+  </div>
+</div>
+
+<div class="carte marge">
+  <h3>2. Détail par membre</h3>
+  <table>
+    <thead><tr><th>Code</th><th>Nom</th><th class="num">Dû</th><th class="num">Versé</th>
+      <th class="num">Reliquat</th><th>Statut</th><th>Nb</th></tr></thead>
+    <tbody>
+      {% for l in pt.lignes %}
+      <tr>
+        <td class="mono">{{ l.membre.code }}</td>
+        <td>{{ l.membre.nom }}</td>
+        <td class="num">{{ l.du | fcfa }}</td>
+        <td class="num">{{ l.verse | fcfa }}</td>
+        <td class="num">{{ l.reliquat | fcfa if l.reliquat else '—' }}</td>
+        <td>{{ l.statut | lower }}</td>
+        <td class="num">{{ l.nb_paiements }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2"><strong>TOTAL</strong></td>
+        <td class="num"><strong>{{ pt.totaux.du | fcfa }}</strong></td>
+        <td class="num"><strong>{{ pt.totaux.verse | fcfa }}</strong></td>
+        <td class="num"><strong>{{ pt.totaux.manquant | fcfa }}</strong></td>
+        <td colspan="2"><strong>{{ pt.totaux.taux_montant }} %</strong></td>
+      </tr>
+    </tfoot>
+  </table>
+</div>
+
+<div class="carte marge">
+  <h3>3. Mouvements enregistrés ({{ paiements_du_mois | length }})</h3>
+  <table>
+    <thead><tr><th>Date</th><th>Membre</th><th>Canal</th><th class="num">Montant</th>
+      <th>Motif</th><th>Méthode de pointage</th></tr></thead>
+    <tbody>
+      {% for p in paiements_du_mois %}
+      <tr>
+        <td>{{ p.date | fdate }}</td>
+        <td>{{ p.expediteur or '—' }}</td>
+        <td>{{ p.canal or '—' }}</td>
+        <td class="num">{{ p.montant | fcfa }}</td>
+        <td class="mono muet">{{ p.libelle or '—' }}</td>
+        <td>{{ p.methode }}</td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="muet">Aucun mouvement ce mois-ci.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="carte marge">
+  <h3>4. Suivi du cycle administratif</h3>
+  <table>
+    <thead><tr><th>Échéance</th><th>Tâche</th><th>Statut</th></tr></thead>
+    <tbody>
+      {% for t in taches %}
+      <tr>
+        <td>{{ t.echeance | fdate }}</td>
+        <td>{{ t.titre }}</td>
+        <td>{% if t.statut == 'FAIT' %}fait le {{ t.fait_le | fdate }}
+            {% elif t.statut == 'EN_RETARD' %}en retard
+            {% elif t.statut == 'A_FAIRE' %}à faire
+            {% else %}à venir{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="muet">Avancement : {{ prog.fait }} / {{ prog.total }} tâches réalisées.</p>
+</div>
+
+{% if relances %}
+<div class="carte marge">
+  <h3>5. Membres à relancer ({{ relances | length }})</h3>
+  <ul>
+    {% for r in relances %}<li>{{ r.nom }} — {{ r.telephone or 'numéro manquant' }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="carte">
+  <p class="muet">
+    Arrêté le présent rapport à <strong>{{ pt.totaux.verse | fcfa }} FCFA</strong> encaissés
+    sur {{ pt.totaux.du | fcfa }} FCFA dus pour {{ pt.libelle }}.
+  </p>
+  <div class="deux-cols" style="margin-top:26px">
+    <div>Le trésorier<br><br><br>_______________________</div>
+    <div>Le président du réseau<br><br><br>_______________________</div>
+  </div>
+</div>
+{% endblock %}

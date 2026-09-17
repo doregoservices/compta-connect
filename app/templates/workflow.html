@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block titre %}Cycle des cotisations — {{ pt.libelle }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>Cycle de cotisation — {{ pt.libelle }}</h2>
+  <div class="en-ligne">
+    <form method="get">
+      <div class="champ"><label for="mois">Mois</label>
+        <input id="mois" type="month" name="mois" value="{{ mois }}" onchange="this.form.submit()"></div>
+    </form>
+    <a class="bouton secondaire" href="{{ url_for('workflow_rapport', mois=mois) }}" target="_blank">Rapport du mois</a>
+    <a class="bouton secondaire" href="{{ url_for('export_relances', mois=mois) }}">⬇ Relances</a>
+  </div>
+</div>
+<p class="sous-titre">
+  Échéance : <strong>{{ pt.echeance | fdate }}</strong> ·
+  chaque tâche apparaît à sa date et passe en retard si elle n'est pas traitée.
+</p>
+
+<div class="carte marge">
+  <div class="entete-carte">
+    <h3>Avancement du cycle</h3>
+    <span class="muet">{{ prog.fait }} / {{ prog.total }} tâches réalisées
+      {% if prog.en_retard %}· <strong>{{ prog.en_retard }} en retard</strong>{% endif %}</span>
+  </div>
+  <div class="barre" style="height:12px"><span style="width:{{ prog.pourcent }}%"></span></div>
+  <div class="muet" style="margin-top:8px">
+    {{ prog.a_faire }} à faire aujourd'hui · {{ prog.a_venir }} à venir · {{ prog.en_retard }} en retard
+  </div>
+</div>
+
+<div class="carte marge">
+  <h3>Échéancier</h3>
+  <div class="tableau-scroll">
+  <table>
+    <thead><tr><th>Échéance</th><th>Tâche</th><th>Statut</th><th>À faire</th><th class="centre">Action</th></tr></thead>
+    <tbody>
+      {% for t in taches %}
+      <tr>
+        <td><strong>{{ t.echeance | fdate }}</strong></td>
+        <td><strong>{{ t.titre }}</strong><br><span class="muet">{{ t.note }}</span></td>
+        <td>
+          {% if t.statut == 'FAIT' %}<span class="badge b-paye">fait le {{ t.fait_le | fdate }}</span>
+          {% elif t.statut == 'EN_RETARD' %}<span class="badge b-impaye">en retard</span>
+          {% elif t.statut == 'A_FAIRE' %}<span class="badge b-partiel">à faire</span>
+          {% else %}<span class="badge b-neutre">à venir</span>{% endif %}
+        </td>
+        <td class="muet">{% if t.action %}{{ {'ouvrir':'Publier','relancer':'Relancer','pointage':'Pointer','etat':'Éditer','reporter':'Reporter'}[t.action] }}{% else %}—{% endif %}</td>
+        <td class="centre">
+          {% if t.statut == 'FAIT' %}
+            <form method="post" action="{{ url_for('marquer_tache_annuler', cle=t.cle) }}">
+              <input type="hidden" name="mois" value="{{ mois }}">
+              <button class="bouton petit secondaire" type="submit">Annuler</button>
+            </form>
+          {% else %}
+            <form method="post" action="{{ url_for('marquer_tache_faire', cle=t.cle) }}" style="display:inline">
+              <input type="hidden" name="mois" value="{{ mois }}">
+              <button class="bouton petit" type="submit">Marquer fait</button>
+            </form>
+            {% if t.action == 'relancer' %}
+            <form method="post" action="{{ url_for('workflow_relancer') }}" style="display:inline">
+              <input type="hidden" name="mois" value="{{ mois }}">
+              <button class="bouton petit or" type="submit">Générer les relances</button>
+            </form>
+            {% elif t.action == 'pointage' %}
+            <a class="bouton petit secondaire" href="{{ url_for('page_import') }}">Importer un relevé</a>
+            {% elif t.action == 'etat' %}
+            <a class="bouton petit secondaire" href="{{ url_for('etat', mois=mois) }}" target="_blank">État imprimable</a>
+            {% elif t.action == 'reporter' %}
+            <form method="post" action="{{ url_for('workflow_reporter') }}" style="display:inline"
+                  onsubmit="return confirm('Reporter les reliquats de {{ pt.libelle }} sur {{ mois_suivant | fdate }} ?')">
+              <input type="hidden" name="mois" value="{{ mois }}">
+              <button class="bouton petit or" type="submit">Reporter les reliquats</button>
+            </form>
+            {% endif %}
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="grille col2">
+  <div class="carte" id="relances">
+    <div class="entete-carte">
+      <h3>Relances à envoyer ({{ relances | length }})</h3>
+      <form method="post" action="{{ url_for('workflow_relancer') }}">
+        <input type="hidden" name="mois" value="{{ mois }}">
+        <button class="bouton petit" type="submit">Générer / envoyer</button>
+      </form>
+    </div>
+    {% if relances %}
+      {% for r in relances %}
+      <div style="border:1px solid var(--bord); border-radius:10px; padding:12px 14px; margin-bottom:10px">
+        <div class="entete-carte" style="margin-bottom:6px">
+          <strong>{{ r.nom }}</strong>
+          {% if r.telephone %}
+          <a class="bouton petit" target="_blank"
+             href="https://wa.me/{{ r.telephone }}?text={{ r.message | urlencode }}">WhatsApp</a>
+          {% endif %}
+        </div>
+        <pre style="white-space:pre-wrap; font-family:inherit; margin:0; font-size:13.5px">{{ r.message }}</pre>
+      </div>
+      {% endfor %}
+    {% else %}<p class="muet">Personne à relancer : tout le monde est à jour. 🎉</p>{% endif %}
+  </div>
+
+  <div class="carte">
+    <h3>État du recouvrement</h3>
+    <div class="deux-cols">
+      <div><span class="muet">Recouvré</span><br><strong>{{ pt.totaux.taux_montant }} %</strong></div>
+      <div><span class="muet">Encaissé</span><br><strong>{{ pt.totaux.verse | fcfa }} FCFA</strong></div>
+      <div><span class="muet">Dû</span><br><strong>{{ pt.totaux.du | fcfa }} FCFA</strong></div>
+      <div><span class="muet">Reste</span><br><strong>{{ pt.totaux.manquant | fcfa }} FCFA</strong></div>
+      <div><span class="muet">À jour</span><br><strong>{{ pt.totaux.nb_payes }} / {{ pt.totaux.nb_membres }}</strong></div>
+      <div><span class="muet">Impayés</span><br><strong>{{ pt.totaux.nb_impayes }}</strong></div>
+    </div>
+    <div class="separateur"></div>
+    <h3>Navigation</h3>
+    <p class="actions">
+      <a class="bouton secondaire petit" href="{{ url_for('page_workflow', mois=mois_precedent) }}">← {{ mois_precedent | fdate }}</a>
+      <a class="bouton secondaire petit" href="{{ url_for('page_workflow', mois=mois_suivant) }}">{{ mois_suivant | fdate }} →</a>
+    </p>
+    <p class="muet">La clôture reporte automatiquement chaque reliquat sur le mois suivant,
+      avec un libellé « Report automatique » pour garder la trace.</p>
+  </div>
+</div>
+{% endblock %}

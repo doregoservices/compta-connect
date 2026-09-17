@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block titre %}{{ o.titre }} — {{ cfg.reseau }}{% endblock %}
+
+{% block contenu %}
+<div class="entete-carte">
+  <h2>{{ o.titre }}</h2>
+  <a class="bouton secondaire" href="{{ url_for('page_offres') }}">← Toutes les offres</a>
+</div>
+
+<div class="grille col2">
+  <div class="carte">
+    <h3>Détail du poste</h3>
+    <div class="deux-cols">
+      <div><span class="muet">Entreprise</span><br><strong>{{ o.entreprise or '—' }}</strong></div>
+      <div><span class="muet">Ville</span><br><strong>{{ o.ville or '—' }}</strong></div>
+      <div><span class="muet">Contrat</span><br><strong>{{ o.contrat }}</strong></div>
+      <div><span class="muet">Rémunération</span><br><strong>{{ o.remuneration or '—' }}</strong></div>
+      <div><span class="muet">Publiée le</span><br><strong>{{ o.date_publication | fdate }}</strong></div>
+      <div><span class="muet">Limite</span><br><strong>{{ o.date_limite | fdate }}</strong></div>
+      <div><span class="muet">Contact</span><br><strong>{{ o.contact or '—' }}</strong></div>
+      <div><span class="muet">Email / téléphone</span><br><strong>{{ o.email or '—' }}</strong></div>
+    </div>
+    {% if o.description %}<div class="separateur"></div><h3>Missions</h3><p>{{ o.description }}</p>{% endif %}
+    {% if o.profil %}<h3>Profil recherché</h3><p>{{ o.profil }}</p>{% endif %}
+
+    <div class="separateur"></div>
+    <h3>Modifier l'offre</h3>
+    <form method="post" action="{{ url_for('modifier_offre', oid=o.id) }}" class="grille-form">
+      <div class="champ plein"><label for="titre">Intitulé</label>
+        <input id="titre" name="titre" value="{{ o.titre }}" required></div>
+      <div class="champ"><label for="entreprise">Entreprise</label>
+        <input id="entreprise" name="entreprise" value="{{ o.entreprise }}"></div>
+      <div class="champ"><label for="ville">Ville</label><input id="ville" name="ville" value="{{ o.ville }}"></div>
+      <div class="champ"><label for="contrat">Contrat</label>
+        <select id="contrat" name="contrat">
+          {% for c in ['CDI', 'CDD', 'Stage', 'Mission', 'Freelance', 'Alternance'] %}
+          <option {{ 'selected' if o.contrat == c }}>{{ c }}</option>{% endfor %}
+        </select></div>
+      <div class="champ"><label for="remuneration">Rémunération</label>
+        <input id="remuneration" name="remuneration" value="{{ o.remuneration }}"></div>
+      <div class="champ"><label for="date_publication">Publication</label>
+        <input id="date_publication" name="date_publication" type="date" value="{{ o.date_publication }}"></div>
+      <div class="champ"><label for="date_limite">Limite</label>
+        <input id="date_limite" name="date_limite" type="date" value="{{ o.date_limite }}"></div>
+      <div class="champ"><label for="contact">Contact</label>
+        <input id="contact" name="contact" value="{{ o.contact }}"></div>
+      <div class="champ"><label for="email">Email / téléphone</label>
+        <input id="email" name="email" value="{{ o.email }}"></div>
+      <div class="champ"><label for="statut">Statut</label>
+        <select id="statut" name="statut">
+          {% for s in ['ouverte', 'pourvue', 'fermee', 'suspendue'] %}
+          <option {{ 'selected' if o.statut == s }}>{{ s }}</option>{% endfor %}
+        </select></div>
+      <div class="champ plein"><label for="description">Missions</label>
+        <textarea id="description" name="description" rows="3">{{ o.description }}</textarea></div>
+      <div class="champ plein"><label for="profil">Profil recherché</label>
+        <textarea id="profil" name="profil" rows="3">{{ o.profil }}</textarea></div>
+      <div class="champ plein actions"><button class="bouton" type="submit">Enregistrer</button></div>
+    </form>
+  </div>
+
+  <div class="carte">
+    <h3>Enregistrer une candidature</h3>
+    <form method="post" action="{{ url_for('candidater', oid=o.id) }}" class="grille-form">
+      <div class="champ plein"><label for="membre_id">Membre du réseau</label>
+        <select id="membre_id" name="membre_id">
+          <option value="">— ou candidature extérieure —</option>
+          {% for m in membres %}<option value="{{ m.id }}">{{ m.code }} — {{ m.nom }}</option>{% endfor %}
+        </select></div>
+      <div class="champ"><label for="nom">Nom</label><input id="nom" name="nom"></div>
+      <div class="champ"><label for="telephone">Téléphone</label><input id="telephone" name="telephone"></div>
+      <div class="champ plein"><label for="email">Email</label><input id="email2" name="email"></div>
+      <div class="champ plein"><label for="message">Motivation / remarque</label>
+        <textarea id="message" name="message" rows="3"></textarea></div>
+      <div class="champ plein actions"><button class="bouton" type="submit">Enregistrer la candidature</button></div>
+    </form>
+
+    <div class="separateur"></div>
+    <h3>Candidatures reçues ({{ candidatures | length }})</h3>
+    {% for c in candidatures %}
+    <div style="border:1px solid var(--bord); border-radius:10px; padding:12px 14px; margin-bottom:10px">
+      <div class="entete-carte" style="margin-bottom:6px">
+        <strong>{{ c.nom }}</strong>
+        <span class="badge b-{{ c.statut }}">{{ c.statut }}</span>
+      </div>
+      <div class="muet mono">{{ c.telephone | tel or '—' }}{% if c.email %} · {{ c.email }}{% endif %}
+        · reçue le {{ c.date_candidature | fdate }}</div>
+      {% if c.message %}<p style="margin:8px 0 0">{{ c.message }}</p>{% endif %}
+      <form method="post" action="{{ url_for('statut_candidature', cid=c.id) }}" class="en-ligne" style="margin-top:8px">
+        <select name="statut">
+          {% for s in ['recue', 'transmise', 'entretien', 'retenu', 'refuse'] %}
+          <option {{ 'selected' if c.statut == s }}>{{ s }}</option>{% endfor %}
+        </select>
+        <button class="bouton petit" type="submit">Mettre à jour</button>
+      </form>
+    </div>
+    {% else %}<p class="muet">Aucune candidature pour l'instant.</p>{% endfor %}
+  </div>
+</div>
+{% endblock %}
