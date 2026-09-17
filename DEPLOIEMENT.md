@@ -1,10 +1,45 @@
 # Déploiement — Compta Connect
 
-Trois options, de la plus simple à la plus complète.
+Quatre options, de la plus simple à la plus complète.
 
 ---
 
-## Pourquoi pas « GitHub Pages » ?
+## Option 0 — GitHub Pages + Supabase (gratuit, comme FKS Industrie) ✅
+
+C'est l'architecture de votre appli FKS : **les pages sont sur GitHub, les
+données sont dans un projet Supabase gratuit**. Aucun serveur à payer, aucune
+mise en veille, adresse fixe `https://doregoservices.github.io/compta-connect/`.
+
+Le site est déjà construit et poussé (dossier `docs/`, activé dans
+Settings → Pages). Il reste la base de données, une seule fois :
+
+1. **Créer le projet Supabase** (compte gratuit, inscription possible avec GitHub) :
+   [supabase.com](https://supabase.com) → *New project* → mot de passe fort,
+   région *West Europe* ou *North Africa* si proposée.
+2. **Installer la base** : menu *SQL Editor* → ouvrir `supabase/schema.sql`
+   du dépôt (bouton *Raw*), tout copier, coller, **Run**.
+   Ce fichier crée les tables, la sécurité, ET vos 80 membres réels avec les
+   cotisations de juin 2026 déjà pointées.
+3. **Créer le compte trésorier** : *Authentication* → *Users* → *Add user* →
+   votre email + un mot de passe (décochez « auto-confirm » si proposé… cochez-le
+   au contraire pour éviter l'email de confirmation).
+4. **Brancher l'application** : ouvrir le site, coller l'**URL du projet** et la
+   **clé anon** (Supabase → *Paramètres* → *API*), enregistrer.
+5. **Se connecter** avec l'email du trésorier : le tableau de bord s'ouvre.
+
+La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`
+
+> Sécurité : la clé anon est publique par conception (comme dans FKS) — la
+> lecture est publique, l'**écriture exige la connexion du trésorier** (droits
+> RLS créés par schema.sql).
+
+Limites de cette option : le bouton CinetPay (paiement 100 % automatique)
+demande un petit relais serveur (fonction gratuite Supabase Edge, ou options
+2/3). L'import du relevé mobile money reste le geste mensuel (~2 min).
+
+---
+
+## Pourquoi pas « GitHub Pages » seul ?
 
 GitHub Pages ne sait servir que des **pages figées** (HTML/CSS/JS). Compta Connect
 est un outil **vivant** : base de données des membres, import des relevés, pointage
