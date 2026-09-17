@@ -37,8 +37,8 @@ app = Flask(__name__, template_folder=str(BASE / "templates"),
 app.secret_key = os.environ.get("SECRET_KEY", "compta-connect-dev")
 
 CONFIG_DEFAUT = {
-    "reseau": "Compta Connect",
-    "slogan": "Réseau de solidarité des comptables de Côte d'Ivoire",
+    "reseau": "ComptaConnect",
+    "slogan": "Le réseau des professionnels de la comptabilité",
     "cotisation": 5000,
     "jour_echeance": 10,
     "devise": "FCFA",
@@ -49,8 +49,9 @@ CONFIG_DEFAUT = {
     "canal_mtn": "0", "mtn_numero": "", "mtn_nom": "",
     "canal_banque": "0", "banque_nom": "", "banque_iban": "",
     "instructions": "",
-    "tresorier": "", "tresorier_tel": "",
-    "contact_email": "",
+    "tresorier": "Cabinet GSC — Basile EKLOU", "tresorier_tel": "+225 05 55 99 20 04",
+    "contact_email": "supportcomptaconnect@gmail.com",
+    "site_web": "www.comptaconnect.com",
     "groupe_whatsapp": "",
     "page_facebook": "",
     # relais SMTP pour l'envoi automatique des relances (facultatif)
@@ -206,7 +207,8 @@ def init_db():
     if con.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0:
         con.executemany("INSERT INTO settings (cle, valeur) VALUES (?, ?)",
                         list(CONFIG_DEFAUT.items()))
-    if con.execute("SELECT COUNT(*) FROM membres").fetchone()[0] == 0:
+    if (con.execute("SELECT COUNT(*) FROM membres").fetchone()[0] == 0
+            and not os.environ.get("COMPTA_SANS_DEMO")):
         _donnees_exemple(con)
     con.commit()
     con.close()

@@ -1,27 +1,53 @@
-# Compta Connect — sortir des commissions Chariow et automatiser le pointage
+# ComptaConnect — sortir des prélèvements Chariow et automatiser le pointage
 
-*Document préparé le 17 septembre 2026. Les chiffres proviennent des sources citées en fin de document ; les tarifs des opérateurs et agrégateurs évoluent, à re-confirmer avant signature.*
+*Document mis à jour le 17 septembre 2026 avec les chiffres réels du relevé officiel
+de juin-juillet 2026. Les tarifs des opérateurs et agrégateurs évoluent, à re-confirmer
+avant signature.*
 
 ---
 
-## 1. Le constat : ce que vous coûte Chariow aujourd'hui
+## 1. Le constat : ce que vous coûte Chariow aujourd'hui (vos chiffres réels)
 
-Chariow est une plateforme de vente de produits digitaux. Elle ne facture aucun abonnement mais prélève **une commission de 15 % sur chaque vente**, ramenée à **10 % au-delà de 5 000 $ de chiffre d'affaires cumulé** ([afrifute](https://afrifute.com/chariow-2026-guide-complet-pour-createurs-africains/), [creationdigitalpro](https://creationdigitalpro.com/vendre-en-ligne-avec-chariow-ta-boutique-en-5-min/), [revenus-sur-internet-sans-visage](https://revenus-sur-internet-sans-visage.com/blog/%E2%AD%90-chariow-avis-2026-avantages-inconvenients-et-frais-pour-les-vendeurs-africains/)).
+Le relevé officiel « Liste officielle des membres à jour de cotisation — juin 2026 »
+(période du 01/06 au 31/07/2026) donne les montants exacts :
 
-Autrement dit : **sur 10 000 FCFA cotisés, le réseau ne reçoit que 8 500 FCFA.**
+| Poste | Montant |
+|---|---|
+| Membres à jour sur la période | **80** |
+| Cotisation brute par membre | 5 000 FCFA |
+| Prélèvement Chariow par membre | **750 FCFA** (frais de service 350 + frais de paiement 400) |
+| Net perçu par membre | 4 250 FCFA |
+| Total brut collecté | 400 000 FCFA |
+| **Total prélevé par Chariow** | **60 000 FCFA (15 %)** |
+| Total net perçu | 340 000 FCFA |
 
-Pour une cotisation, c'est un non-sens : Chariow est conçu pour vendre des formations ou des ebooks avec une boutique, une page produit et du marketing. Une cotisation de solidarité n'a pas besoin de tout ça — elle a besoin d'un numéro où envoyer l'argent et d'un tableau qui dit qui est à jour.
+Soit **15 % de la collecte**, exactement le taux public de Chariow
+([afrifute](https://afrifute.com/chariow-2026-guide-complet-pour-createurs-africains/),
+[creationdigitalpro](https://creationdigitalpro.com/vendre-en-ligne-avec-chariow-ta-boutique-en-5-min/)) :
+le prélèvement fixe (350 + 400) correspond bien à 15 % d'une cotisation de 5 000 FCFA.
 
-### Ce que cela représente concrètement
+Concrètement, sur la période juin-juillet, Chariow a prélevé **l'équivalent de
+12 cotisations complètes** (60 000 ÷ 5 000). Sur une année à ce rythme, ce sont
+plusieurs centaines de milliers de FCFA qui sortent de la caisse.
 
-| Membres | Cotisation | Encaissé / mois | Commission Chariow 15 % | Perte / an |
-|---|---|---|---|---|
-| 20 | 5 000 F | 100 000 F | 15 000 F | **180 000 F** |
-| 40 | 5 000 F | 200 000 F | 30 000 F | **360 000 F** |
-| 60 | 5 000 F | 300 000 F | 45 000 F | **540 000 F** |
-| 100 | 5 000 F | 500 000 F | 75 000 F | **900 000 F** |
+Pour une cotisation, c'est un non-sens : Chariow est conçu pour vendre des
+formations ou des produits digitaux avec une boutique et du marketing. Une
+cotisation de réseau a besoin d'un numéro où envoyer l'argent et d'un tableau
+qui dit qui est à jour — rien de plus.
 
-À 60 membres, vous perdez l'équivalent de **9 cotisations par mois**.
+### Ce que cela représente selon la taille de la collecte
+
+| Membres | Brut collecté | Prélèvement Chariow (750/membre) | Net perçu |
+|---|---|---|---|
+| 40 | 200 000 F | 30 000 F | 170 000 F |
+| 80 (votre cas) | 400 000 F | **60 000 F** | 340 000 F |
+| 120 | 600 000 F | 90 000 F | 510 000 F |
+| 200 | 1 000 000 F | 150 000 F | 850 000 F |
+
+Avec un compte mobile money au nom du réseau, ce prélèvement tombe à **0 FCFA** :
+le membre transfère ses 5 000 FCFA, le réseau reçoit 5 000 FCFA, et l'éventuel
+frais de transfert (~1 %, à la charge du membre) est plafonné à 5 000 FCFA chez
+Wave — soit 50 FCFA pour une cotisation de 5 000.
 
 ---
 

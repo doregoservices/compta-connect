@@ -9,8 +9,13 @@
 </head>
 <body>
 <header class="entete">
-  <h1>{{ cfg.reseau }}</h1>
-  <div class="slogan">{{ cfg.slogan }}</div>
+  <div class="marque">
+    <img src="{{ url_for('static', filename='logomark.png') }}" alt="Logo {{ cfg.reseau }}">
+    <div>
+      <h1>COMPTA<span class="b">CONNECT</span></h1>
+      <div class="slogan">{{ cfg.slogan }}</div>
+    </div>
+  </div>
   <div class="liens">
     <a href="{{ url_for('payer') }}" target="_blank">🔗 Page publique de paiement</a>
     <a href="{{ url_for('portail') }}">👤 Espace membre</a>

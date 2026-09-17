@@ -1,18 +1,24 @@
 :root {
-  --vert: #1F6F5C;
-  --vert-fonce: #14513F;
-  --vert-clair: #E8F4EF;
-  --or: #E8A33D;
-  --encre: #0B1F3A;
+  /* Palette officielle ComptaConnect — extraite du document de cotisation */
+  --vert: #1D9E75;            /* émeraude : action, validation */
+  --vert-fonce: #085041;      /* vert sapin : survol, titres */
+  --vert-clair: #D5E8E0;      /* vert d'eau : fonds doux, statuts à jour */
+  --menthe: #7DCDB0;          /* menthe : accents clairs */
+  --menthe-pale: #9FE1CB;
+  --or: #C9A227;              /* or : mise en avant */
+  --creme: #FEF5DC;           /* fond des encadrés or */
+  --encre: #0A1C2D;           /* bleu nuit : titres, texte */
+  --bleu-nuit: #0A1C2D;
+  --bleu-nuit-clair: #16283E;
   --gris: #6B7A8F;
-  --fond: #F4F6F8;
+  --fond: #F7F7F5;
   --blanc: #ffffff;
   --rouge: #C0392B;
   --rouge-clair: #FBD9D3;
   --jaune-clair: #FFF1CC;
   --bleu-clair: #CDEBFF;
   --bord: #E1E7ED;
-  --ombre: 0 1px 2px rgba(11, 31, 58, .05), 0 6px 18px rgba(11, 31, 58, .06);
+  --ombre: 0 1px 2px rgba(10, 28, 45, .05), 0 6px 18px rgba(10, 28, 45, .06);
 }
 
 * { box-sizing: border-box; }
@@ -31,13 +37,20 @@ a:hover { text-decoration: underline; }
 
 /* ---------- entête ---------- */
 .entete {
-  background: linear-gradient(120deg, var(--vert-fonce), var(--vert));
+  background: linear-gradient(120deg, var(--bleu-nuit), var(--bleu-nuit-clair));
+  border-bottom: 3px solid var(--vert);
   color: #fff;
-  padding: 18px 22px 0;
+  padding: 16px 22px 0;
 }
-.entete h1 { margin: 0; font-size: 22px; letter-spacing: -.3px; }
-.entete .slogan { opacity: .85; font-size: 13px; margin: 2px 0 14px; }
-.entete .liens { font-size: 12px; margin-bottom: 10px; }
+.marque { display: flex; align-items: center; gap: 14px; }
+.marque img {
+  width: 52px; height: 58px; object-fit: cover; object-position: center 30%;
+  border-radius: 10px; background: var(--bleu-nuit);
+}
+.marque h1 { margin: 0; font-size: 23px; letter-spacing: .3px; }
+.marque h1 .b { color: var(--menthe); }
+.entete .slogan { opacity: .8; font-size: 12.5px; color: var(--menthe-pale); margin: 1px 0 0; }
+.entete .liens { font-size: 12px; margin: 10px 0; }
 .entete .liens a { color: #fff; opacity: .8; margin-right: 14px; }
 
 .nav { display: flex; flex-wrap: wrap; gap: 4px; }

@@ -9,6 +9,7 @@
 
 <div class="carte marge">
   <p>
+    <img src="{{ url_for('static', filename='logomark.png') }}" alt="" style="width:44px;height:50px;object-fit:cover;object-position:center 30%;border-radius:8px;vertical-align:middle;margin-right:8px">
     <strong>{{ cfg.reseau }}</strong> — {{ cfg.slogan }}<br>
     <span class="muet">Mois : {{ pt.libelle }} · échéance {{ pt.echeance | fdate }} ·
       édité le {{ now() }}</span>

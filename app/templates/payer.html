@@ -4,13 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Cotisation {{ cfg.reseau }} — {{ libelle }}</title>
+  <link rel="icon" href="{{ url_for('static', filename='logomark.png') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body style="background:linear-gradient(180deg,#0A1C2D 0,#0A1C2D 150px,var(--fond) 340px)">
 <div class="public">
   <div class="logo">
-    <h1>{{ cfg.reseau }}</h1>
-    <p>{{ cfg.slogan }}</p>
+    <div style="display:inline-block;border-radius:16px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.35)">
+      <img src="{{ url_for('static', filename='logo.jpg') }}" alt="Logo {{ cfg.reseau }}"
+           style="width:120px;height:120px;object-fit:cover;display:block">
+    </div>
+    <h1 style="color:#fff">COMPTA<span style="color:var(--menthe)">CONNECT</span></h1>
+    <p style="color:var(--menthe-pale)">{{ cfg.slogan }}</p>
   </div>
 
   {% with messages = get_flashed_messages(with_categories=true) %}
@@ -121,6 +126,7 @@
       {% if cfg.tresorier %}Trésorier : <strong>{{ cfg.tresorier }}</strong>
         {% if cfg.tresorier_tel %}— <span class="mono">{{ cfg.tresorier_tel | tel }}</span>{% endif %}<br>{% endif %}
       {% if cfg.contact_email %}Email : {{ cfg.contact_email }}<br>{% endif %}
+      {% if cfg.site_web %}{{ cfg.site_web }}<br>{% endif %}
       {% if cfg.groupe_whatsapp %}<a href="{{ cfg.groupe_whatsapp }}" target="_blank">Écrire dans le groupe WhatsApp</a>{% endif %}
     </p>
   </div>

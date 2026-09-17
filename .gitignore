@@ -18,3 +18,4 @@ venv/
 
 # Système
 .DS_Store
+app/compta_connect.db
