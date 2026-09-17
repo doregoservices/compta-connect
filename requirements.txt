@@ -4,6 +4,7 @@ segno>=1.6          # génération des QR codes (ISO 18004)
 Pillow>=10.0        # rendu du QR code
 numpy>=1.26
 openpyxl>=3.1       # export Excel du pointage
+gunicorn>=21.2      # serveur de production (Render, VPS)
 
 # Tests uniquement
 pytest>=8.0

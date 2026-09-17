@@ -1,0 +1,18 @@
+# Déploiement automatique depuis GitHub vers Render (offre gratuite).
+# Render → New + → Blueprint → choisir le dépôt doregoservices/compta-connect.
+# Ce fichier configure tout : plus besoin de remplir les champs à la main.
+services:
+  - type: web
+    name: compta-connect
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app.app:app
+    healthCheckPath: /api/sante
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: SECRET_KEY
+        generateValue: true      # chaîne aléatoire générée par Render
+      - key: COMPTA_SANS_DEMO
+        value: "1"               # pas de jeu de démonstration en production

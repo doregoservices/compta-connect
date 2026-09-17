@@ -64,6 +64,27 @@
       {% endif %}
     </div>
 
+    {% if retour %}
+    <div class="carte" style="background:var(--creme);border-color:var(--or);margin-bottom:12px">
+      <p style="margin:0">⏳ Paiement lancé. Si votre statut ne passe pas à
+        <span class="badge b-paye">à jour</span> dans les minutes qui suivent,
+        envoyez la capture du reçu au trésorier ({{ cfg.tresorier_tel }}).</p>
+    </div>
+    {% endif %}
+
+    {% if en_ligne and ligne.statut in ['IMPAYE', 'PARTIEL'] %}
+    <form method="post" action="/payer/{{ moi.code }}/en-ligne" style="margin-bottom:14px">
+      <input type="hidden" name="mois" value="{{ mois }}">
+      <button class="bouton" type="submit"
+        style="width:100%;font-size:1.05rem;padding:14px;background:var(--vert);border-color:var(--vert)">
+        ⚡ Payer {{ (ligne.reliquat if ligne.statut == 'PARTIEL' else ligne.du) | fcfa }} FCFA maintenant
+      </button>
+      <p class="muet" style="text-align:center;margin-top:6px">
+        Orange Money · MTN MoMo · Wave · Moov · Carte — confirmation immédiate, sans attendre le trésorier
+      </p>
+    </form>
+    {% endif %}
+
     <div class="ref-encadre">
       <div class="label">Motif à saisir lors du transfert</div>
       <div class="valeur">{{ ligne.reference }}</div>
@@ -88,8 +109,9 @@
       <div>Dans le champ <strong>motif / référence</strong>, saisissez exactement
         <span class="code-ref">{{ ligne.reference if moi else 'CCaamm + votre code' }}</span>.</div></div>
     <div class="etape"><div class="n">4</div>
-      <div>Envoyez la capture du reçu dans le groupe : le trésorier valide et votre ligne passe en
-        <span class="badge b-paye">à jour</span> automatiquement.</div></div>
+      <div>C'est tout : grâce à la référence, votre ligne passe en
+        <span class="badge b-paye">à jour</span> automatiquement. La capture du reçu n'est utile
+        qu'en cas de litige.</div></div>
 
     <div class="separateur"></div>
     {% for c in canaux %}

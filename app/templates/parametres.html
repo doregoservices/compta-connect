@@ -103,6 +103,38 @@
     </div>
   </div>
 
+  <div class="carte marge">
+    <h3>Paiement en ligne automatique <span class="badge b-avance">recommandé — remplace Chariow</span></h3>
+    <p class="muet">
+      Comme Chariow, mais sans ses 15&nbsp;% : le membre clique sur
+      <strong>« Payer maintenant »</strong> sur sa page, règle par mobile money
+      (Orange Money, MTN MoMo, Wave, Moov) ou carte, et CinetPay notifie
+      l'application immédiatement — le pointage passe à jour tout seul.
+      Compte gratuit sur <strong>cinetpay.com</strong> (commission ≈ 3,5&nbsp;%).
+      Créez le site, puis copiez ici l'identifiant du site et la clé API.
+    </p>
+    <div class="grille-form">
+      <div class="champ"><label for="cinetpay_actif">Activer le bouton « Payer maintenant »</label>
+        <select id="cinetpay_actif" name="cinetpay_actif">
+          <option value="0" {{ 'selected' if cfg.cinetpay_actif != '1' }}>Non</option>
+          <option value="1" {{ 'selected' if cfg.cinetpay_actif == '1' }}>Oui</option>
+        </select></div>
+      <div class="champ"><label for="cinetpay_site_id">Identifiant du site (site_id)</label>
+        <input id="cinetpay_site_id" name="cinetpay_site_id" value="{{ cfg.cinetpay_site_id }}"
+               placeholder="123456"></div>
+      <div class="champ"><label for="cinetpay_apikey">Clé API (apikey)</label>
+        <input id="cinetpay_apikey" name="cinetpay_apikey" type="password"
+               value="{{ cfg.cinetpay_apikey }}" placeholder="coller la clé du tableau de bord CinetPay"></div>
+      <div class="champ"><label for="url_publique">Adresse publique de l'outil</label>
+        <input id="url_publique" name="url_publique" value="{{ cfg.url_publique }}"
+               placeholder="https://compta-connect.onrender.com/"></div>
+    </div>
+    <p class="muet" style="margin-top:8px">
+      URL de notification à déclarer dans CinetPay :
+      <span class="code-ref">{{ cfg.url_publique or 'https://ADRESSE-DE-L-OUTIL' }}/api/ipn/cinetpay</span>
+    </p>
+  </div>
+
   <div class="actions">
     <button class="bouton" type="submit">Enregistrer les paramètres</button>
   </div>

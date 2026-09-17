@@ -26,6 +26,7 @@ from flask import (Flask, flash, g, jsonify, redirect, render_template, request,
                    send_file, session, url_for)
 
 import moteur as M
+import paiement_en_ligne as P
 import qrcode as QR
 import workflow as W
 
@@ -57,6 +58,10 @@ CONFIG_DEFAUT = {
     # relais SMTP pour l'envoi automatique des relances (facultatif)
     "smtp_hote": "", "smtp_port": "587", "smtp_utilisateur": "",
     "smtp_motdepasse": "", "smtp_expediteur": "",
+    # paiement en ligne automatique (CinetPay — remplace Chariow)
+    "cinetpay_actif": "0", "cinetpay_site_id": "", "cinetpay_apikey": "",
+    "cinetpay_url_api": P.URL_API,
+    "url_publique": "",
 }
 
 SCHEMA = """
@@ -1050,7 +1055,9 @@ def payer():
             ligne = M.pointage([m], paiements(), mois)["lignes"][0]
     return render_template("payer.html", cfg=cfg, mois=mois, moi=moi, ligne=ligne,
                            canaux=canaux(cfg), echeance=M.echeance(mois, cfg["jour_echeance"]),
-                           libelle=M.libelle_mois(mois))
+                           libelle=M.libelle_mois(mois),
+                           en_ligne=P.config_ok(cfg),
+                           retour=request.args.get("retour") == "1")
 
 
 @app.route("/payer/recherche", methods=["POST"])
@@ -1082,6 +1089,80 @@ def api_moi():
 @app.route("/qr/<path:texte>")
 def qr(texte):
     return QR.qr_svg(texte, taille_px=int(request.args.get("t", 220)))
+
+
+# --------------------------------------------------------------------------- #
+# Paiement en ligne (CinetPay) — automatique, sans intervention du trésorier
+# --------------------------------------------------------------------------- #
+
+@app.route("/payer/<code>/en-ligne", methods=["POST"])
+def payer_en_ligne(code):
+    """Le membre clique « Payer » : ouvre la page CinetPay (mobile money / carte)."""
+    cfg = config()
+    mois = M.normaliser_mois(request.form.get("mois") or mois_courant())
+    code = code.zfill(3)
+    m = next((x for x in membres() if x.code == code), None)
+    if not m:
+        flash("Membre introuvable.", "erreur")
+        return redirect(url_for("payer"))
+    ligne = M.pointage([m], paiements(), mois)["lignes"][0]
+    if ligne["statut"] in ("PAYE", "EXONERE", "NON_ACTIF"):
+        flash("Cette cotisation est déjà à jour.", "info")
+        return redirect(url_for("payer", code=code, mois=mois))
+    montant = int(ligne["reliquat"] or cfg["cotisation"] or 0)
+    base = (cfg.get("url_publique") or request.url_root).rstrip("/")
+    rep = P.creer_paiement(
+        ligne["reference"], montant,
+        suffixe=str(int(datetime.now().timestamp()))[-5:],
+        cfg=cfg,
+        client={"code": m.code, "nom": m.nom, "telephone": m.telephone,
+                "email": m.email},
+        notify_url=base + url_for("ipn_cinetpay"),
+        return_url=base + url_for("payer", code=code, mois=mois, retour=1),
+        description=f"Cotisation {M.libelle_mois(mois)} — {m.nom}",
+    )
+    if rep["ok"]:
+        return redirect(rep["url"])
+    flash(f"Paiement en ligne indisponible : {rep['erreur']}", "erreur")
+    return redirect(url_for("payer", code=code, mois=mois))
+
+
+@app.route("/api/ipn/cinetpay", methods=["POST"])
+def ipn_cinetpay():
+    """
+    Notification instantanée envoyée par CinetPay dès que le membre a payé.
+
+    Sécurité : on ne fait pas confiance au POST — on redemande le statut à
+    CinetPay (checkpay). Idempotent : une même transaction n'est jamais
+    créditée deux fois.
+    """
+    cfg = config()
+    f = request.form
+    tid = (f.get("transaction_id") or "").strip()
+    if not tid or not P.config_ok(cfg):
+        return jsonify({"code": "0", "message": "ignoré"})
+    verif = P.verifier_transaction(tid, cfg)
+    if verif["statut"] != P.ST_ACCEPTE:
+        return jsonify({"code": "0", "message": f"statut {verif['statut']}, ignoré"})
+    deja = db().execute("SELECT id FROM paiements WHERE canal = 'CinetPay' AND libelle = ?",
+                        (tid,)).fetchone()
+    if deja:
+        return jsonify({"code": "0", "message": "déjà traité"})
+    montant = verif["montant"] or int(re.sub(r"\D", "", f.get("amount", "") or "0") or 0)
+    if montant <= 0:
+        return jsonify({"code": "0", "message": "montant inconnu, ignoré"})
+    p = M.Paiement(id=0, date=date.today().isoformat(), montant=montant,
+                   canal="CinetPay", expediteur=(verif["client"] or "")[:80],
+                   telephone=f.get("payment_method", "")[:40],
+                   libelle=tid)  # contient la référence CCaamm### -> rapprochement auto
+    M.rapprocher_paiement(p, membres(), mois_courant())
+    db().execute("INSERT INTO paiements (date, montant, canal, expediteur, telephone,"
+                 " libelle, mois, membre_id, statut, methode) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                 (p.date, p.montant, p.canal, p.expediteur, p.telephone,
+                  p.libelle, p.mois, p.membre_id, p.statut, p.methode))
+    db().commit()
+    return jsonify({"code": "0",
+                    "message": f"crédité {nom_membre(p.membre_id) or 'à pointer'}"})
 
 
 # --------------------------------------------------------------------------- #

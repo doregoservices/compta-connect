@@ -4,6 +4,23 @@ Trois options, de la plus simple à la plus complète.
 
 ---
 
+## Pourquoi pas « GitHub Pages » ?
+
+GitHub Pages ne sait servir que des **pages figées** (HTML/CSS/JS). Compta Connect
+est un outil **vivant** : base de données des membres, import des relevés, pointage
+automatique, notifications de paiement… Il lui faut un petit serveur.
+
+Ce que GitHub apporte quand même, et c'est l'essentiel :
+
+- **le code est sauvegardé et versionné** sur `github.com/doregoservices/compta-connect` ;
+- **chaque modification poussée sur GitHub se déploie toute seule** sur Render
+  (option 2) — le dépôt GitHub reste le point de départ de tout.
+
+Le résultat pour les membres : une adresse fixe, du genre
+`https://compta-connect.onrender.com/payer`, à épingler dans le groupe WhatsApp.
+
+---
+
 ## Option 1 — En local sur l'ordinateur du trésorier (le plus simple)
 
 Suffisant si une seule personne gère le pointage.
@@ -30,6 +47,13 @@ la machine (`http://192.168.x.x:8000`), affichée au démarrage.
 2. Le dépôt `doregoservices/compta-connect` accessible.
 
 ### Étapes
+
+**Méthode express (recommandée)** : Render → **New +** → **Blueprint** →
+choisir le dépôt `compta-connect`. Le fichier `render.yaml` à la racine du dépôt
+configure tout automatiquement (serveur, variables, vérification de santé).
+Vous n'avez plus qu'à cliquer sur **Apply**.
+
+Méthode manuelle, si vous préférez tout remplir :
 
 1. Render → **New +** → **Web Service**.
 2. Choisir le dépôt `compta-connect`.
@@ -208,3 +232,49 @@ Puis vérifier à la main :
 2. `/payer?code=001` → la situation du membre 001 et un QR code,
 3. `/portail/connexion` → connexion avec un code + 4 chiffres,
 4. enregistrer un paiement test puis le supprimer.
+
+---
+
+## Paiement en ligne automatique (CinetPay) — comme Chariow, sans ses 15 %
+
+Le membre clique sur **« Payer maintenant »** sur sa page, règle par mobile money
+ou carte, et CinetPay notifie l'outil immédiatement : le pointage passe à jour
+**tout seul**, sans aucune saisie du trésorier.
+
+### Mise en place (une seule fois, ~15 minutes)
+
+1. Créer un compte marchand sur [cinetpay.com](https://cinetpay.com)
+   (entreprise ivoirienne ; commission ≈ 3,5 %, contre 15 % chez Chariow).
+2. Dans le tableau de bord CinetPay, créer une **page de paiement** pour le réseau.
+3. Noter l'**identifiant du site** (site_id) et la **clé API** (apikey).
+4. Dans l'outil : **Paramètres → Paiement en ligne automatique** :
+   - activer le bouton,
+   - coller le site_id et l'apikey,
+   - renseigner l'**adresse publique** de l'outil (ex. `https://compta-connect.onrender.com/`).
+5. Dans CinetPay, déclarer l'**URL de notification** :
+   `https://ADRESSE-DE-L-OUTIL/api/ipn/cinetpay`
+
+### Tester sans argent réel
+
+CinetPay fournit des **clés sandbox** (bac à sable) : configurez-les d'abord,
+réglez une cotisation fictive, vérifiez que la ligne du membre passe à
+<span>« à jour »</span> seule. Puis basculez sur les clés de production.
+
+### Sécurité intégrée
+
+- La notification de CinetPay n'est jamais crue sur parole : l'outil **revérifie
+  le statut auprès de CinetPay** avant de créditer.
+- Une même transaction ne peut pas être créditée deux fois (idempotence).
+- Les transferts directs (Wave/OM/MTN avec la référence en motif) restent
+  possibles en parallèle — 0 % de frais pour ceux qui préfèrent.
+
+### Ce que ça change pour le trésorier
+
+| | Chariow | Import manuel | CinetPay intégré |
+|---|---|---|---|
+| Le membre clique et paie | ✅ | ❌ (transfert + motif) | ✅ |
+| Pointage instantané | ✅ | ❌ (import mensuel) | ✅ |
+| Frais sur 5 000 FCFA | 750 | 0 | ≈ 175 |
+| Frais pour 80 membres/mois | 60 000 | 0 | ≈ 14 000 |
+
+Les deux modes cohabitent : le bouton pour le confort, le motif pour le zéro frais.
