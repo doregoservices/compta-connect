@@ -1112,9 +1112,9 @@ async function sb(table, options){
 
 async function chargerDonnees(){
   const [membres, paiements, settings] = await Promise.all([
-    sb("membres?select=*&order=code.asc"),
-    sb("paiements?select=*"),
-    sb("settings?select=*"),
+    sb("cc_membres?select=*&order=code.asc"),
+    sb("cc_paiements?select=*"),
+    sb("cc_settings?select=*"),
   ]);
   etat.membres = membres.map(m => Object.assign({ actif:true, exonere:false }, m));
   etat.paiements = paiements;
@@ -1295,8 +1295,10 @@ async function faireConnexion(){
 function vueInstallation(){
   return '<main style="max-width:560px"><div class="carte"><h3>Connexion à Supabase</h3>'
     + '<div class="alerte al-info">Cette application fonctionne comme FKS Industrie : les pages sont sur GitHub, '
-    + 'les données sont dans un projet <strong>Supabase</strong> gratuit. Collez ici les identifiants de votre projet '
-    + '(Supabase → Paramètres → API), puis exécutez le fichier <strong>supabase/schema.sql</strong> du dépôt dans SQL Editor.</div>'
+    + 'les données sont dans Supabase. <strong>Pas besoin de nouveau projet</strong> : utilisez l’un de vos projets '
+    + 'existants — toutes les tables sont préfixées « cc_ » et ne touchent à rien d’autre. '
+    + 'Exécutez d’abord le fichier <strong>supabase/schema.sql</strong> du dépôt dans SQL Editor, '
+    + 'puis collez ici l’URL et la clé anon du projet (Paramètres → API).</div>'
     + '<div class="champ"><span>URL du projet</span><input id="sbUrl" placeholder="https://xxxx.supabase.co" value="'+ech(etat.cfg?etat.cfg.url:"")+'"></div>'
     + '<div class="champ"><span>Clé anon (publique)</span><input id="sbAnon" placeholder="eyJhbGciOi..." value="'+ech(etat.cfg?etat.cfg.anon:"")+'"></div>'
     + '<button class="btn blk" onclick="enregistrerCfg()">Enregistrer et continuer</button>'
@@ -1382,7 +1384,7 @@ async function ajouterMembre(){
   const nom = $("#mNom").value.trim();
   if(!nom || code === "000"){ toast("Code et nom obligatoires.", "err"); return; }
   try{
-    await sb("membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
+    await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
       body: JSON.stringify({ code, nom, telephone: $("#mTel").value.trim(), ville: $("#mVille").value.trim(),
         specialite: $("#mSpe").value.trim(), cotisation: parseInt(($("#mCot").value||"5000").replace(/\D/g,""),10)||5000 }) });
     await chargerDonnees(); toast("Membre ajouté.", "ok"); rendu();
@@ -1390,7 +1392,7 @@ async function ajouterMembre(){
 }
 async function supprimerMembre(id){
   if(!confirm("Supprimer ce membre ?")) return;
-  await sb("membres?id=eq."+id, { method:"DELETE" });
+  await sb("cc_membres?id=eq."+id, { method:"DELETE" });
   await chargerDonnees(); rendu();
 }
 async function importerMembres(){
@@ -1400,7 +1402,7 @@ async function importerMembres(){
     const c = ligne.split(/[,;\t]/).map(x => x.trim());
     if(!c[1]) continue;
     try{
-      await sb("membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
+      await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
         body: JSON.stringify({ code: (c[0]||"").replace(/\D/g,"").padStart(3,"0"), nom: c[1],
           telephone: c[2]||"", ville: c[3]||"", cotisation: 5000 }) });
       nb++;
@@ -1489,7 +1491,7 @@ async function ajouterPaiement(){
     rapprocherPaiement(p, etat.membres, moisCourant());
   }
   try{
-    await sb("paiements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(p) });
+    await sb("cc_paiements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(p) });
     await chargerDonnees();
     toast(p.membre_id ? "Paiement pointé ✓" : "Paiement enregistré — à pointer manuellement.", "ok");
     rendu();
@@ -1514,7 +1516,7 @@ async function importerPaiements(){
   }
   if(!corps.length){ toast("Aucun paiement valide trouvé.", "err"); return; }
   try{
-    await sb("paiements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await sb("cc_paiements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees();
     toast("Import : "+nbAuto+" pointé(s) automatiquement, "+nbManuel+" à pointer.", "ok");
     rendu();
@@ -1522,7 +1524,7 @@ async function importerPaiements(){
 }
 async function supprimerPaiement(id){
   if(!confirm("Supprimer ce paiement ?")) return;
-  await sb("paiements?id=eq."+id, { method:"DELETE" });
+  await sb("cc_paiements?id=eq."+id, { method:"DELETE" });
   await chargerDonnees(); rendu();
 }
 
@@ -1551,7 +1553,7 @@ async function enregistrerParametres(){
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();
-      await sb("settings", { method:"POST",
+      await sb("cc_settings", { method:"POST",
         headers:{ "Prefer":"resolution=merge-duplicates" },
         body: JSON.stringify({ cle, valeur }) });
     }

@@ -1,9 +1,14 @@
 -- ============================================================
--- ComptaConnect — base de données Supabase (gratuit)
--- À coller une seule fois dans : Supabase → SQL Editor → Run
+-- ComptaConnect — à coller dans UN PROJET SUPABASE EXISTANT
+-- (Supabase → SQL Editor → coller → Run)
+--
+-- Toutes les tables sont préfixées « cc_ » : elles cohabitent avec
+-- les autres applications du projet SANS rien modifier ni écraser.
+-- Aucune création de troisième projet n'est nécessaire.
 -- ============================================================
 
-create table if not exists membres (
+
+create table if not exists cc_membres (
   id bigserial primary key,
   code text unique not null,
   nom text not null,
@@ -17,7 +22,7 @@ create table if not exists membres (
   exonere boolean default false
 );
 
-create table if not exists paiements (
+create table if not exists cc_paiements (
   id bigserial primary key,
   date date not null default current_date,
   montant integer not null,
@@ -26,38 +31,38 @@ create table if not exists paiements (
   telephone text default '',
   libelle text default '',
   mois text default '',
-  membre_id bigint references membres(id) on delete set null,
+  membre_id bigint references cc_membres(id) on delete set null,
   statut text default 'NON_RAPPROCHE',
   methode text default 'aucun'
 );
 
-create table if not exists settings (
+create table if not exists cc_settings (
   cle text primary key,
   valeur text default ''
 );
 
 -- Sécurité : lecture publique (page membre), écriture réservée au trésorier connecté
-alter table membres  enable row level security;
-alter table paiements enable row level security;
-alter table settings enable row level security;
+alter table cc_membres  enable row level security;
+alter table cc_paiements enable row level security;
+alter table cc_settings enable row level security;
 
-drop policy if exists "lecture publique membres" on membres;
-create policy "lecture publique membres" on membres for select using (true);
-drop policy if exists "ecriture tresorier membres" on membres;
-create policy "ecriture tresorier membres" on membres for all to authenticated using (true) with check (true);
+drop policy if exists "lecture publique cc_membres" on cc_membres;
+create policy "lecture publique cc_membres" on cc_membres for select using (true);
+drop policy if exists "ecriture tresorier cc_membres" on cc_membres;
+create policy "ecriture tresorier cc_membres" on cc_membres for all to authenticated using (true) with check (true);
 
-drop policy if exists "lecture publique paiements" on paiements;
-create policy "lecture publique paiements" on paiements for select using (true);
-drop policy if exists "ecriture tresorier paiements" on paiements;
-create policy "ecriture tresorier paiements" on paiements for all to authenticated using (true) with check (true);
+drop policy if exists "lecture publique cc_paiements" on cc_paiements;
+create policy "lecture publique cc_paiements" on cc_paiements for select using (true);
+drop policy if exists "ecriture tresorier cc_paiements" on cc_paiements;
+create policy "ecriture tresorier cc_paiements" on cc_paiements for all to authenticated using (true) with check (true);
 
-drop policy if exists "lecture publique settings" on settings;
-create policy "lecture publique settings" on settings for select using (true);
-drop policy if exists "ecriture tresorier settings" on settings;
-create policy "ecriture tresorier settings" on settings for all to authenticated using (true) with check (true);
+drop policy if exists "lecture publique cc_settings" on cc_settings;
+create policy "lecture publique cc_settings" on cc_settings for select using (true);
+drop policy if exists "ecriture tresorier cc_settings" on cc_settings;
+create policy "ecriture tresorier cc_settings" on cc_settings for all to authenticated using (true) with check (true);
 
 -- Réglages du réseau (extraits du relevé officiel de juin 2026)
-insert into settings (cle, valeur) values
+insert into cc_settings (cle, valeur) values
   ('reseau', 'ComptaConnect'),
   ('slogan', 'Le réseau des professionnels de la comptabilité'),
   ('cotisation', '5000'),
@@ -71,9 +76,9 @@ insert into settings (cle, valeur) values
 on conflict (cle) do nothing;
 
 -- ============================================================
--- Les 80 membres réels du relevé Chariow de juin 2026
+-- Les 80 cc_membres réels du relevé Chariow de juin 2026
 -- ============================================================
-insert into membres (code, nom, telephone, ville, cotisation, date_adhesion) values
+insert into cc_membres (code, nom, telephone, ville, cotisation, date_adhesion) values
   ('001', 'Gbahonnon Josée-therese Oraga', '', 'Côte d''Ivoire', 5000, '2026-06-10'),
   ('002', 'Aminata Fadiga', '', 'Côte d''Ivoire', 5000, '2026-06-10'),
   ('003', 'Ahoua Koné', '', 'Côte d''Ivoire', 5000, '2026-06-11'),
@@ -157,9 +162,9 @@ insert into membres (code, nom, telephone, ville, cotisation, date_adhesion) val
 on conflict (code) do nothing;
 
 -- Les 80 cotisations de juin 2026 déjà encaissées via Chariow (historique)
-insert into paiements (date, montant, canal, expediteur, telephone, libelle, mois, membre_id, statut, methode)
+insert into cc_paiements (date, montant, canal, expediteur, telephone, libelle, mois, membre_id, statut, methode)
 select p.date, p.montant, 'Chariow (relevé importé)', p.expediteur, p.telephone, p.libelle, p.mois,
-       (select id from membres m where m.code = mm.code), 'RAPPROCHE', 'manuel'
+       (select id from cc_membres m where m.code = mm.code), 'RAPPROCHE', 'manuel'
 from (values
   ('2026-06-10', 5000, 'Gbahonnon Josée-therese Oraga', '', 'Import relevé Chariow — prélevé 750 FCFA, net 4250 FCFA', '2026-06', '001'),
   ('2026-06-10', 5000, 'Aminata Fadiga', '', 'Import relevé Chariow — prélevé 750 FCFA, net 4250 FCFA', '2026-06', '002'),
@@ -242,5 +247,5 @@ from (values
   ('2026-07-08', 5000, 'Kouadio Sébastien Kouame', '', 'Import relevé Chariow — prélevé 750 FCFA, net 4250 FCFA', '2026-06', '079'),
   ('2026-07-11', 5000, 'Kouadio Stephane', '', 'Import relevé Chariow — prélevé 750 FCFA, net 4250 FCFA', '2026-06', '080')
 ) as p(date, montant, expediteur, telephone, libelle, mois, code)
-join membres mm on mm.code = p.code
-where not exists (select 1 from paiements x where x.libelle = p.libelle);
+join cc_membres mm on mm.code = p.code
+where not exists (select 1 from cc_paiements x where x.libelle = p.libelle);

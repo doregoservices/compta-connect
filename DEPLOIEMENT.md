@@ -11,18 +11,22 @@ données sont dans un projet Supabase gratuit**. Aucun serveur à payer, aucune
 mise en veille, adresse fixe `https://doregoservices.github.io/compta-connect/`.
 
 Le site est déjà construit et poussé (dossier `docs/`, activé dans
-Settings → Pages). Il reste la base de données, une seule fois :
+Settings → Pages). Il reste la base de données, une seule fois.
 
-1. **Créer le projet Supabase** (compte gratuit, inscription possible avec GitHub) :
-   [supabase.com](https://supabase.com) → *New project* → mot de passe fort,
-   région *West Europe* ou *North Africa* si proposée.
+**Pas besoin de créer un troisième projet** : le plan gratuit de Supabase
+limite à 2 projets actifs. ComptaConnect s'installe **dans l'un de vos projets
+existants** — toutes ses tables sont préfixées `cc_` et cohabitent sans rien
+modifier ni écraser.
+
+1. **Choisir le projet** Supabase qui hébergera ComptaConnect (n'importe
+   lequel des deux ; les données des autres applications ne sont pas touchées).
 2. **Installer la base** : menu *SQL Editor* → ouvrir `supabase/schema.sql`
    du dépôt (bouton *Raw*), tout copier, coller, **Run**.
-   Ce fichier crée les tables, la sécurité, ET vos 80 membres réels avec les
-   cotisations de juin 2026 déjà pointées.
+   Ce fichier crée les tables `cc_`, la sécurité, ET vos 80 membres réels avec
+   les cotisations de juin 2026 déjà pointées.
 3. **Créer le compte trésorier** : *Authentication* → *Users* → *Add user* →
-   votre email + un mot de passe (décochez « auto-confirm » si proposé… cochez-le
-   au contraire pour éviter l'email de confirmation).
+   votre email + un mot de passe (cochez « auto-confirm » pour éviter
+   l'email de confirmation).
 4. **Brancher l'application** : ouvrir le site, coller l'**URL du projet** et la
    **clé anon** (Supabase → *Paramètres* → *API*), enregistrer.
 5. **Se connecter** avec l'email du trésorier : le tableau de bord s'ouvre.
