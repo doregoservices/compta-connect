@@ -39,6 +39,12 @@ reçoit son code + la référence à mettre en motif, paie 5 000 F ; dès que le
 est rapproché (import de relevé, saisie du trésorier ou futur webhook CinetPay), son
 compte s'active et la page lui remet le lien WhatsApp et le numéro du trésorier.
 
+**Trésorerie** : exécuter `supabase/tresorerie.sql` (table `cc_depenses`, visible
+uniquement par le trésorier connecté, + lien Skool remis aux membres). L'onglet
+*Trésorerie* donne recettes, dépenses, solde de caisse, le journal des dépenses et la
+liste des membres redevables (cumul depuis l'adhésion) avec relance WhatsApp préremplie.
+Chaque membre voit sur sa page le détail mois par mois depuis son adhésion.
+
 La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`
 
 > Sécurité : la clé anon est publique par conception (comme dans FKS) — la
