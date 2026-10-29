@@ -11,7 +11,13 @@ Aucune clé n'est dans le code : les fonctions utilisent la clé service du proj
 automatiquement par Supabase) pour lire `cc_secrets`, où le trésorier a collé lui-même
 l'API Key et le Site ID depuis *Paramètres*.
 
-## Déploiement (10 minutes, une fois)
+## État : DÉPLOYÉES le 29/10/2026 sur le projet `ewcxndlelagtrlshadlj` (v1, verify_jwt=false)
+
+Pour une future mise à jour, deux voies :
+- API de gestion : `POST https://api.supabase.com/v1/projects/<ref>/functions/deploy?slug=<nom>` (multipart : metadata + fichiers), avec un jeton d'accès personnel ;
+- ou la CLI ci-dessous.
+
+## Déploiement par la CLI (alternative)
 
 1. Installer la CLI Supabase : `npm i -g supabase` (ou `brew install supabase/tap/supabase`)
 2. `supabase login` (ouvre le navigateur)
