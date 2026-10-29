@@ -31,6 +31,14 @@ modifier ni écraser.
    **clé anon** (Supabase → *Paramètres* → *API*), enregistrer.
 5. **Se connecter** avec l'email du trésorier : le tableau de bord s'ouvre.
 
+**Nouveaux membres (adhésion en ligne)** : exécuter aussi `supabase/adhesion.sql`
+dans SQL Editor, puis renseigner dans *Paramètres* le **lien d'invitation du groupe
+WhatsApp** et le droit d'adhésion. Lien à diffuser :
+`https://doregoservices.github.io/compta-connect/#/adherer` — le nouveau s'inscrit,
+reçoit son code + la référence à mettre en motif, paie 5 000 F ; dès que le paiement
+est rapproché (import de relevé, saisie du trésorier ou futur webhook CinetPay), son
+compte s'active et la page lui remet le lien WhatsApp et le numéro du trésorier.
+
 La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`
 
 > Sécurité : la clé anon est publique par conception (comme dans FKS) — la

@@ -1133,6 +1133,7 @@ async function connexion(email, motdepasse){
   etat.session = { token: j.access_token, email };
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
 }
+async function rafraichir(){ try{ await chargerDonnees(); rendu(); toast("Situation actualisée.", "ok"); }catch(e){ toast(e.message, "err"); } }
 function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); aller("#/"); }
 
 function aller(hash){ location.hash = hash; }
@@ -1179,7 +1180,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a><a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1198,6 +1199,7 @@ function rendu(){
   try{
     if(!etat.cfg) corps = vueInstallation();
     else if(route === "payer") corps = vuePayer(params);
+    else if(route === "adherer") corps = vueAdherer();
     else if(route === "connexion") corps = vueConnexion();
     else if(route === "installer") corps = vueInstallation();
     else if(!etat.session) corps = vueAccueil();
@@ -1221,7 +1223,8 @@ function vueAccueil(){
     + '<p style="color:#cfe3da;margin:0 0 14px">'+ech(etat.settings.slogan||"")+'</p>'
     + '<div style="max-width:340px;margin:0 auto;display:flex;gap:8px">'
     + '<input id="codeAccueil" placeholder="Votre code membre (ex. 006)" inputmode="numeric" maxlength="3">'
-    + '<button class="btn" onclick="verifierCode()">Vérifier</button></div></div>'
+    + '<button class="btn" onclick="verifierCode()">Vérifier</button></div>'
+    + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(etat.settings.adhesion||etat.settings.cotisation||5000)+' FCFA</a></p></div>'
     + '<div class="carte"><h3>Comment ça marche ?</h3>'
     + '<div class="etape"><div class="n">1</div><div>Chaque membre possède un <strong>code à 3 chiffres</strong> (donné par le trésorier).</div></div>'
     + '<div class="etape"><div class="n">2</div><div>Saisissez votre code : vous voyez votre situation et la <strong>référence du mois</strong>.</div></div>'
@@ -1247,7 +1250,9 @@ function vuePayer(params){
     if(code !== "000") corps += '<div class="alerte al-err">Code '+ech(code)+' introuvable. Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
     return corps + '</main>';
   }
-  const l = pointage([m], etat.paiements, mois).lignes[0];
+  const enAttente = !m.actif;
+  const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
+  setTimeout(() => chargerBienvenue(code), 0);
   const badges = { PAYE:'<span class="badge b-paye">à jour</span>', PARTIEL:'<span class="badge b-partiel">paiement partiel</span>',
     IMPAYE:'<span class="badge b-impaye">non réglée</span>', AVANCE:'<span class="badge b-avance">avance</span>',
     EXONERE:'<span class="badge b-neutre">exonéré</span>' };
@@ -1256,9 +1261,13 @@ function vuePayer(params){
   const canaux = [["Wave", etat.settings.wave_numero],["Orange Money", etat.settings.om_numero],["MTN MoMo", etat.settings.mtn_numero]]
     .filter(c => c[1]).map(c => '<div>• <strong>'+c[0]+'</strong> : <a href="tel:'+ech(c[1])+'">'+ech(c[1])+'</a></div>').join("");
   return corps
-    + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — cotisation '+libelleMois(mois)+'</h3>'
-    + '<p>'+(badges[l.statut]||"")+'</p>'
-    + '<div class="grille g2"><div class="kpi"><div class="t">Cotisation du mois</div><div class="v">'+fcfa(l.du)+' F</div></div>'
+    + '<div id="bienvenue"></div>'
+    + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le code <strong>'+ech(code)+'</strong> (gardez-le précieusement). '
+        + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> ci-dessous : dès réception, votre compte est activé et le lien du groupe WhatsApp apparaît ici. '
+        + '<a href="javascript:void(0)" onclick="rafraichir()">Déjà payé ? Actualiser</a></div>' : "")
+    + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
+    + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
+    + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
     + '<div style="margin-top:12px"><div class="mut" style="text-align:center">Motif à saisir lors du transfert</div>'
@@ -1273,6 +1282,52 @@ function vuePayer(params){
     + (canaux ? '<hr style="border:none;border-top:1px solid var(--ligne);margin:12px 0">'+canaux : "")
     + '<p class="mut">Trésorier : '+ech(etat.settings.tresorier||"")+' · '+ech(etat.settings.tresorier_tel||"")+'</p></div>'
     + '</main>';
+}
+
+/* --------------------------- Adhésion --------------------------- */
+function vueAdherer(){
+  const montant = fcfa(etat.settings.adhesion||etat.settings.cotisation||5000);
+  const champ = (id, label, type, ph, req) => '<div class="champ"><span>'+label+(req?' *':'')+'</span>'
+    + '<input id="'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'"></div>';
+  return '<main style="max-width:560px"><div class="carte"><h3>Devenir membre de '+ech(etat.settings.reseau||"ComptaConnect")+'</h3>'
+    + '<p class="mut">Remplissez ce formulaire, réglez votre adhésion de <strong>'+montant+' FCFA</strong> par mobile money, '
+    + 'et recevez immédiatement le lien du groupe WhatsApp ainsi que le contact du trésorier.</p>'
+    + champ("aNom","Nom et prénoms","text","Ex. KOUASSI Aya Flaure",true)
+    + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
+    + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
+    + champ("aEmail","Email","email","facultatif")
+    + '<button class="btn blk" id="aBtn" onclick="soumettreAdhesion()">Continuer vers le paiement →</button>'
+    + '<p class="mut" style="margin-top:10px">Déjà membre ? <a href="#/">Vérifiez votre situation avec votre code</a>.</p>'
+    + '</div></main>';
+}
+async function soumettreAdhesion(){
+  const nom = $("#aNom").value.trim(), tel = $("#aTel").value.trim();
+  if(nom.length < 3){ toast("Indiquez votre nom complet.", "err"); return; }
+  if(tel.replace(/\D/g,"").length < 8){ toast("Indiquez un numéro de téléphone valide.", "err"); return; }
+  const btn = $("#aBtn"); btn.disabled = true; btn.textContent = "Enregistrement…";
+  try{
+    const r = await sb("rpc/cc_adherer", { method:"POST", body: JSON.stringify({
+      p_nom: nom, p_tel: tel, p_ville: $("#aVille").value.trim(),
+      p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim() }) });
+    await chargerDonnees();
+    if(r.existant) toast("Ce numéro est déjà enregistré — voici votre situation.", "ok");
+    aller("#/payer?code=" + String(r.code).padStart(3,"0") + "&nouveau=1");
+  }catch(e){ toast("Inscription impossible : " + e.message, "err"); btn.disabled = false; btn.textContent = "Continuer vers le paiement →"; }
+}
+async function chargerBienvenue(code){
+  const zone = $("#bienvenue"); if(!zone) return;
+  try{
+    const r = await sb("rpc/cc_bienvenue", { method:"POST", body: JSON.stringify({ p_code: code }) });
+    if(!r.ok){ zone.innerHTML = ""; return; }
+    zone.innerHTML = '<div class="carte" style="border:2px solid var(--or)"><h3>🎉 Bienvenue, '+ech(r.nom.split(" ")[0])+' !</h3>'
+      + '<p>'+ech(r.message||"")+'</p>'
+      + (r.whatsapp ? '<p><a class="btn blk" style="background:#25D366" href="'+ech(r.whatsapp)+'" target="_blank" rel="noopener">Rejoindre le groupe WhatsApp</a></p>'
+                    : '<p class="mut">Le lien du groupe WhatsApp vous sera communiqué par le trésorier.</p>')
+      + '<p><strong>Trésorier :</strong> '+ech(r.tresorier||"")+'<br>'
+      + '<a href="tel:'+ech(r.tresorier_tel||"")+'">'+ech(r.tresorier_tel||"")+'</a> · '
+      + '<a href="https://wa.me/'+ech(String(r.tresorier_tel||"").replace(/\D/g,""))+'" target="_blank" rel="noopener">Écrire sur WhatsApp</a></p>'
+      + '</div>';
+  }catch(e){ zone.innerHTML = ""; }
 }
 
 /* --------------------------- Connexion --------------------------- */
@@ -1375,7 +1430,7 @@ function vueMembres(){
     + '<div class="carte"><h3>Liste — situation '+libelleMois(mois)+'</h3><div class="survol"><table>'
     + '<tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>'+libelleMois(mois)+'</th><th></th></tr>'
     + etat.membres.map(m => '<tr><td><strong>'+m.code+'</strong></td><td>'+ech(m.nom)+'</td><td>'+ech(m.telephone)+'</td>'
-      + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+badge(statutDe[m.id])+'</td>'
+      + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">adhésion en attente</span>')+'</td>'
       + '<td><button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
@@ -1541,6 +1596,8 @@ function vueParametres(){
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
     + champ("wave_numero","Numéro Wave") + champ("om_numero","Numéro Orange Money")
     + champ("mtn_numero","Numéro MTN MoMo")
+    + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
+    + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("bienvenue","Message de bienvenue")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
@@ -1549,7 +1606,7 @@ function vueParametres(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","wave_numero","om_numero","mtn_numero"];
+    "contact_email","site_web","wave_numero","om_numero","mtn_numero","adhesion","whatsapp_lien","bienvenue"];
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();
