@@ -163,7 +163,7 @@ on conflict (code) do nothing;
 
 -- Les 80 cotisations de juin 2026 déjà encaissées via Chariow (historique)
 insert into cc_paiements (date, montant, canal, expediteur, telephone, libelle, mois, membre_id, statut, methode)
-select p.date, p.montant, 'Chariow (relevé importé)', p.expediteur, p.telephone, p.libelle, p.mois,
+select p.date::date, p.montant::numeric, 'Chariow (relevé importé)', p.expediteur, p.telephone, p.libelle, p.mois,
        (select id from cc_membres m where m.code = mm.code), 'RAPPROCHE', 'manuel'
 from (values
   ('2026-06-10', 5000, 'Gbahonnon Josée-therese Oraga', '', 'Import relevé Chariow — prélevé 750 FCFA, net 4250 FCFA', '2026-06', '001'),
