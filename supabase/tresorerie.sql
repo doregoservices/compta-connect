@@ -49,3 +49,24 @@ drop policy if exists "lecture tresorier cc_depenses" on cc_depenses;
 create policy "lecture tresorier cc_depenses" on cc_depenses for select to authenticated using (true);
 drop policy if exists "ecriture tresorier cc_depenses" on cc_depenses;
 create policy "ecriture tresorier cc_depenses" on cc_depenses for all to authenticated using (true) with check (true);
+
+-- 3) Clés CinetPay : table PRIVÉE (aucune lecture publique ; trésoriers connectés uniquement).
+--    Le titulaire du compte CinetPay les saisit lui-même dans Paramètres.
+create table if not exists cc_secrets (
+  cle text primary key,
+  valeur text not null,
+  maj_le timestamptz default now()
+);
+alter table cc_secrets enable row level security;
+drop policy if exists "tresorier cc_secrets" on cc_secrets;
+create policy "tresorier cc_secrets" on cc_secrets for all to authenticated using (true) with check (true);
+create or replace function cc_secrets_maj() returns trigger language plpgsql as $$
+begin new.maj_le := now(); return new; end $$;
+drop trigger if exists trg_cc_secrets_maj on cc_secrets;
+create trigger trg_cc_secrets_maj before insert or update on cc_secrets for each row execute function cc_secrets_maj();
+
+-- Droits explicites (Supabase les donne par défaut ; on les fixe pour être sûr)
+grant select, insert, update, delete on cc_depenses to authenticated;
+grant usage, select on sequence cc_depenses_id_seq to authenticated;
+grant select, insert, update, delete on cc_secrets to authenticated;
+revoke all on cc_secrets from anon;

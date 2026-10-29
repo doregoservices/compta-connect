@@ -40,9 +40,11 @@ est rapproché (import de relevé, saisie du trésorier ou futur webhook CinetPa
 compte s'active et la page lui remet le lien WhatsApp et le numéro du trésorier.
 
 **Trésorerie** : exécuter `supabase/tresorerie.sql` (table `cc_depenses`, visible
-uniquement par le trésorier connecté, + lien Skool remis aux membres). L'onglet
-*Trésorerie* donne recettes, dépenses, solde de caisse, le journal des dépenses et la
-liste des membres redevables (cumul depuis l'adhésion) avec relance WhatsApp préremplie.
+uniquement par le trésorier connecté, + lien Skool remis aux membres). Onglets séparés :
+*Dépenses* (saisie, point par catégorie, CSV + impression PDF) et *Solde* (report,
+recettes, dépenses, solde cumulé mois par mois, CSV + PDF). Le tableau de bord est
+général depuis le début ; chaque page se filtre par mois ou par période. Les clés
+CinetPay se saisissent dans *Paramètres* par le titulaire du compte (table privée `cc_secrets`).
 Chaque membre voit sur sa page le détail mois par mois depuis son adhésion.
 
 La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`

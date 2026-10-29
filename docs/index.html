@@ -1199,7 +1199,8 @@ const PAGES = [
   ["membres", "Membres", "vueMembres", true],
   ["pointage", "Pointage", "vuePointage", true],
   ["paiements", "Paiements", "vuePaiements", true],
-  ["tresorerie", "Trésorerie", "vueTresorerie", true],
+  ["depenses", "Dépenses", "vueDepenses", true],
+  ["solde", "Solde", "vueSolde", true],
   ["parametres", "Paramètres", "vueParametres", true],
 ];
 
@@ -1239,8 +1240,9 @@ function rendu(){
     else if(route === "membres") corps = vueMembres();
     else if(route === "pointage") corps = vuePointage(params);
     else if(route === "paiements") corps = vuePaiements(params);
-    else if(route === "parametres") corps = vueParametres();
-    else if(route === "tresorerie") corps = vueTresorerie();
+    else if(route === "parametres"){ corps = vueParametres(); setTimeout(etatCles, 0); }
+    else if(route === "depenses") corps = vueDepenses();
+    else if(route === "solde") corps = vueSolde();
     else corps = vueAccueil();
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
@@ -1430,33 +1432,137 @@ async function enregistrerCfg(){
 }
 
 /* --------------------------- Tableau de bord --------------------------- */
+/* --------------------------- Périodes (filtre commun) --------------------------- */
+/* params : (rien) = tout depuis le début ; ?mois=AAAA-MM ; ?debut=AAAA-MM&fin=AAAA-MM */
+function premierMoisConnu(){
+  let d = null;
+  for(const m of etat.membres){ const x = String(m.date_adhesion||""); if(/^\d{4}-\d{2}/.test(x) && (!d || x.slice(0,7) < d)) d = x.slice(0,7); }
+  for(const p of etat.paiements){ for(const x of [p.mois, p.date]){ const y = String(x||""); if(/^\d{4}-\d{2}/.test(y)){ const n = normaliserMois(y.slice(0,7)); if(!d || n < d) d = n; } } }
+  for(const dp of (etat.depenses||[])){ const y = String(dp.date||"").slice(0,7); if(/^\d{4}-\d{2}$/.test(y) && (!d || y < d)) d = y; }
+  return d || moisCourant();
+}
+function periodeDepuisParams(params){
+  const cour = moisCourant();
+  if(params.mois) { const m = normaliserMois(params.mois); return { debut:m, fin:m, mode:"mois" }; }
+  if(params.debut || params.fin){
+    const debut = normaliserMois(params.debut || premierMoisConnu()), fin = normaliserMois(params.fin || cour);
+    return { debut: debut <= fin ? debut : fin, fin: debut <= fin ? fin : debut, mode:"periode" };
+  }
+  return { debut: premierMoisConnu(), fin: cour, mode:"tout" };
+}
+function libellePeriode(per){
+  if(per.mode === "mois") return libelleMois(per.debut);
+  if(per.mode === "periode") return libelleMois(per.debut) + " → " + libelleMois(per.fin);
+  return "depuis le début (" + libelleMois(per.debut) + " → " + libelleMois(per.fin) + ")";
+}
+function dansPeriode(valeur, per){
+  const v = String(valeur||"").slice(0,7); if(!/^\d{4}-\d{2}$/.test(v)) return false;
+  return v >= per.debut && v <= per.fin;
+}
+function listeMois(per){ const l = []; for(let m = per.debut; m <= per.fin && l.length < 240; m = moisSuivant(m)) l.push(m); return l; }
+function barrePeriode(route, per, titre){
+  const base = "#/" + route;
+  return '<div class="carte" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+    + '<h3 style="margin:0">'+titre+' — '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
+    + '<select id="perMode" style="width:auto" onchange="changerPeriode(\''+route+'\')">'
+    + '<option value="tout"'+(per.mode==="tout"?" selected":"")+'>Tout depuis le début</option>'
+    + '<option value="mois"'+(per.mode==="mois"?" selected":"")+'>Un mois</option>'
+    + '<option value="periode"'+(per.mode==="periode"?" selected":"")+'>Une période</option></select>'
+    + '<input type="month" id="perDebut" value="'+per.debut+'" style="width:auto;display:'+(per.mode==="tout"?"none":"inline-block")+'" onchange="changerPeriode(\''+route+'\')">'
+    + '<input type="month" id="perFin" value="'+per.fin+'" style="width:auto;display:'+(per.mode==="periode"?"inline-block":"none")+'" onchange="changerPeriode(\''+route+'\')">'
+    + '</div>';
+}
+function changerPeriode(route){
+  const mode = $("#perMode").value, d = $("#perDebut").value, f = $("#perFin").value;
+  if(mode === "tout") aller("#/" + route);
+  else if(mode === "mois") aller("#/" + route + "?mois=" + (d || moisCourant()));
+  else aller("#/" + route + "?debut=" + (d || premierMoisConnu()) + "&fin=" + (f || moisCourant()));
+}
+/* Bilan cotisations d'une période : chaque membre doit sa cotisation pour chaque mois de la période depuis son adhésion. */
+function bilanPeriode(per){
+  const moisL = listeMois(per);
+  const lignes = []; let du = 0, verse = 0;
+  for(const m of etat.membres){
+    if(!m.actif) continue;
+    const cot = m.exonere ? 0 : parseInt(m.cotisation||0,10);
+    const debutM = moisDebutMembre(m, etat.paiements);
+    const moisDus = moisL.filter(x => x >= debutM);
+    const paies = etat.paiements.filter(p => String(p.membre_id) === String(m.id) && dansPeriode(p.mois, per) && normaliserMois(p.mois) >= debutM);
+    const d = cot * moisDus.length, v = paies.reduce((s,p)=>s+parseInt(p.montant,10),0);
+    const moisPayes = new Set(paies.map(p => normaliserMois(p.mois)));
+    const impayes = moisDus.filter(x => !moisPayes.has(x));
+    du += d; verse += v;
+    lignes.push({ membre:m, du:d, verse:v, reste: Math.max(0, d - v), nb_mois: moisDus.length, nb_impayes: impayes.length,
+      statut: cot === 0 ? "EXONERE" : d === 0 ? "HORS" : v >= d ? "PAYE" : v > 0 ? "PARTIEL" : "IMPAYE" });
+  }
+  const concernes = lignes.filter(l => l.statut !== "EXONERE" && l.statut !== "HORS");
+  const payes = concernes.filter(l => l.statut === "PAYE").length;
+  return { lignes, du, verse, manquant: Math.max(0, du - verse), nb_membres: lignes.length, nb_concernes: concernes.length,
+    nb_payes: payes, nb_partiels: concernes.filter(l => l.statut === "PARTIEL").length, nb_impayes: concernes.filter(l => l.statut === "IMPAYE").length,
+    taux: concernes.length ? Math.round(1000*payes/concernes.length)/10 : 0 };
+}
+/* Téléchargements */
+function telechargerCSV(nom, entetes, lignes){
+  const esc = v => { v = String(v==null?"":v); return /[;"\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  const csv = "\uFEFF" + [entetes, ...lignes].map(l => l.map(esc).join(";")).join("\r\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type:"text/csv;charset=utf-8"})); a.download = nom; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function imprimerZone(titre, html){
+  const w = window.open("", "_blank");
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>'+titre+'</title><style>'
+    + 'body{font-family:Arial,sans-serif;color:#0A1C2D;margin:24px}h1{font-size:20px;color:#06301E;margin:0 0 4px}h2{font-size:15px;margin:18px 0 6px;color:#0B5A38}'
+    + '.mut{color:#666;font-size:12px}table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}th,td{border:1px solid #cfd8d3;padding:5px 7px;text-align:left}th{background:#e8f1ec}'
+    + 'td.n,th.n{text-align:right}tfoot td{font-weight:bold;background:#f5f8f6}.kpis{display:flex;gap:14px;margin:10px 0}.kpi{border:1px solid #cfd8d3;border-radius:8px;padding:8px 12px;min-width:150px}.kpi b{display:block;font-size:17px}'
+    + '@media print{button{display:none}}</style></head><body>'
+    + '<h1>'+ech(etat.settings.reseau||"ComptaConnect")+' — '+titre+'</h1><div class="mut">Édité le '+new Date().toLocaleDateString("fr-FR")+' · Trésorier : '+ech(etat.settings.tresorier||"")+'</div>'
+    + html + '<p style="margin-top:18px"><button onclick="window.print()">Imprimer / Enregistrer en PDF</button></p></body></html>');
+  w.document.close(); setTimeout(() => { try{ w.focus(); w.print(); }catch(e){} }, 400);
+}
+function fdateFR(d){ d = String(d||""); return d.length >= 10 ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : d; }
+
+/* --------------------------- Tableau de bord (général) --------------------------- */
 function vueTableauBord(){
-  const mois = etat.params.mois || moisCourant();
-  const pt = pointage(etat.membres, etat.paiements, mois);
-  const caisse = etat.paiements.filter(p => normaliserMois(p.mois||"") === mois)
-    .reduce((s,p)=>s+parseInt(p.montant,10),0);
-  const relances = pt.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL");
+  const per = periodeDepuisParams(etat.params);
+  const b = bilanPeriode(per);
+  const encaisseDates = etat.paiements.filter(p => dansPeriode(p.date, per)).reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const depenses = (etat.depenses||[]).filter(d => dansPeriode(d.date, per)).reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const recettesTot = etat.paiements.reduce((s,p)=>s+parseInt(p.montant,10),0), depensesTot = (etat.depenses||[]).reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const relances = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").sort((x,y) => y.reste - x.reste);
+  const enAttente = etat.membres.filter(m => !m.actif).length;
+  const texteRelance = l => encodeURIComponent("Bonjour "+l.membre.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
+    +" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre situation : "+location.origin+location.pathname+"#/payer?code="+l.membre.code+" — Merci !");
   return '<main>'
-    + '<div class="carte" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    + '<h3 style="margin:0">Pointage — '+libelleMois(mois)+'</h3><span class="spacer" style="flex:1"></span>'
-    + '<input type="month" value="'+mois+'" style="width:auto" onchange="aller(\'#/?mois=\'+this.value)"></div>'
+    + barrePeriode("", per, "Tableau de bord")
     + '<div class="grille g4">'
-    + kpi("Membres actifs", pt.totaux.nb_membres, "")
-    + kpi("À jour", pt.totaux.nb_payes, "dont "+pt.totaux.nb_avances+" en avance")
-    + kpi("Partiels", pt.totaux.nb_partiels, "")
-    + kpi("Impayés", pt.totaux.nb_impayes, "taux : "+pt.totaux.taux+" %")
+    + kpi("Membres actifs", b.nb_membres, enAttente ? enAttente+" adhésion(s) en attente" : "")
+    + kpi("À jour", b.nb_payes, "sur "+b.nb_concernes+" concernés · "+b.taux+" %")
+    + kpi("Partiels", b.nb_partiels, "")
+    + kpi("Impayés", b.nb_impayes, "")
     + '</div>'
     + '<div class="grille g3" style="margin-top:12px">'
-    + kpi("Attendu", fcfa(pt.totaux.du)+" F", "")
-    + kpi("Encaissé", fcfa(pt.totaux.verse)+" F", pt.totaux.taux+" % des membres")
-    + kpi("Manquant", fcfa(pt.totaux.manquant)+" F", "")
+    + kpi("Cotisations attendues", fcfa(b.du)+" F", listeMois(per).length+" mois × membres")
+    + kpi("Cotisations encaissées", fcfa(b.verse)+" F", "")
+    + kpi("Manquant", fcfa(b.manquant)+" F", "")
     + '</div>'
-    + '<div class="carte" style="margin-top:14px"><h3>À relancer ('+relances.length+')</h3>'
-    + (relances.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Reste dû</th><th>Référence</th></tr>'
-      + relances.map(l => '<tr><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone)+'</td>'
-        + '<td>'+fcfa(l.reliquat)+' F</td><td style="font-family:monospace">'+l.reference+'</td></tr>').join("")
-      + '</table></div>' : '<p class="mut">Tout le monde est à jour. 🎉</p>')
+    + '<div class="grille g3" style="margin-top:12px">'
+    + kpi("Recettes (dates de paiement)", fcfa(encaisseDates)+" F", "")
+    + kpi("Dépenses", fcfa(depenses)+" F", '<a href="#/depenses">détail</a>')
+    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse global</div><div class="v" style="color:'+(recettesTot-depensesTot>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettesTot-depensesTot)+' F</div><div class="mut">depuis le début · <a href="#/solde">voir le solde</a></div></div>'
+    + '</div>'
+    + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
+    + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
+    + (relances.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
+      + relances.map(l => '<tr><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone||"")+'</td><td>'+l.nb_impayes+' / '+l.nb_mois+'</td>'
+        + '<td><strong>'+fcfa(l.reste)+' F</strong></td><td>'+(l.membre.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(l.membre.telephone)+'?text='+texteRelance(l)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
+      + '</table></div>' : '<p class="mut">Tout le monde est à jour sur cette période. 🎉</p>')
     + '</div></main>';
+}
+function exportRelances(){
+  const per = periodeDepuisParams(etat.params); const b = bilanPeriode(per);
+  const l = b.lignes.filter(x => x.statut === "IMPAYE" || x.statut === "PARTIEL");
+  telechargerCSV("redevables_"+per.debut+"_"+per.fin+".csv", ["Code","Membre","Téléphone","Mois dus","Mois impayés","Dû","Versé","Reste"],
+    l.map(x => [x.membre.code, x.membre.nom, x.membre.telephone, x.nb_mois, x.nb_impayes, x.du, x.verse, x.reste]));
 }
 function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="mut">'+s+'</div></div>'; }
 
@@ -1558,14 +1664,13 @@ function telecharger(nom, contenu){
 
 /* --------------------------- Paiements --------------------------- */
 function vuePaiements(params){
-  const mois = normaliserMois(params.mois || moisCourant());
-  const duMois = etat.paiements.filter(p => normaliserMois(p.mois||"0000-01") === mois)
+  const per = periodeDepuisParams(params);
+  const mois = per.mode === "mois" ? per.debut : moisCourant();
+  const duMois = etat.paiements.filter(p => dansPeriode(p.mois || p.date, per))
     .sort((a,b) => String(b.date).localeCompare(String(a.date)));
   const nomDe = id => { const m = etat.membres.find(x => String(x.id) === String(id)); return m ? m.nom : "—"; };
   return '<main>'
-    + '<div class="carte" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
-    + '<h3 style="margin:0">Paiements — '+libelleMois(mois)+'</h3><span style="flex:1"></span>'
-    + '<input type="month" value="'+mois+'" style="width:auto" onchange="aller(\'#/paiements?mois=\'+this.value)"></div>'
+    + barrePeriode("paiements", per, "Paiements")
     + '<div class="carte"><h3>Importer un relevé (le geste mensuel)</h3>'
     + '<p class="mut">Collez les lignes du relevé mobile money : <code>date;montant;expéditeur;téléphone;motif</code> — '
     + 'un paiement par ligne (date jj/mm/aaaa ou aaaa-mm-jj). Le rapprochement se fait tout seul grâce à la référence du motif.</p>'
@@ -1581,7 +1686,7 @@ function vuePaiements(params){
     + '<div class="champ"><span>Expéditeur</span><input id="pExp"></div>'
     + '<div class="champ"><span>Motif (référence)</span><input id="pLib" placeholder="CC'+moisCourt(mois)+'042"></div></div>'
     + '<button class="btn" onclick="ajouterPaiement()">Enregistrer</button></div>'
-    + '<div class="carte"><h3>Derniers paiements du mois ('+duMois.length+')</h3><div class="survol"><table>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Paiements ('+duMois.length+') — '+fcfa(duMois.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F</h3><span style="flex:1"></span><button class="btn sm sec" onclick="exportPaiementsCSV()">Télécharger CSV</button></div><div class="survol"><table>'
     + '<tr><th>Date</th><th>Montant</th><th>Canal</th><th>Membre</th><th>Motif</th><th>Détection</th><th></th></tr>'
     + duMois.slice(0,60).map(p => '<tr><td>'+dateFR(p.date)+'</td><td>'+fcfa(p.montant)+' F</td><td>'+ech(p.canal)+'</td>'
       + '<td>'+(p.membre_id ? ech(nomDe(p.membre_id)) : '<span class="badge b-impaye">à pointer</span>')+'</td>'
@@ -1633,34 +1738,34 @@ async function importerPaiements(){
     rendu();
   }catch(e){ toast("Import refusé : "+e.message, "err"); }
 }
+function exportPaiementsCSV(){
+  const per = periodeDepuisParams(etat.params);
+  const l = etat.paiements.filter(p => dansPeriode(p.mois || p.date, per)).sort((a,b) => String(a.date).localeCompare(String(b.date)));
+  const nomDe = id => { const m = etat.membres.find(x => String(x.id) === String(id)); return m ? m.code+" "+m.nom : ""; };
+  telechargerCSV("paiements_"+per.debut+"_"+per.fin+".csv", ["Date","Montant","Canal","Expéditeur","Téléphone","Motif","Mois","Membre","Statut"],
+    l.map(p => [p.date, p.montant, p.canal, p.expediteur, p.telephone, p.libelle, p.mois, nomDe(p.membre_id), p.statut]));
+}
 async function supprimerPaiement(id){
   if(!confirm("Supprimer ce paiement ?")) return;
   await sb("cc_paiements?id=eq."+id, { method:"DELETE" });
   await chargerDonnees(); rendu();
 }
 
-/* --------------------------- Trésorerie --------------------------- */
+/* --------------------------- Dépenses --------------------------- */
 const CATEGORIES_DEP = ["Frais plateforme / paiement","Communication & événements","Formation (Skool, supports)","Dons & solidarité","Fournitures","Transport","Autre"];
-function vueTresorerie(){
-  const mois = moisCourant();
-  const recettes = etat.paiements.reduce((s,p)=>s+parseInt(p.montant,10),0);
-  const depenses = etat.depenses.reduce((s,d)=>s+parseInt(d.montant,10),0);
-  const recMois = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois).reduce((s,p)=>s+parseInt(p.montant,10),0);
-  const depMois = etat.depenses.filter(d => String(d.date||"").slice(0,7) === mois).reduce((s,d)=>s+parseInt(d.montant,10),0);
-  const fdate = d => d ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : "";
-  const redevables = etat.membres.filter(m => m.actif && !m.exonere)
-    .map(m => Object.assign({ m }, historiqueMembre(m, etat.paiements, mois)))
-    .filter(h => h.reste > 0).sort((a,b) => b.reste - a.reste);
-  const totalAttendu = redevables.reduce((s,h)=>s+h.reste,0);
-  const texteRelance = h => encodeURIComponent("Bonjour "+h.m.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
-    +" vous rappelle un reste de cotisation de "+fcfa(h.reste)+" FCFA ("+h.nb_impayes+" mois). Votre situation : "
-    + location.origin + location.pathname + "#/payer?code=" + h.m.code + " — Merci !");
+function depensesPeriode(per){ return (etat.depenses||[]).filter(d => dansPeriode(d.date, per)); }
+function vueDepenses(){
+  const per = periodeDepuisParams(etat.params);
+  const liste = depensesPeriode(per);
+  const total = liste.reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const parCat = {}; for(const d of liste) parCat[d.categorie||"Autre"] = (parCat[d.categorie||"Autre"]||0) + parseInt(d.montant,10);
   const selCat = '<select id="dCat">'+CATEGORIES_DEP.map(c=>'<option>'+c+'</option>').join("")+'</select>';
   return '<main>'
+    + barrePeriode("depenses", per, "Dépenses")
     + '<div class="grille g3">'
-    + kpi("Recettes cumulées", fcfa(recettes)+" F", etat.paiements.length+" paiements · "+fcfa(recMois)+" F ce mois")
-    + kpi("Dépenses cumulées", fcfa(depenses)+" F", etat.depenses.length+" dépenses · "+fcfa(depMois)+" F ce mois")
-    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse</div><div class="v" style="color:'+(recettes-depenses>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettes-depenses)+' F</div><div class="mut">recettes − dépenses</div></div>'
+    + kpi("Total des dépenses", fcfa(total)+" F", liste.length+" opération(s)")
+    + kpi("Moyenne par mois", fcfa(Math.round(total / Math.max(1, listeMois(per).length)))+" F", listeMois(per).length+" mois")
+    + kpi("Première catégorie", Object.keys(parCat).sort((a,b)=>parCat[b]-parCat[a])[0]||"—", "")
     + '</div>'
     + '<div class="carte" style="margin-top:14px"><h3>Enregistrer une dépense</h3>'
     + '<div class="grille g2">'
@@ -1671,20 +1776,34 @@ function vueTresorerie(){
     + '<div class="champ"><span>Bénéficiaire</span><input id="dBen" placeholder="Fournisseur, prestataire…"></div>'
     + '<div class="champ"><span>Note / justificatif</span><input id="dNote" placeholder="N° reçu, lien photo du reçu…"></div>'
     + '</div><button class="btn" onclick="ajouterDepense()">Enregistrer la dépense</button></div>'
-    + '<div class="carte"><h3>Journal des dépenses ('+etat.depenses.length+')</h3>'
-    + (etat.depenses.length ? '<div class="survol"><table><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Bénéficiaire</th><th>Montant</th><th></th></tr>'
-      + etat.depenses.map(d => '<tr><td>'+fdate(d.date)+'</td><td>'+ech(d.libelle)+(d.note?'<div class="mut">'+ech(d.note)+'</div>':'')+'</td><td>'+ech(d.categorie||"")+'</td><td>'+ech(d.beneficiaire||"")+'</td>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Point des dépenses ('+liste.length+')</h3><span style="flex:1"></span>'
+    + '<button class="btn sm sec" onclick="exportDepensesCSV()">Télécharger CSV (Excel)</button>'
+    + '<button class="btn sm" onclick="imprimerDepenses()">Imprimer / PDF</button></div>'
+    + (Object.keys(parCat).length ? '<div class="survol" style="margin-top:8px"><table><tr><th>Catégorie</th><th>Montant</th><th>Part</th></tr>'
+        + Object.keys(parCat).sort((a,b)=>parCat[b]-parCat[a]).map(c => '<tr><td>'+ech(c)+'</td><td>'+fcfa(parCat[c])+' F</td><td>'+Math.round(100*parCat[c]/total)+' %</td></tr>').join("")
+        + '</table></div>' : '')
+    + (liste.length ? '<div class="survol" style="margin-top:12px"><table><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Bénéficiaire</th><th>Montant</th><th></th></tr>'
+      + liste.map(d => '<tr><td>'+fdateFR(d.date)+'</td><td>'+ech(d.libelle)+(d.note?'<div class="mut">'+ech(d.note)+'</div>':'')+'</td><td>'+ech(d.categorie||"")+'</td><td>'+ech(d.beneficiaire||"")+'</td>'
         + '<td><strong>'+fcfa(d.montant)+' F</strong></td><td><a href="javascript:void(0)" onclick="supprimerDepense('+d.id+')" title="Supprimer">✕</a></td></tr>').join("")
-      + '</table></div>' : '<p class="mut">Aucune dépense enregistrée.</p>')
-    + '</div>'
-    + '<div class="carte"><h3>Membres redevables ('+redevables.length+') — '+fcfa(totalAttendu)+' F à recouvrer</h3>'
-    + '<p class="mut">Cumul depuis la date d’adhésion de chaque membre. Le bouton WhatsApp ouvre un message de relance prérempli avec le lien de sa situation.</p>'
-    + (redevables.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
-      + redevables.map(h => '<tr><td>'+h.m.code+'</td><td>'+ech(h.m.nom)+'</td><td>'+ech(h.m.telephone||"")+'</td>'
-        + '<td>'+h.nb_impayes+(h.nb_partiels?' + '+h.nb_partiels+' partiel':'')+'</td><td><strong>'+fcfa(h.reste)+' F</strong></td>'
-        + '<td>'+(h.m.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(h.m.telephone)+'?text='+texteRelance(h)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
-      + '</table></div>' : '<p class="mut">Tous les membres sont à jour. 🎉</p>')
+      + '<tr><td colspan="4"><strong>Total</strong></td><td><strong>'+fcfa(total)+' F</strong></td><td></td></tr></table></div>' : '<p class="mut" style="margin-top:8px">Aucune dépense sur cette période.</p>')
     + '</div></main>';
+}
+function exportDepensesCSV(){
+  const per = periodeDepuisParams(etat.params); const l = depensesPeriode(per);
+  telechargerCSV("depenses_"+per.debut+"_"+per.fin+".csv", ["Date","Libellé","Catégorie","Bénéficiaire","Montant","Note"],
+    l.map(d => [d.date, d.libelle, d.categorie, d.beneficiaire, d.montant, d.note]));
+}
+function imprimerDepenses(){
+  const per = periodeDepuisParams(etat.params); const l = depensesPeriode(per);
+  const total = l.reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const parCat = {}; for(const d of l) parCat[d.categorie||"Autre"] = (parCat[d.categorie||"Autre"]||0) + parseInt(d.montant,10);
+  imprimerZone("Point des dépenses — "+libellePeriode(per),
+    '<div class="kpis"><div class="kpi">Total dépenses<b>'+fcfa(total)+' F</b></div><div class="kpi">Opérations<b>'+l.length+'</b></div></div>'
+    + '<h2>Par catégorie</h2><table><tr><th>Catégorie</th><th class="n">Montant</th></tr>'
+    + Object.keys(parCat).sort((a,b)=>parCat[b]-parCat[a]).map(c => '<tr><td>'+ech(c)+'</td><td class="n">'+fcfa(parCat[c])+' F</td></tr>').join("")+'</table>'
+    + '<h2>Détail</h2><table><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Bénéficiaire</th><th class="n">Montant</th></tr>'
+    + l.map(d => '<tr><td>'+fdateFR(d.date)+'</td><td>'+ech(d.libelle)+(d.note?' <span class="mut">('+ech(d.note)+')</span>':'')+'</td><td>'+ech(d.categorie||"")+'</td><td>'+ech(d.beneficiaire||"")+'</td><td class="n">'+fcfa(d.montant)+' F</td></tr>').join("")
+    + '<tfoot><tr><td colspan="4">Total</td><td class="n">'+fcfa(total)+' F</td></tr></tfoot></table>');
 }
 async function ajouterDepense(){
   const montant = parseInt(($("#dMontant").value||"").replace(/\D/g,""),10);
@@ -1703,7 +1822,63 @@ async function supprimerDepense(id){
   await chargerDonnees(); rendu();
 }
 
+/* --------------------------- Solde --------------------------- */
+function tableauSolde(per){
+  const lignes = []; let cumul = 0;
+  // solde reporté = tout ce qui précède la période
+  const avantR = etat.paiements.filter(p => String(p.date||"").slice(0,7) < per.debut).reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const avantD = (etat.depenses||[]).filter(d => String(d.date||"").slice(0,7) < per.debut).reduce((s,d)=>s+parseInt(d.montant,10),0);
+  cumul = avantR - avantD;
+  const report = cumul;
+  for(const mois of listeMois(per)){
+    const r = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois).reduce((s,p)=>s+parseInt(p.montant,10),0);
+    const d = (etat.depenses||[]).filter(x => String(x.date||"").slice(0,7) === mois).reduce((s,x)=>s+parseInt(x.montant,10),0);
+    cumul += r - d;
+    lignes.push({ mois, recettes:r, depenses:d, net:r-d, cumul });
+  }
+  const recettes = lignes.reduce((s,l)=>s+l.recettes,0), depenses = lignes.reduce((s,l)=>s+l.depenses,0);
+  return { lignes, report, recettes, depenses, net: recettes-depenses, final: cumul };
+}
+function vueSolde(){
+  const per = periodeDepuisParams(etat.params);
+  const t = tableauSolde(per);
+  const coul = v => 'style="color:'+(v>=0?'var(--vert)':'#b3261e')+'"';
+  return '<main>'
+    + barrePeriode("solde", per, "Solde de caisse")
+    + '<div class="grille g4">'
+    + kpi("Solde reporté", fcfa(t.report)+" F", "avant "+libelleMois(per.debut))
+    + kpi("Recettes de la période", fcfa(t.recettes)+" F", "cotisations encaissées")
+    + kpi("Dépenses de la période", fcfa(t.depenses)+" F", '<a href="#/depenses'+(per.mode==="tout"?"":per.mode==="mois"?"?mois="+per.debut:"?debut="+per.debut+"&fin="+per.fin)+'">détail</a>')
+    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde en caisse</div><div class="v" '+coul(t.final)+'>'+fcfa(t.final)+' F</div><div class="mut">au '+libelleMois(per.fin)+'</div></div>'
+    + '</div>'
+    + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Évolution mois par mois</h3><span style="flex:1"></span>'
+    + '<button class="btn sm sec" onclick="exportSoldeCSV()">Télécharger CSV (Excel)</button>'
+    + '<button class="btn sm" onclick="imprimerSolde()">Imprimer / PDF</button></div>'
+    + '<div class="survol" style="margin-top:8px"><table><tr><th>Mois</th><th>Recettes</th><th>Dépenses</th><th>Résultat du mois</th><th>Solde cumulé</th></tr>'
+    + '<tr><td class="mut">Report</td><td></td><td></td><td></td><td>'+fcfa(t.report)+' F</td></tr>'
+    + t.lignes.map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td>'+fcfa(l.recettes)+' F</td><td>'+fcfa(l.depenses)+' F</td><td '+coul(l.net)+'>'+(l.net<0?'− ':'')+fcfa(Math.abs(l.net))+' F</td><td><strong>'+fcfa(l.cumul)+' F</strong></td></tr>').join("")
+    + '<tr><td><strong>Total période</strong></td><td><strong>'+fcfa(t.recettes)+' F</strong></td><td><strong>'+fcfa(t.depenses)+' F</strong></td><td '+coul(t.net)+'><strong>'+(t.net<0?'− ':'')+fcfa(Math.abs(t.net))+' F</strong></td><td><strong>'+fcfa(t.final)+' F</strong></td></tr>'
+    + '</table></div>'
+    + '<p class="mut" style="margin-top:8px">Recettes = paiements à leur date d’encaissement. Les cotisations dues mais non payées sont dans le <a href="#/">tableau de bord</a> (à relancer).</p>'
+    + '</div></main>';
+}
+function exportSoldeCSV(){
+  const per = periodeDepuisParams(etat.params); const t = tableauSolde(per);
+  telechargerCSV("solde_"+per.debut+"_"+per.fin+".csv", ["Mois","Recettes","Dépenses","Résultat","Solde cumulé"],
+    [["Report", "", "", "", t.report], ...t.lignes.map(l => [l.mois, l.recettes, l.depenses, l.net, l.cumul]), ["Total", t.recettes, t.depenses, t.net, t.final]]);
+}
+function imprimerSolde(){
+  const per = periodeDepuisParams(etat.params); const t = tableauSolde(per);
+  imprimerZone("Situation de caisse — "+libellePeriode(per),
+    '<div class="kpis"><div class="kpi">Solde reporté<b>'+fcfa(t.report)+' F</b></div><div class="kpi">Recettes<b>'+fcfa(t.recettes)+' F</b></div><div class="kpi">Dépenses<b>'+fcfa(t.depenses)+' F</b></div><div class="kpi">Solde en caisse<b>'+fcfa(t.final)+' F</b></div></div>'
+    + '<table><tr><th>Mois</th><th class="n">Recettes</th><th class="n">Dépenses</th><th class="n">Résultat</th><th class="n">Solde cumulé</th></tr>'
+    + '<tr><td>Report</td><td></td><td></td><td></td><td class="n">'+fcfa(t.report)+' F</td></tr>'
+    + t.lignes.map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td class="n">'+fcfa(l.recettes)+' F</td><td class="n">'+fcfa(l.depenses)+' F</td><td class="n">'+fcfa(l.net)+' F</td><td class="n">'+fcfa(l.cumul)+' F</td></tr>').join("")
+    + '<tfoot><tr><td>Total</td><td class="n">'+fcfa(t.recettes)+' F</td><td class="n">'+fcfa(t.depenses)+' F</td><td class="n">'+fcfa(t.net)+' F</td><td class="n">'+fcfa(t.final)+' F</td></tr></tfoot></table>');
+}
+
 /* --------------------------- Paramètres --------------------------- */
+
 
 function vueParametres(){
   const s = etat.settings;
@@ -1722,9 +1897,31 @@ function vueParametres(){
     + champ("bienvenue","Message de bienvenue")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
+    + '<h3>Paiement en ligne CinetPay</h3>'
+    + '<p class="mut">À remplir par le <strong>titulaire du compte CinetPay</strong> lui-même, connecté ici en trésorier. Ces clés sont stockées dans une table privée (lecture réservée aux trésoriers connectés) et ne figurent jamais dans la page publique.</p>'
+    + '<div class="grille g2"><div class="champ"><span>API Key</span><input id="k_api" type="password" placeholder="••••••••" autocomplete="off"></div>'
+    + '<div class="champ"><span>Site ID</span><input id="k_site" placeholder="123456"></div></div>'
+    + '<div id="k_etat" class="mut"></div>'
+    + '<button class="btn" onclick="enregistrerClesCinetPay()">Enregistrer les clés</button>'
+    + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
     + ' · <a href="#/installer">Changer de projet Supabase</a></p>'
     + '</div></main>';
+}
+async function enregistrerClesCinetPay(){
+  const api = $("#k_api").value.trim(), site = $("#k_site").value.trim();
+  if(!api || !site){ toast("API Key et Site ID obligatoires.", "err"); return; }
+  try{
+    for(const [cle, valeur] of [["cinetpay_api_key", api],["cinetpay_site_id", site]])
+      await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
+    toast("Clés CinetPay enregistrées (table privée).", "ok"); $("#k_api").value = ""; etatCles();
+  }catch(e){ toast("Refusé : "+e.message+(/cc_secrets/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+}
+async function etatCles(){
+  const z = $("#k_etat"); if(!z) return;
+  try{ const r = await sb("cc_secrets?select=cle,maj_le"); const ok = r.some(x => x.cle === "cinetpay_api_key");
+    z.textContent = ok ? "✔ Clés CinetPay présentes (mises à jour le "+fdateFR(String((r.find(x=>x.cle==="cinetpay_api_key")||{}).maj_le||""))+")." : "Aucune clé enregistrée pour l’instant."; }
+  catch(e){ z.textContent = ""; }
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
