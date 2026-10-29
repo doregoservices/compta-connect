@@ -4,9 +4,9 @@ Quatre options, de la plus simple à la plus complète.
 
 ---
 
-## Option 0 — GitHub Pages + Supabase (gratuit, comme FKS Industrie) ✅
+## Option 0 — GitHub Pages + Supabase (gratuit) ✅
 
-C'est l'architecture de votre appli FKS : **les pages sont sur GitHub, les
+Architecture : **les pages sont sur GitHub, les
 données sont dans un projet Supabase gratuit**. Aucun serveur à payer, aucune
 mise en veille, adresse fixe `https://doregoservices.github.io/compta-connect/`.
 
@@ -27,8 +27,9 @@ modifier ni écraser.
 3. **Créer le compte trésorier** : *Authentication* → *Users* → *Add user* →
    votre email + un mot de passe (cochez « auto-confirm » pour éviter
    l'email de confirmation).
-4. **Brancher l'application** : ouvrir le site, coller l'**URL du projet** et la
-   **clé anon** (Supabase → *Paramètres* → *API*), enregistrer.
+4. **Connexion intégrée** : l'URL du projet et la clé anon sont inscrites dans
+   `docs/index.html` (`CFG_DEFAUT`) — les membres n'ont rien à configurer. Pour
+   changer de projet : *Paramètres → Base de données (administrateur)*.
 5. **Se connecter** avec l'email du trésorier : le tableau de bord s'ouvre.
 
 **Nouveaux membres (adhésion en ligne)** : exécuter aussi `supabase/adhesion.sql`
@@ -49,7 +50,7 @@ Chaque membre voit sur sa page le détail mois par mois depuis son adhésion.
 
 La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`
 
-> Sécurité : la clé anon est publique par conception (comme dans FKS) — la
+> Sécurité : la clé anon est publique par conception — la
 > lecture est publique, l'**écriture exige la connexion du trésorier** (droits
 > RLS créés par schema.sql).
 
