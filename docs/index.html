@@ -1293,15 +1293,16 @@ function vuePayer(params){
   const badges = { PAYE:'<span class="badge b-paye">à jour</span>', PARTIEL:'<span class="badge b-partiel">paiement partiel</span>',
     IMPAYE:'<span class="badge b-impaye">non réglée</span>', AVANCE:'<span class="badge b-avance">avance</span>',
     EXONERE:'<span class="badge b-neutre">exonéré</span>' };
-  const cot = parseInt(etat.settings.cotisation||"5000",10);
-  const montant = l.statut === "PARTIEL" ? l.reliquat : cot;
+  const cot = parseInt(m.cotisation||etat.settings.cotisation||"5000",10);
+  const adhesion = parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10);
+  const montant = enAttente ? adhesion : (l.statut === "PARTIEL" ? l.reliquat : cot);
   return corps
     + '<div id="bienvenue"></div>'
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le code <strong>'+ech(code)+'</strong> (gardez-le précieusement). '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
     + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
-    + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(l.du)+' F</div></div>'
+    + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(enAttente ? adhesion : l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
     + '<div id="payerEnLigne"><div class="mut" style="text-align:center;margin-top:10px">Chargement du paiement…</div></div>'
@@ -1603,13 +1604,15 @@ function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div c
 
 /* --------------------------- Membres --------------------------- */
 function vueMembres(){
-  const mois = moisCourant();
-  const pt = pointage(etat.membres, etat.paiements, mois);
-  const statutDe = {}; for(const l of pt.lignes) statutDe[l.membre.id] = l.statut;
+  const per = periodeDepuisParams(etat.params);
+  const bl = bilanPeriode(per);
+  const statutDe = {}; const resteDe = {}; const impDe = {};
+  for(const l of bl.lignes){ statutDe[l.membre.id] = l.statut; resteDe[l.membre.id] = l.reste; impDe[l.membre.id] = l.nb_impayes; }
   const badge = s => ({ PAYE:'<span class="badge b-paye">à jour</span>', PARTIEL:'<span class="badge b-partiel">partiel</span>',
-    IMPAYE:'<span class="badge b-impaye">impayé</span>', EXONERE:'<span class="badge b-neutre">exonéré</span>' }[s]||"");
+    IMPAYE:'<span class="badge b-impaye">impayé</span>', EXONERE:'<span class="badge b-neutre">exonéré</span>', HORS:'<span class="badge b-neutre">pas encore membre</span>' }[s]||"");
   return '<main>'
-    + '<div class="carte"><h3>Membres ('+etat.membres.length+')</h3>'
+    + barrePeriode("membres", per, "Membres ("+etat.membres.length+")")
+    + '<div class="carte"><h3>Ajouter un membre</h3>'
     + '<div class="grille g2"><div>'
     + '<div class="champ"><span>Code (3 chiffres)</span><input id="mCode" maxlength="3" inputmode="numeric"></div>'
     + '<div class="champ"><span>Nom complet</span><input id="mNom"></div>'
@@ -1625,13 +1628,14 @@ function vueMembres(){
     + '<textarea id="csvMembres" placeholder="081;KOUAME Jean;0500000000;Abidjan"></textarea>'
     + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
     + '<div id="editeurMembre"></div>'
-    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libelleMois(mois)+'</h3><span style="flex:1"></span>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
     + '<input id="rechMembre" placeholder="Rechercher nom, code, téléphone…" style="width:auto;min-width:220px" oninput="filtrerMembres()">'
     + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button></div>'
     + '<div class="survol"><table id="tabMembres">'
-    + '<tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>'+libelleMois(mois)+'</th><th></th></tr>'
+    + '<tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
     + etat.membres.map(m => '<tr data-rech="'+ech(accentMin(m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td><strong>'+m.code+'</strong></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
       + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
+      + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
       + '<td style="white-space:nowrap"><button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
