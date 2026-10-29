@@ -1624,11 +1624,15 @@ function vueMembres(){
     + '<p class="mut">Une ligne par membre : <code>code;nom;téléphone;ville</code> (séparateur ; ou , ou tabulation). Les doublons de code sont ignorés.</p>'
     + '<textarea id="csvMembres" placeholder="081;KOUAME Jean;0500000000;Abidjan"></textarea>'
     + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
-    + '<div class="carte"><h3>Liste — situation '+libelleMois(mois)+'</h3><div class="survol"><table>'
+    + '<div id="editeurMembre"></div>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libelleMois(mois)+'</h3><span style="flex:1"></span>'
+    + '<input id="rechMembre" placeholder="Rechercher nom, code, téléphone…" style="width:auto;min-width:220px" oninput="filtrerMembres()">'
+    + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button></div>'
+    + '<div class="survol"><table id="tabMembres">'
     + '<tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>'+libelleMois(mois)+'</th><th></th></tr>'
-    + etat.membres.map(m => '<tr><td><strong>'+m.code+'</strong></td><td>'+ech(m.nom)+'</td><td>'+ech(m.telephone)+'</td>'
-      + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">adhésion en attente</span>')+'</td>'
-      + '<td><button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
+    + etat.membres.map(m => '<tr data-rech="'+ech(accentMin(m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td><strong>'+m.code+'</strong></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
+      + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
+      + '<td style="white-space:nowrap"><button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
 async function ajouterMembre(){
@@ -1642,10 +1646,53 @@ async function ajouterMembre(){
     await chargerDonnees(); toast("Membre ajouté.", "ok"); rendu();
   }catch(e){ toast("Ajout refusé : "+e.message, "err"); }
 }
+function filtrerMembres(){
+  const q = accentMin($("#rechMembre").value);
+  document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; });
+}
+function exportMembresCSV(){
+  telechargerCSV("membres.csv", ["Code","Nom","Téléphone","Ville","Spécialité","Email","Cotisation","Date adhésion","Actif","Exonéré"],
+    etat.membres.map(m => [m.code, m.nom, m.telephone, m.ville, m.specialite, m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non"]));
+}
+function editerMembre(id){
+  const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
+  const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="e_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
+  $("#editeurMembre").innerHTML = '<div class="carte" style="border:2px solid var(--or)"><h3>Modifier le membre '+m.code+' — '+ech(m.nom)+'</h3>'
+    + '<div class="grille g2">'
+    + champ("nom","Nom complet",m.nom) + champ("telephone","Téléphone",m.telephone,"tel")
+    + champ("ville","Ville",m.ville) + champ("specialite","Spécialité",m.specialite)
+    + champ("email","Email",m.email,"email") + champ("cotisation","Cotisation mensuelle (FCFA)",m.cotisation,"number")
+    + champ("date_adhesion","Date d’adhésion (AAAA-MM-JJ)",m.date_adhesion)
+    + '<div class="champ"><span>Statut</span><select id="e_actif"><option value="true"'+(m.actif?" selected":"")+'>Actif</option><option value="false"'+(!m.actif?" selected":"")+'>Désactivé (ne doit plus rien, conservé dans l’historique)</option></select></div>'
+    + '<div class="champ"><span>Cotisation</span><select id="e_exonere"><option value="false"'+(!m.exonere?" selected":"")+'>Normale</option><option value="true"'+(m.exonere?" selected":"")+'>Exonéré (membre d’honneur, bureau…)</option></select></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="enregistrerMembre('+m.id+')">Enregistrer</button>'
+    + '<button class="btn sec" onclick="document.querySelector(\'#editeurMembre\').innerHTML=\'\'">Annuler</button></div></div>';
+  $("#editeurMembre").scrollIntoView({ behavior:"smooth", block:"start" });
+}
+async function enregistrerMembre(id){
+  const v = k => $("#e_"+k).value.trim();
+  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), email: v("email"),
+    cotisation: parseInt(v("cotisation").replace(/\D/g,""),10) || 0, date_adhesion: v("date_adhesion"),
+    actif: $("#e_actif").value === "true", exonere: $("#e_exonere").value === "true" };
+  if(!corps.nom){ toast("Le nom est obligatoire.", "err"); return; }
+  if(corps.date_adhesion && !/^\d{4}-\d{2}-\d{2}$/.test(corps.date_adhesion)){ toast("Date d’adhésion au format AAAA-MM-JJ.", "err"); return; }
+  try{
+    await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); toast("Membre mis à jour.", "ok"); rendu();
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
 async function supprimerMembre(id){
-  if(!confirm("Supprimer ce membre ?")) return;
+  const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
+  const nb = etat.paiements.filter(p => String(p.membre_id) === String(id)).length;
+  if(nb){
+    if(!confirm(m.nom+" a "+nb+" paiement(s) enregistré(s). Un membre qui a payé ne se supprime pas (l’historique de caisse doit rester exact) : voulez-vous le DÉSACTIVER à la place ? Il ne devra plus rien et disparaîtra des relances.")) return;
+    await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ actif:false }) });
+    await chargerDonnees(); toast("Membre désactivé.", "ok"); rendu(); return;
+  }
+  if(!confirm("Supprimer définitivement "+m.nom+" (aucun paiement enregistré) ?")) return;
   await sb("cc_membres?id=eq."+id, { method:"DELETE" });
-  await chargerDonnees(); rendu();
+  await chargerDonnees(); toast("Membre supprimé.", "ok"); rendu();
 }
 async function importerMembres(){
   const lignes = ($("#csvMembres").value||"").split(/\r?\n/).filter(l => l.trim());
