@@ -1034,7 +1034,36 @@ function rapprocherPaiement(p, membres, moisDefaut){
   return p;
 }
 
+/* Historique d'un membre depuis son adhésion : un mois par ligne, cumul dû / versé / reste. */
+function moisDebutMembre(m, paiements){
+  let debut = null;
+  const da = String(m.date_adhesion||"");
+  if(/^\d{4}-\d{2}/.test(da)) debut = da.slice(0,7);
+  for(const p of paiements) if(String(p.membre_id) === String(m.id) && p.mois){
+    const pm = normaliserMois(p.mois); if(!debut || pm < debut) debut = pm;
+  }
+  return debut || moisCourant();
+}
+function historiqueMembre(m, paiements, jusqua){
+  jusqua = normaliserMois(jusqua || moisCourant());
+  const cot = m.exonere ? 0 : parseInt(m.cotisation||0,10);
+  const lignes = []; let du = 0, verse = 0;
+  for(let mois = moisDebutMembre(m, paiements); mois <= jusqua; mois = moisSuivant(mois)){
+    const recus = paiements.filter(p => String(p.membre_id) === String(m.id) && normaliserMois(p.mois||"0000-01") === mois);
+    const v = recus.reduce((s,p)=>s+parseInt(p.montant,10),0);
+    du += cot; verse += v;
+    lignes.push({ mois, du: cot, verse: v, dates: recus.map(p => p.date).filter(Boolean),
+      statut: cot === 0 ? "EXONERE" : v >= cot ? "PAYE" : v > 0 ? "PARTIEL" : "IMPAYE" });
+    if(lignes.length > 120) break;
+  }
+  const avance = paiements.filter(p => String(p.membre_id) === String(m.id) && p.mois && normaliserMois(p.mois) > jusqua)
+    .reduce((s,p)=>s+parseInt(p.montant,10),0);
+  return { lignes, du, verse, reste: Math.max(0, du - verse), avance,
+    nb_impayes: lignes.filter(l => l.statut === "IMPAYE").length, nb_partiels: lignes.filter(l => l.statut === "PARTIEL").length };
+}
+
 /* Tableau de pointage d'un mois — même calcul que le serveur. */
+
 function pointage(membres, paiements, mois){
   mois = normaliserMois(mois);
   const lignes = [];
@@ -1085,7 +1114,7 @@ if(typeof module !== "undefined" && module.exports){
 const $ = s => document.querySelector(s);
 const ech = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const etat = { cfg:null, session:null, membres:[], paiements:[], settings:{}, route:"", params:{}, msg:null };
+const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], settings:{}, route:"", params:{}, msg:null };
 
 function cfgCharger(){ try{ etat.cfg = JSON.parse(localStorage.getItem("cc_cfg")||"null"); }catch(e){ etat.cfg = null; } }
 function cfgSauver(url, anon){ etat.cfg = {url, anon}; localStorage.setItem("cc_cfg", JSON.stringify(etat.cfg)); }
@@ -1117,6 +1146,8 @@ async function chargerDonnees(){
     sb("cc_settings?select=*"),
   ]);
   etat.membres = membres.map(m => Object.assign({ actif:true, exonere:false }, m));
+  etat.depenses = [];
+  if(etat.session){ try{ etat.depenses = await sb("cc_depenses?select=*&order=date.desc,id.desc"); }catch(e){ etat.depenses = []; } }
   etat.paiements = paiements;
   etat.settings = {};
   for(const s of settings) etat.settings[s.cle] = s.valeur;
@@ -1168,6 +1199,7 @@ const PAGES = [
   ["membres", "Membres", "vueMembres", true],
   ["pointage", "Pointage", "vuePointage", true],
   ["paiements", "Paiements", "vuePaiements", true],
+  ["tresorerie", "Trésorerie", "vueTresorerie", true],
   ["parametres", "Paramètres", "vueParametres", true],
 ];
 
@@ -1208,6 +1240,7 @@ function rendu(){
     else if(route === "pointage") corps = vuePointage(params);
     else if(route === "paiements") corps = vuePaiements(params);
     else if(route === "parametres") corps = vueParametres();
+    else if(route === "tresorerie") corps = vueTresorerie();
     else corps = vueAccueil();
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
@@ -1274,6 +1307,7 @@ function vuePayer(params){
     + '<div class="ref">'+l.reference+'</div></div>'
     + qrSvg(l.reference, 190)
     + '</div>'
+    + (enAttente ? "" : carteHistorique(m, mois))
     + '<div class="carte"><h3>Comment régler</h3>'
     + '<div class="etape"><div class="n">1</div><div>Ouvrez votre application mobile money → <strong>Transfert d’argent</strong>.</div></div>'
     + '<div class="etape"><div class="n">2</div><div>Envoyez <strong>'+fcfa(montant)+' FCFA</strong> vers l’un des numéros du réseau.</div></div>'
@@ -1284,7 +1318,27 @@ function vuePayer(params){
     + '</main>';
 }
 
+function carteHistorique(m, mois){
+  const h = historiqueMembre(m, etat.paiements, mois);
+  const b = { PAYE:'<span class="badge b-paye">payé</span>', PARTIEL:'<span class="badge b-partiel">partiel</span>',
+    IMPAYE:'<span class="badge b-impaye">non réglé</span>', EXONERE:'<span class="badge b-neutre">exonéré</span>' };
+  const fdate = d => d ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : "";
+  const premierDu = h.lignes.find(l => l.statut !== "PAYE" && l.statut !== "EXONERE");
+  return '<div class="carte"><h3>Ma situation depuis mon adhésion</h3>'
+    + '<div class="grille g3"><div class="kpi"><div class="t">Total dû</div><div class="v">'+fcfa(h.du)+' F</div><div class="mut">'+h.lignes.length+' mois</div></div>'
+    + '<div class="kpi"><div class="t">Total versé</div><div class="v">'+fcfa(h.verse + h.avance)+' F</div>'+(h.avance ? '<div class="mut">dont '+fcfa(h.avance)+' F d’avance</div>' : '')+'</div>'
+    + '<div class="kpi"><div class="t">Reste à payer</div><div class="v" style="color:'+(h.reste ? '#b3261e' : 'var(--vert)')+'">'+fcfa(h.reste)+' F</div>'
+    + '<div class="mut">'+(h.reste ? (h.nb_impayes+' mois impayé'+(h.nb_impayes>1?'s':'')+(h.nb_partiels?' · '+h.nb_partiels+' partiel'+(h.nb_partiels>1?'s':''):'')) : 'à jour ✅')+'</div></div></div>'
+    + '<div class="survol" style="margin-top:10px"><table><tr><th>Mois</th><th>Dû</th><th>Versé</th><th>Date</th><th>Statut</th></tr>'
+    + h.lignes.slice().reverse().map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td>'+fcfa(l.du)+' F</td><td>'+fcfa(l.verse)+' F</td>'
+        + '<td class="mut">'+l.dates.map(fdate).join(", ")+'</td><td>'+(b[l.statut]||"")+'</td></tr>').join("")
+    + '</table></div>'
+    + (h.reste && premierDu ? '<p class="mut" style="margin-top:8px">Pour régulariser, envoyez <strong>'+fcfa(h.reste)+' FCFA</strong> en un ou plusieurs transferts, avec la référence du mois concerné en motif (ex. '+reference(premierDu.mois, m.code)+' pour '+libelleMois(premierDu.mois)+').</p>' : '')
+    + '</div>';
+}
+
 /* --------------------------- Adhésion --------------------------- */
+
 function vueAdherer(){
   const montant = fcfa(etat.settings.adhesion||etat.settings.cotisation||5000);
   const champ = (id, label, type, ph, req) => '<div class="champ"><span>'+label+(req?' *':'')+'</span>'
@@ -1319,10 +1373,12 @@ async function chargerBienvenue(code){
   try{
     const r = await sb("rpc/cc_bienvenue", { method:"POST", body: JSON.stringify({ p_code: code }) });
     if(!r.ok){ zone.innerHTML = ""; return; }
-    zone.innerHTML = '<div class="carte" style="border:2px solid var(--or)"><h3>🎉 Bienvenue, '+ech(r.nom.split(" ")[0])+' !</h3>'
-      + '<p>'+ech(r.message||"")+'</p>'
+    const nouveau = !!etat.params.nouveau;
+    zone.innerHTML = '<div class="carte" style="border:2px solid var(--or)"><h3>'+(nouveau ? '🎉 Bienvenue, '+ech(r.nom.split(" ")[0])+' !' : 'Mes accès membre')+'</h3>'
+      + (nouveau ? '<p>'+ech(r.message||"")+'</p>' : '')
       + (r.whatsapp ? '<p><a class="btn blk" style="background:#25D366" href="'+ech(r.whatsapp)+'" target="_blank" rel="noopener">Rejoindre le groupe WhatsApp</a></p>'
                     : '<p class="mut">Le lien du groupe WhatsApp vous sera communiqué par le trésorier.</p>')
+      + (r.skool ? '<p><a class="btn blk" style="background:#1f2937" href="'+ech(r.skool)+'" target="_blank" rel="noopener">📚 Accéder à la bibliothèque de formation (Skool)</a></p>' : '')
       + '<p><strong>Trésorier :</strong> '+ech(r.tresorier||"")+'<br>'
       + '<a href="tel:'+ech(r.tresorier_tel||"")+'">'+ech(r.tresorier_tel||"")+'</a> · '
       + '<a href="https://wa.me/'+ech(String(r.tresorier_tel||"").replace(/\D/g,""))+'" target="_blank" rel="noopener">Écrire sur WhatsApp</a></p>'
@@ -1583,7 +1639,72 @@ async function supprimerPaiement(id){
   await chargerDonnees(); rendu();
 }
 
+/* --------------------------- Trésorerie --------------------------- */
+const CATEGORIES_DEP = ["Frais plateforme / paiement","Communication & événements","Formation (Skool, supports)","Dons & solidarité","Fournitures","Transport","Autre"];
+function vueTresorerie(){
+  const mois = moisCourant();
+  const recettes = etat.paiements.reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const depenses = etat.depenses.reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const recMois = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois).reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const depMois = etat.depenses.filter(d => String(d.date||"").slice(0,7) === mois).reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const fdate = d => d ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : "";
+  const redevables = etat.membres.filter(m => m.actif && !m.exonere)
+    .map(m => Object.assign({ m }, historiqueMembre(m, etat.paiements, mois)))
+    .filter(h => h.reste > 0).sort((a,b) => b.reste - a.reste);
+  const totalAttendu = redevables.reduce((s,h)=>s+h.reste,0);
+  const texteRelance = h => encodeURIComponent("Bonjour "+h.m.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
+    +" vous rappelle un reste de cotisation de "+fcfa(h.reste)+" FCFA ("+h.nb_impayes+" mois). Votre situation : "
+    + location.origin + location.pathname + "#/payer?code=" + h.m.code + " — Merci !");
+  const selCat = '<select id="dCat">'+CATEGORIES_DEP.map(c=>'<option>'+c+'</option>').join("")+'</select>';
+  return '<main>'
+    + '<div class="grille g3">'
+    + kpi("Recettes cumulées", fcfa(recettes)+" F", etat.paiements.length+" paiements · "+fcfa(recMois)+" F ce mois")
+    + kpi("Dépenses cumulées", fcfa(depenses)+" F", etat.depenses.length+" dépenses · "+fcfa(depMois)+" F ce mois")
+    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse</div><div class="v" style="color:'+(recettes-depenses>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettes-depenses)+' F</div><div class="mut">recettes − dépenses</div></div>'
+    + '</div>'
+    + '<div class="carte" style="margin-top:14px"><h3>Enregistrer une dépense</h3>'
+    + '<div class="grille g2">'
+    + '<div class="champ"><span>Date</span><input id="dDate" type="date" value="'+new Date().toISOString().slice(0,10)+'"></div>'
+    + '<div class="champ"><span>Montant (FCFA)</span><input id="dMontant" type="number" inputmode="numeric" placeholder="25000"></div>'
+    + '<div class="champ"><span>Libellé</span><input id="dLib" placeholder="Ex. Frais CinetPay octobre, impression flyers…"></div>'
+    + '<div class="champ"><span>Catégorie</span>'+selCat+'</div>'
+    + '<div class="champ"><span>Bénéficiaire</span><input id="dBen" placeholder="Fournisseur, prestataire…"></div>'
+    + '<div class="champ"><span>Note / justificatif</span><input id="dNote" placeholder="N° reçu, lien photo du reçu…"></div>'
+    + '</div><button class="btn" onclick="ajouterDepense()">Enregistrer la dépense</button></div>'
+    + '<div class="carte"><h3>Journal des dépenses ('+etat.depenses.length+')</h3>'
+    + (etat.depenses.length ? '<div class="survol"><table><tr><th>Date</th><th>Libellé</th><th>Catégorie</th><th>Bénéficiaire</th><th>Montant</th><th></th></tr>'
+      + etat.depenses.map(d => '<tr><td>'+fdate(d.date)+'</td><td>'+ech(d.libelle)+(d.note?'<div class="mut">'+ech(d.note)+'</div>':'')+'</td><td>'+ech(d.categorie||"")+'</td><td>'+ech(d.beneficiaire||"")+'</td>'
+        + '<td><strong>'+fcfa(d.montant)+' F</strong></td><td><a href="javascript:void(0)" onclick="supprimerDepense('+d.id+')" title="Supprimer">✕</a></td></tr>').join("")
+      + '</table></div>' : '<p class="mut">Aucune dépense enregistrée.</p>')
+    + '</div>'
+    + '<div class="carte"><h3>Membres redevables ('+redevables.length+') — '+fcfa(totalAttendu)+' F à recouvrer</h3>'
+    + '<p class="mut">Cumul depuis la date d’adhésion de chaque membre. Le bouton WhatsApp ouvre un message de relance prérempli avec le lien de sa situation.</p>'
+    + (redevables.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
+      + redevables.map(h => '<tr><td>'+h.m.code+'</td><td>'+ech(h.m.nom)+'</td><td>'+ech(h.m.telephone||"")+'</td>'
+        + '<td>'+h.nb_impayes+(h.nb_partiels?' + '+h.nb_partiels+' partiel':'')+'</td><td><strong>'+fcfa(h.reste)+' F</strong></td>'
+        + '<td>'+(h.m.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(h.m.telephone)+'?text='+texteRelance(h)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
+      + '</table></div>' : '<p class="mut">Tous les membres sont à jour. 🎉</p>')
+    + '</div></main>';
+}
+async function ajouterDepense(){
+  const montant = parseInt(($("#dMontant").value||"").replace(/\D/g,""),10);
+  const libelle = $("#dLib").value.trim();
+  if(!montant || !libelle){ toast("Montant et libellé obligatoires.", "err"); return; }
+  try{
+    await sb("cc_depenses", { method:"POST", headers:{ "Prefer":"return=minimal" },
+      body: JSON.stringify({ date: $("#dDate").value || new Date().toISOString().slice(0,10), montant, libelle,
+        categorie: $("#dCat").value, beneficiaire: $("#dBen").value.trim(), note: $("#dNote").value.trim() }) });
+    await chargerDonnees(); toast("Dépense enregistrée.", "ok"); rendu();
+  }catch(e){ toast("Refusé : "+e.message+(/cc_depenses/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+}
+async function supprimerDepense(id){
+  if(!confirm("Supprimer cette dépense ?")) return;
+  await sb("cc_depenses?id=eq."+id, { method:"DELETE" });
+  await chargerDonnees(); rendu();
+}
+
 /* --------------------------- Paramètres --------------------------- */
+
 function vueParametres(){
   const s = etat.settings;
   const champ = (cle, label, type) => '<div class="champ"><span>'+label+'</span>'
@@ -1597,7 +1718,8 @@ function vueParametres(){
     + champ("wave_numero","Numéro Wave") + champ("om_numero","Numéro Orange Money")
     + champ("mtn_numero","Numéro MTN MoMo")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
-    + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("bienvenue","Message de bienvenue")
+    + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
+    + champ("bienvenue","Message de bienvenue")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
@@ -1606,7 +1728,7 @@ function vueParametres(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","wave_numero","om_numero","mtn_numero","adhesion","whatsapp_lien","bienvenue"];
+    "contact_email","site_web","wave_numero","om_numero","mtn_numero","adhesion","whatsapp_lien","skool_lien","bienvenue"];
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();
