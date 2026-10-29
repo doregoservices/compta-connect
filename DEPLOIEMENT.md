@@ -53,9 +53,9 @@ La page publique des membres : `https://doregoservices.github.io/compta-connect/
 > lecture est publique, l'**écriture exige la connexion du trésorier** (droits
 > RLS créés par schema.sql).
 
-Limites de cette option : le bouton CinetPay (paiement 100 % automatique)
-demande un petit relais serveur (fonction gratuite Supabase Edge, ou options
-2/3). L'import du relevé mobile money reste le geste mensuel (~2 min).
+**Paiement en ligne 100 % automatique** : voir `supabase/functions/README.md`
+(deux fonctions Supabase Edge gratuites + `supabase/cinetpay.sql`). Le relevé mobile
+money reste utile pour les membres qui préfèrent le transfert manuel.
 
 ---
 

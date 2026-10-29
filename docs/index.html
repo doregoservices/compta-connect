@@ -1288,6 +1288,8 @@ function vuePayer(params){
   const enAttente = !m.actif;
   const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
   setTimeout(() => chargerBienvenue(code), 0);
+  setTimeout(() => chargerPaiementEnLigne(code, mois, enAttente ? montant : (l.statut === "PARTIEL" ? l.reliquat : cot)), 0);
+  if(params.retour) setTimeout(() => verifierRetourPaiement(code), 0);
   const badges = { PAYE:'<span class="badge b-paye">à jour</span>', PARTIEL:'<span class="badge b-partiel">paiement partiel</span>',
     IMPAYE:'<span class="badge b-impaye">non réglée</span>', AVANCE:'<span class="badge b-avance">avance</span>',
     EXONERE:'<span class="badge b-neutre">exonéré</span>' };
@@ -1305,6 +1307,7 @@ function vuePayer(params){
     + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
+    + '<div id="payerEnLigne"></div>'
     + '<div style="margin-top:12px"><div class="mut" style="text-align:center">Motif à saisir lors du transfert</div>'
     + '<div class="ref">'+l.reference+'</div></div>'
     + qrSvg(l.reference, 190)
@@ -1369,6 +1372,45 @@ async function soumettreAdhesion(){
     if(r.existant) toast("Ce numéro est déjà enregistré — voici votre situation.", "ok");
     aller("#/payer?code=" + String(r.code).padStart(3,"0") + "&nouveau=1");
   }catch(e){ toast("Inscription impossible : " + e.message, "err"); btn.disabled = false; btn.textContent = "Continuer vers le paiement →"; }
+}
+let _payEnLigneDispo = null;
+async function chargerPaiementEnLigne(code, mois, montant){
+  const zone = $("#payerEnLigne"); if(!zone) return;
+  try{
+    if(_payEnLigneDispo === null) _payEnLigneDispo = await sb("rpc/cc_paiement_en_ligne_dispo", { method:"POST", body:"{}" });
+    if(!_payEnLigneDispo || !(montant > 0)){ zone.innerHTML = ""; return; }
+    zone.innerHTML = '<div style="margin-top:12px;text-align:center">'
+      + '<button class="btn blk" id="btnPayer" onclick="payerEnLigne(\''+code+'\',\''+mois+'\')">💳 Payer '+fcfa(montant)+' FCFA en ligne (Wave · Orange · MTN · Moov)</button>'
+      + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat, sans motif à saisir.</div></div>'
+      + '<div class="mut" style="text-align:center;margin:10px 0 0">— ou par transfert manuel —</div>';
+  }catch(e){ zone.innerHTML = ""; }
+}
+async function payerEnLigne(code, mois){
+  const b = $("#btnPayer"); if(b){ b.disabled = true; b.textContent = "Ouverture du paiement…"; }
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-init", { method:"POST",
+      headers:{ "Content-Type":"application/json", "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon },
+      body: JSON.stringify({ code, mois, retour: location.origin + location.pathname }) });
+    const j = await rep.json();
+    if(!rep.ok || !j.url) throw new Error(j.erreur || "Service indisponible");
+    sessionStorage.setItem("cc_tx", j.transaction_id);
+    location.href = j.url;
+  }catch(e){ toast("Paiement en ligne impossible : " + e.message, "err"); if(b){ b.disabled = false; b.textContent = "💳 Réessayer le paiement en ligne"; } }
+}
+async function verifierRetourPaiement(code){
+  const tid = sessionStorage.getItem("cc_tx"); if(!tid) return;
+  toast("Vérification de votre paiement…", "ok");
+  for(let i = 0; i < 6; i++){
+    try{
+      const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-notify?transaction_id=" + encodeURIComponent(tid),
+        { headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon } });
+      const j = await rep.json();
+      if(j.statut === "ACCEPTEE"){ sessionStorage.removeItem("cc_tx"); await chargerDonnees(); rendu(); toast("Paiement confirmé ✅ Merci !", "ok"); return; }
+      if(j.statut === "REFUSEE"){ sessionStorage.removeItem("cc_tx"); toast("Paiement refusé ou annulé.", "err"); return; }
+    }catch(e){}
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  toast("Paiement en cours de confirmation : actualisez dans quelques instants.", "ok");
 }
 async function chargerBienvenue(code){
   const zone = $("#bienvenue"); if(!zone) return;
