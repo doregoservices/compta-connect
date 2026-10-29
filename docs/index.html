@@ -1262,9 +1262,9 @@ function vueAccueil(){
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(etat.settings.adhesion||etat.settings.cotisation||5000)+' FCFA</a></p></div>'
     + '<div class="carte"><h3>Comment ça marche ?</h3>'
     + '<div class="etape"><div class="n">1</div><div>Chaque membre possède un <strong>code à 3 chiffres</strong> (donné par le trésorier).</div></div>'
-    + '<div class="etape"><div class="n">2</div><div>Saisissez votre code : vous voyez votre situation et la <strong>référence du mois</strong>.</div></div>'
-    + '<div class="etape"><div class="n">3</div><div>Envoyez votre cotisation par mobile money avec cette référence en <strong>motif</strong>.</div></div>'
-    + '<div class="etape"><div class="n">4</div><div>Le pointage se fait <strong>automatiquement</strong> : votre ligne passe à « à jour ».</div></div></div>'
+    + '<div class="etape"><div class="n">2</div><div>Saisissez votre code : vous voyez votre situation, mois par mois, depuis votre adhésion.</div></div>'
+    + '<div class="etape"><div class="n">3</div><div>Cliquez sur <strong>Payer en ligne</strong> : Wave, Orange Money, MTN ou Moov, directement depuis votre téléphone.</div></div>'
+    + '<div class="etape"><div class="n">4</div><div>Le pointage est <strong>immédiat</strong> : votre ligne passe à « à jour » et vos accès (WhatsApp, Skool) s’affichent.</div></div></div>'
     + '</main>';
 }
 
@@ -1295,31 +1295,23 @@ function vuePayer(params){
     EXONERE:'<span class="badge b-neutre">exonéré</span>' };
   const cot = parseInt(etat.settings.cotisation||"5000",10);
   const montant = l.statut === "PARTIEL" ? l.reliquat : cot;
-  const canaux = [["Wave", etat.settings.wave_numero],["Orange Money", etat.settings.om_numero],["MTN MoMo", etat.settings.mtn_numero]]
-    .filter(c => c[1]).map(c => '<div>• <strong>'+c[0]+'</strong> : <a href="tel:'+ech(c[1])+'">'+ech(c[1])+'</a></div>').join("");
   return corps
     + '<div id="bienvenue"></div>'
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le code <strong>'+ech(code)+'</strong> (gardez-le précieusement). '
-        + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> ci-dessous : dès réception, votre compte est activé et le lien du groupe WhatsApp apparaît ici. '
-        + '<a href="javascript:void(0)" onclick="rafraichir()">Déjà payé ? Actualiser</a></div>' : "")
+        + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
     + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
     + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
-    + '<div id="payerEnLigne"></div>'
-    + '<div style="margin-top:12px"><div class="mut" style="text-align:center">Motif à saisir lors du transfert</div>'
-    + '<div class="ref">'+l.reference+'</div></div>'
-    + qrSvg(l.reference, 190)
+    + '<div id="payerEnLigne"><div class="mut" style="text-align:center;margin-top:10px">Chargement du paiement…</div></div>'
     + '</div>'
     + (enAttente ? "" : carteHistorique(m, mois))
-    + '<div class="carte"><h3>Comment régler</h3>'
-    + '<div class="etape"><div class="n">1</div><div>Ouvrez votre application mobile money → <strong>Transfert d’argent</strong>.</div></div>'
-    + '<div class="etape"><div class="n">2</div><div>Envoyez <strong>'+fcfa(montant)+' FCFA</strong> vers l’un des numéros du réseau.</div></div>'
-    + '<div class="etape"><div class="n">3</div><div>Saisissez <strong>'+l.reference+'</strong> dans le champ motif / référence.</div></div>'
-    + '<div class="etape"><div class="n">4</div><div>C’est tout : grâce à la référence, votre ligne passe à « à jour » automatiquement.</div></div>'
-    + (canaux ? '<hr style="border:none;border-top:1px solid var(--ligne);margin:12px 0">'+canaux : "")
-    + '<p class="mut">Trésorier : '+ech(etat.settings.tresorier||"")+' · '+ech(etat.settings.tresorier_tel||"")+'</p></div>'
+    + '<div class="carte"><h3>Comment ça marche</h3>'
+    + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov.</div></div>'
+    + '<div class="etape"><div class="n">2</div><div>Validez le paiement sur votre téléphone (code secret de votre opérateur).</div></div>'
+    + '<div class="etape"><div class="n">3</div><div>Vous revenez ici automatiquement : votre ligne passe à <strong>« à jour »</strong> immédiatement'+(enAttente ? ', et vos accès WhatsApp et Skool s’affichent' : '')+'.</div></div>'
+    + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
     + '</main>';
 }
 
@@ -1334,11 +1326,12 @@ function carteHistorique(m, mois){
     + '<div class="kpi"><div class="t">Total versé</div><div class="v">'+fcfa(h.verse + h.avance)+' F</div>'+(h.avance ? '<div class="mut">dont '+fcfa(h.avance)+' F d’avance</div>' : '')+'</div>'
     + '<div class="kpi"><div class="t">Reste à payer</div><div class="v" style="color:'+(h.reste ? '#b3261e' : 'var(--vert)')+'">'+fcfa(h.reste)+' F</div>'
     + '<div class="mut">'+(h.reste ? (h.nb_impayes+' mois impayé'+(h.nb_impayes>1?'s':'')+(h.nb_partiels?' · '+h.nb_partiels+' partiel'+(h.nb_partiels>1?'s':''):'')) : 'à jour ✅')+'</div></div></div>'
-    + '<div class="survol" style="margin-top:10px"><table><tr><th>Mois</th><th>Dû</th><th>Versé</th><th>Date</th><th>Statut</th></tr>'
-    + h.lignes.slice().reverse().map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td>'+fcfa(l.du)+' F</td><td>'+fcfa(l.verse)+' F</td>'
-        + '<td class="mut">'+l.dates.map(fdate).join(", ")+'</td><td>'+(b[l.statut]||"")+'</td></tr>').join("")
+    + '<div class="survol" style="margin-top:10px"><table><tr><th>Mois</th><th>Versé / dû</th><th>Statut</th></tr>'
+    + h.lignes.slice().reverse().map(l => '<tr><td><strong>'+libelleMois(l.mois)+'</strong>'+(l.dates.length ? '<div class="mut">payé le '+l.dates.map(fdate).join(", ")+'</div>' : '')+'</td>'
+        + '<td style="white-space:nowrap">'+fcfa(l.verse)+' / '+fcfa(l.du)+' F</td>'
+        + '<td>'+(b[l.statut]||"")+((l.statut==="IMPAYE"||l.statut==="PARTIEL") && l.mois !== mois ? '<div style="margin-top:6px"><button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\''+l.mois+'\')">Payer '+fcfa(l.du-l.verse)+' F</button></div>' : '')+'</td></tr>').join("")
     + '</table></div>'
-    + (h.reste && premierDu ? '<p class="mut" style="margin-top:8px">Pour régulariser, envoyez <strong>'+fcfa(h.reste)+' FCFA</strong> en un ou plusieurs transferts, avec la référence du mois concerné en motif (ex. '+reference(premierDu.mois, m.code)+' pour '+libelleMois(premierDu.mois)+').</p>' : '')
+    + (h.reste ? '<p class="mut" style="margin-top:8px">Pour régulariser un mois en retard, cliquez sur <strong>Payer</strong> en face du mois concerné.</p>' : '')
     + '</div>';
 }
 
@@ -1349,7 +1342,7 @@ function vueAdherer(){
   const champ = (id, label, type, ph, req) => '<div class="champ"><span>'+label+(req?' *':'')+'</span>'
     + '<input id="'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'"></div>';
   return '<main style="max-width:560px"><div class="carte"><h3>Devenir membre de '+ech(etat.settings.reseau||"ComptaConnect")+'</h3>'
-    + '<p class="mut">Remplissez ce formulaire, réglez votre adhésion de <strong>'+montant+' FCFA</strong> par mobile money, '
+    + '<p class="mut">Remplissez ce formulaire, réglez votre adhésion de <strong>'+montant+' FCFA</strong> en ligne (Wave, Orange Money, MTN, Moov), '
     + 'et recevez immédiatement le lien du groupe WhatsApp ainsi que le contact du trésorier.</p>'
     + champ("aNom","Nom et prénoms","text","Ex. KOUASSI Aya Flaure",true)
     + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
@@ -1378,12 +1371,12 @@ async function chargerPaiementEnLigne(code, mois, montant){
   const zone = $("#payerEnLigne"); if(!zone) return;
   try{
     if(_payEnLigneDispo === null) _payEnLigneDispo = await sb("rpc/cc_paiement_en_ligne_dispo", { method:"POST", body:"{}" });
-    if(!_payEnLigneDispo || !(montant > 0)){ zone.innerHTML = ""; return; }
+    if(!(montant > 0)){ zone.innerHTML = '<div class="alerte al-ok" style="margin-top:12px">Rien à régler pour ce mois. Merci ! 🙏</div>'; return; }
+    if(!_payEnLigneDispo){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation par le trésorier. Revenez dans quelques instants ou contactez-le : '+ech(etat.settings.tresorier_tel||"")+'</div>'; return; }
     zone.innerHTML = '<div style="margin-top:12px;text-align:center">'
       + '<button class="btn blk" id="btnPayer" onclick="payerEnLigne(\''+code+'\',\''+mois+'\')">💳 Payer '+fcfa(montant)+' FCFA en ligne (Wave · Orange · MTN · Moov)</button>'
-      + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat, sans motif à saisir.</div></div>'
-      + '<div class="mut" style="text-align:center;margin:10px 0 0">— ou par transfert manuel —</div>';
-  }catch(e){ zone.innerHTML = ""; }
+      + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat.</div></div>';
+  }catch(e){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation. Contactez le trésorier : '+ech(etat.settings.tresorier_tel||"")+'</div>'; }
 }
 async function payerEnLigne(code, mois){
   const b = $("#btnPayer"); if(b){ b.disabled = true; b.textContent = "Ouverture du paiement…"; }
@@ -1713,12 +1706,11 @@ function vuePaiements(params){
   const nomDe = id => { const m = etat.membres.find(x => String(x.id) === String(id)); return m ? m.nom : "—"; };
   return '<main>'
     + barrePeriode("paiements", per, "Paiements")
-    + '<div class="carte"><h3>Importer un relevé (le geste mensuel)</h3>'
-    + '<p class="mut">Collez les lignes du relevé mobile money : <code>date;montant;expéditeur;téléphone;motif</code> — '
-    + 'un paiement par ligne (date jj/mm/aaaa ou aaaa-mm-jj). Le rapprochement se fait tout seul grâce à la référence du motif.</p>'
+    + '<div class="carte"><h3>Régularisation exceptionnelle — import d’un relevé</h3>'
+    + '<p class="mut">Réservé aux cas particuliers (reprise d’historique, paiement reçu hors plateforme). Format : <code>date;montant;expéditeur;téléphone;motif</code>, un paiement par ligne.</p>'
     + '<textarea id="csvPaies" placeholder="05/09/2026;5000;KOUASSI AYA;0708112233;Cotisation CC'+moisCourt(mois)+'001"></textarea>'
     + '<button class="btn" style="margin-top:8px" onclick="importerPaiements()">Importer et pointer</button></div>'
-    + '<div class="carte"><h3>Saisie manuelle</h3><div class="grille g4">'
+    + '<div class="carte"><h3>Régularisation exceptionnelle — saisie manuelle</h3><div class="grille g4">'
     + '<div class="champ"><span>Date</span><input id="pDate" type="date" value="'+aujourdhui()+'"></div>'
     + '<div class="champ"><span>Montant</span><input id="pMont" inputmode="numeric" value="5000"></div>'
     + '<div class="champ"><span>Canal</span><select id="pCanal"><option>Wave</option><option>Orange Money</option><option>MTN MoMo</option><option>Espèces</option><option>Autre</option></select></div>'
@@ -1932,8 +1924,6 @@ function vueParametres(){
     + champ("cotisation","Cotisation mensuelle (FCFA)","number") + champ("jour_echeance","Jour d'échéance","number")
     + champ("tresorier","Trésorier") + champ("tresorier_tel","Téléphone trésorier","tel")
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
-    + champ("wave_numero","Numéro Wave") + champ("om_numero","Numéro Orange Money")
-    + champ("mtn_numero","Numéro MTN MoMo")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("bienvenue","Message de bienvenue")
@@ -1967,7 +1957,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","wave_numero","om_numero","mtn_numero","adhesion","whatsapp_lien","skool_lien","bienvenue"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue"];
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();

@@ -71,7 +71,6 @@ insert into cc_settings (cle, valeur) values
   ('tresorier_tel', '+225 05 55 99 20 04'),
   ('contact_email', 'supportcomptaconnect@gmail.com'),
   ('site_web', 'www.comptaconnect.com'),
-  ('wave_numero', ''), ('om_numero', ''), ('mtn_numero', ''),
   ('instructions', '')
 on conflict (cle) do nothing;
 

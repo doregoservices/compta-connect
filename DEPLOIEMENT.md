@@ -54,8 +54,9 @@ La page publique des membres : `https://doregoservices.github.io/compta-connect/
 > RLS créés par schema.sql).
 
 **Paiement en ligne 100 % automatique** : voir `supabase/functions/README.md`
-(deux fonctions Supabase Edge gratuites + `supabase/cinetpay.sql`). Le relevé mobile
-money reste utile pour les membres qui préfèrent le transfert manuel.
+(deux fonctions Supabase Edge gratuites + `supabase/cinetpay.sql`). Le transfert manuel
+n'est plus proposé aux membres : tout passe par le bouton « Payer en ligne ». L'import de
+relevé et la saisie manuelle restent dans l'espace trésorier pour les régularisations.
 
 ---
 
