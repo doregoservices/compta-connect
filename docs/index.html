@@ -1240,6 +1240,7 @@ function rendu(){
     if(!etat.cfg) corps = vueInstallation();
     else if(route === "payer") corps = vuePayer(params);
     else if(route === "adherer") corps = vueAdherer();
+    else if(route === "simulation") corps = vueSimulation(params);
     else if(route === "connexion") corps = vueConnexion();
     else if(route === "installer") corps = vueInstallation();
     else if(!etat.session) corps = vueAccueil();
@@ -1429,6 +1430,29 @@ async function chargerBienvenue(code){
       + '<a href="https://wa.me/'+ech(String(r.tresorier_tel||"").replace(/\D/g,""))+'" target="_blank" rel="noopener">Écrire sur WhatsApp</a></p>'
       + '</div>';
   }catch(e){ zone.innerHTML = ""; }
+}
+
+/* --------------------------- Paiement simulé (mode démonstration) --------------------------- */
+function vueSimulation(params){
+  return '<main style="max-width:480px"><div class="carte" style="border:2px dashed #b3261e">'
+    + '<div class="badge b-impaye" style="margin-bottom:8px">MODE DÉMONSTRATION — aucun argent n’est débité</div>'
+    + '<h3>Page de paiement (simulée)</h3>'
+    + '<p>Ceci remplace la page CinetPay pendant les tests. Montant : <strong>'+fcfa(params.montant||0)+' FCFA</strong> — membre '+ech(params.code||"")+'.</p>'
+    + '<div class="grille g2" style="margin:12px 0">'
+    + '<div class="kpi" style="text-align:center">📱<br>Wave</div><div class="kpi" style="text-align:center">🟠<br>Orange Money</div>'
+    + '<div class="kpi" style="text-align:center">🟡<br>MTN MoMo</div><div class="kpi" style="text-align:center">🔵<br>Moov Money</div></div>'
+    + '<button class="btn blk" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.code||"")+'\',\'ok\')">✅ Simuler un paiement réussi</button>'
+    + '<button class="btn blk sec" style="margin-top:8px" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.code||"")+'\',\'refus\')">❌ Simuler un paiement refusé / annulé</button>'
+    + '</div></main>';
+}
+async function finSimulation(tx, code, choix){
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-notify?transaction_id=" + encodeURIComponent(tx) + "&simulation=" + choix,
+      { headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon } });
+    const j = await rep.json();
+    sessionStorage.setItem("cc_tx", tx);
+    aller("#/payer?code=" + code + "&retour=1" + (j.statut === "ACCEPTEE" ? "&nouveau=1" : ""));
+  }catch(e){ toast("Simulation impossible : " + e.message, "err"); }
 }
 
 /* --------------------------- Connexion --------------------------- */
@@ -1990,6 +2014,8 @@ function vueParametres(){
     + '<div class="champ"><span>Site ID</span><input id="k_site" placeholder="123456"></div></div>'
     + '<div id="k_etat" class="mut"></div>'
     + '<button class="btn" onclick="enregistrerClesCinetPay()">Enregistrer les clés</button>'
+    + '<p class="mut" style="margin-top:10px">🧪 <strong>Tester sans compte CinetPay</strong> : saisissez <code>SIMULATION</code> comme API Key (Site ID : <code>0</code>). Le bouton « Payer en ligne » apparaît et ouvre une page de paiement simulée — aucun argent ne circule. Les paiements créés portent le canal « SIMULATION » ; supprimez-les ensuite d’un clic : '
+    + '<a href="javascript:void(0)" onclick="purgerSimulation()">purger les paiements de simulation</a>.</p>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
     + ' · <a href="#/installer">Base de données (administrateur)</a></p>'
@@ -1997,12 +2023,26 @@ function vueParametres(){
 }
 async function enregistrerClesCinetPay(){
   const api = $("#k_api").value.trim(), site = $("#k_site").value.trim();
-  if(!api || !site){ toast("API Key et Site ID obligatoires.", "err"); return; }
+  if(!api || !site){ toast("API Key et Site ID obligatoires (ou SIMULATION / 0 pour tester).", "err"); return; }
   try{
     for(const [cle, valeur] of [["cinetpay_api_key", api],["cinetpay_site_id", site]])
       await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
     toast("Clés CinetPay enregistrées (table privée).", "ok"); $("#k_api").value = ""; etatCles();
   }catch(e){ toast("Refusé : "+e.message+(/cc_secrets/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+}
+async function purgerSimulation(){
+  const sim = etat.paiements.filter(p => /SIMULATION/.test(p.canal||""));
+  if(!sim.length){ toast("Aucun paiement de simulation.", "ok"); return; }
+  if(!confirm("Supprimer "+sim.length+" paiement(s) de simulation ? Les membres activés par ces tests redeviendront « en attente » s’ils n’ont aucun autre paiement.")) return;
+  try{
+    for(const p of sim){
+      await sb("cc_paiements?id=eq."+p.id, { method:"DELETE" });
+      const autres = etat.paiements.some(x => x.id !== p.id && String(x.membre_id) === String(p.membre_id) && !/SIMULATION/.test(x.canal||""));
+      const m = etat.membres.find(x => String(x.id) === String(p.membre_id));
+      if(m && !autres && m.date_adhesion >= "2026-10-29") await sb("cc_membres?id=eq."+m.id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ actif:false }) });
+    }
+    await chargerDonnees(); toast("Paiements de simulation supprimés.", "ok"); rendu();
+  }catch(e){ toast("Erreur : "+e.message, "err"); }
 }
 async function etatCles(){
   const z = $("#k_etat"); if(!z) return;

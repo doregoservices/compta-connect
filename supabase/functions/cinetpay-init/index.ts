@@ -23,6 +23,14 @@ Deno.serve(async (req) => {
 
     const { apikey, site_id } = await secrets();
     const transaction_id = "CC" + Date.now().toString(36).toUpperCase() + codeN;
+    const sitePublic = String(retour || cfg.site_public || "");
+    if (apikey === "SIMULATION") {
+      // Mode démonstration : aucune transaction réelle, page de paiement simulée dans l'application
+      await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        transaction_id, membre_id: m.id, code: codeN, mois: moisN, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+        statut: "EN_ATTENTE", payment_token: "SIMULATION" }) });
+      return json({ url: sitePublic + "#/simulation?tx=" + transaction_id + "&code=" + codeN + "&montant=" + aPayer, transaction_id, montant: aPayer, simulation: true });
+    }
     const notify_url = `${SB_URL}/functions/v1/cinetpay-notify`;
     const return_url = String(retour || cfg.site_public || "") + `#/payer?code=${codeN}&retour=1`;
     const nomParts = String(m.nom || "Membre").trim().split(/\s+/);

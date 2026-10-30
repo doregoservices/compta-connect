@@ -25,7 +25,7 @@ on conflict (cle) do nothing;
 -- Le site public demande si le paiement en ligne est disponible (sans jamais voir les clés)
 create or replace function cc_paiement_en_ligne_dispo() returns boolean
 language sql security definer set search_path = public as $$
-  select exists(select 1 from cc_secrets where cle = 'cinetpay_api_key' and length(valeur) > 10)
+  select exists(select 1 from cc_secrets where cle = 'cinetpay_api_key' and length(valeur) >= 10)
      and exists(select 1 from cc_secrets where cle = 'cinetpay_site_id' and length(valeur) > 0);
 $$;
 revoke all on function cc_paiement_en_ligne_dispo() from public;

@@ -17,6 +17,19 @@ Deno.serve(async (req) => {
     if (!t) return json({ erreur: "Transaction inconnue" }, 404);
     if (t.statut === "ACCEPTEE") return json({ statut: "ACCEPTEE", deja: true });
 
+    // Mode simulation : la transaction a été créée avec le jeton "SIMULATION" ; on accepte/refuse selon le choix fait sur la page simulée
+    if (t.payment_token === "SIMULATION") {
+      const choix = new URL(req.url).searchParams.get("simulation") || "";
+      if (choix === "ok") {
+        const r = await enregistrerPaiement(t as never, { montant: Number(t.montant), methode: "SIMULATION", operateur: "TEST" });
+        return json({ statut: "ACCEPTEE", deja: r.deja, simulation: true });
+      }
+      if (choix === "refus") {
+        await db(`cc_transactions?id=eq.${t.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ statut: "REFUSEE", maj_le: new Date().toISOString() }) });
+        return json({ statut: "REFUSEE", simulation: true });
+      }
+      return json({ statut: t.statut, simulation: true });
+    }
     const v = await verifierTransaction(tid);
     if (!v.ok) {
       const st = String(v.brut?.data?.status || v.brut?.code || "EN_ATTENTE");
