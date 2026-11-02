@@ -1152,17 +1152,35 @@ function toast(texte, type){
   clearTimeout(t._h); t._h = setTimeout(()=> t.classList.remove("on"), 4200);
 }
 
-async function sb(table, options){
+async function sb(table, options, _retente){
   options = options || {};
+  if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
   const entetes = Object.assign({ "apikey": etat.cfg.anon, "Content-Type":"application/json",
     "Authorization": "Bearer " + (etat.session ? etat.session.token : etat.cfg.anon) }, options.headers||{});
   const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/rest/v1/" + table,
     Object.assign({}, options, { headers: entetes }));
   if(!rep.ok){
     const corps = await rep.text();
+    // Session trésorier expirée : on la renouvelle une fois puis on rejoue la requête
+    if(rep.status === 401 && etat.session && !_retente){
+      if(await rafraichirSession()) return sb(table, options, true);
+      deconnexion(); throw new Error("Votre session a expiré : reconnectez-vous.");
+    }
     throw new Error(corps.slice(0,300));
   }
   return rep.status === 204 ? null : await rep.json();
+}
+async function rafraichirSession(){
+  if(!etat.session || !etat.session.refresh) return false;
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/auth/v1/token?grant_type=refresh_token", { method:"POST",
+      headers:{ "apikey": etat.cfg.anon, "Content-Type":"application/json" }, body: JSON.stringify({ refresh_token: etat.session.refresh }) });
+    if(!rep.ok) return false;
+    const j = await rep.json();
+    etat.session = { token: j.access_token, refresh: j.refresh_token, email: etat.session.email, expire: Date.now() + (j.expires_in||3600)*1000 };
+    localStorage.setItem("cc_session", JSON.stringify(etat.session));
+    return true;
+  }catch(e){ return false; }
 }
 
 async function chargerDonnees(){
@@ -1220,6 +1238,7 @@ function compresserImage(fichier, maxPx, qualite){
 }
 async function televerserPhoto(chemin, blob){
   const base = etat.cfg.url.replace(/\/$/,"");
+  if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
   const rep = await fetch(base + "/storage/v1/object/cc_photos/" + chemin, { method:"POST",
     headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + (etat.session ? etat.session.token : etat.cfg.anon), "Content-Type":"image/jpeg", "x-upsert":"true" }, body: blob });
   if(!rep.ok) throw new Error((await rep.text()).slice(0,200));
@@ -1238,7 +1257,7 @@ async function connexion(email, motdepasse){
   });
   if(!rep.ok) throw new Error("Email ou mot de passe refusé. Le compte se crée dans Supabase → Authentication → Users.");
   const j = await rep.json();
-  etat.session = { token: j.access_token, email };
+  etat.session = { token: j.access_token, refresh: j.refresh_token, email, expire: Date.now() + (j.expires_in||3600)*1000 };
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
 }
 async function rafraichir(){ try{ await chargerDonnees(); rendu(); toast("Situation actualisée.", "ok"); }catch(e){ toast(e.message, "err"); } }
