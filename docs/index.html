@@ -1168,7 +1168,8 @@ async function sb(table, options, _retente){
     }
     throw new Error(corps.slice(0,300));
   }
-  return rep.status === 204 ? null : await rep.json();
+  const texte = await rep.text();
+  return texte ? JSON.parse(texte) : null;      // réponses vides (création/modification) acceptées
 }
 async function rafraichirSession(){
   if(!etat.session || !etat.session.refresh) return false;
@@ -1261,9 +1262,9 @@ async function connexion(email, motdepasse){
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
 }
 async function rafraichir(){ try{ await chargerDonnees(); rendu(); toast("Situation actualisée.", "ok"); }catch(e){ toast(e.message, "err"); } }
-function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); aller("#/"); }
+function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); etat.depenses = []; aller("#/"); rendu(); }
 
-function aller(hash){ location.hash = hash; }
+function aller(hash){ if(location.hash === hash) rendu(); else location.hash = hash; }
 
 /* ------------------------------ QR ------------------------------ */
 function qrSvg(texte, px){
