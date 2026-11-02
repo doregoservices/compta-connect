@@ -48,7 +48,7 @@ général depuis le début ; chaque page se filtre par mois ou par période. Les
 CinetPay se saisissent dans *Paramètres* par le titulaire du compte (table privée `cc_secrets`).
 Chaque membre voit sur sa page le détail mois par mois depuis son adhésion.
 
-La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?m=CC-26-00026` (matricule de la carte ; les anciens liens `?code=006` restent valables)
+La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?m=CC-26-00026` (matricule de la carte — seul identifiant accepté)
 
 > Sécurité : la clé anon est publique par conception — la
 > lecture est publique, l'**écriture exige la connexion du trésorier** (droits

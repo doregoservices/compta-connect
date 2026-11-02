@@ -1188,11 +1188,10 @@ async function chargerDonnees(){
 
 /* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
 function trouverMembre(saisie){
+  // Seul le matricule de carte donne accès (l'ancien code interne à 3 chiffres n'est pas une clé d'accès)
   const mat = matriculeNormaliser(saisie);
-  if(mat){ const m = etat.membres.find(x => x.matricule === mat); if(m) return m; }
-  const chiffres = String(saisie||"").replace(/\D/g, "");
-  if(chiffres && chiffres.length <= 3) return etat.membres.find(x => String(x.code).padStart(3,"0") === chiffres.padStart(3,"0")) || null;
-  return null;
+  if(!mat) return null;
+  return etat.membres.find(x => x.matricule === mat) || null;
 }
 function idMembre(m){ return m.matricule || String(m.code).padStart(3,"0"); }
 function lienMembre(m, extra){ return "#/payer?m=" + encodeURIComponent(idMembre(m)) + (extra||""); }
@@ -1415,7 +1414,7 @@ async function chercherParTelephone(){
 }
 
 function vuePayer(params){
-  const saisie = params.m || params.code || "";
+  const saisie = params.m || "";
   const mois = normaliserMois(params.mois || moisCourant());
   const m = trouverMembre(saisie);
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
