@@ -2348,7 +2348,8 @@ function vueAppels(params){
         + '<button class="btn sm sec" onclick="copier(\''+lienPublic(a)+'\')" title="'+lienPublic(a)+'">Copier le lien</button> '
         + '<a class="btn sm sec" href="https://wa.me/?text='+encodeURIComponent("📢 "+(etat.settings.reseau||"ComptaConnect")+" — "+a.titre+" : "+fcfa(a.montant)+" FCFA"+(a.date_limite ? " avant le "+dateFR(a.date_limite) : "")+". Payez en ligne avec votre matricule : "+lienPublic(a))+'" target="_blank" rel="noopener">WhatsApp</a> '
         + '<button class="btn sm sec" onclick="editerAppel('+a.id+')">Modifier</button> '
-        + '<button class="btn sm '+(a.ouvert ? 'dgr' : 'sec')+'" onclick="basculerAppel('+a.id+','+(!a.ouvert)+')">'+(a.ouvert ? 'Clôturer' : 'Rouvrir')+'</button></td></tr>'; }).join("")
+        + '<button class="btn sm '+(a.ouvert ? 'dgr' : 'sec')+'" onclick="basculerAppel('+a.id+','+(!a.ouvert)+')">'+(a.ouvert ? 'Clôturer' : 'Rouvrir')+'</button>'
+        + (sv.total === 0 ? ' <button class="btn sm dgr" onclick="supprimerAppel('+a.id+')" title="Possible tant que personne n’a payé">✕</button>' : '')+'</td></tr>'; }).join("")
       + '</table></div></div>' : '<div class="carte mut">Aucun appel à paiement pour l’instant.</div>')
     + '</main>';
 }
@@ -2378,6 +2379,12 @@ async function enregistrerAppel(id){
 async function basculerAppel(id, ouvert){
   try{ await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ ouvert }) });
     await chargerDonnees(); rendu(); toast(ouvert ? "Appel rouvert." : "Appel clôturé : plus aucun paiement possible.", "ok"); }catch(e){ toast(e.message, "err"); }
+}
+async function supprimerAppel(id){
+  const a = etat.appels.find(x => String(x.id) === String(id)); if(!a) return;
+  if(etat.paiements.some(p => String(p.appel_id) === String(id))){ toast("Des membres ont déjà payé : clôturez l’appel au lieu de le supprimer.", "err"); return; }
+  if(!confirm("Supprimer définitivement « "+a.titre+" » ? (aucun paiement enregistré)")) return;
+  try{ await sb("cc_appels?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); toast("Appel supprimé.", "ok"); }catch(e){ toast(e.message, "err"); }
 }
 function exportAppelCSV(id){
   const a = etat.appels.find(x => String(x.id) === String(id)); if(!a) return;
