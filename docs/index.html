@@ -91,7 +91,7 @@ tr:hover td{background:#f4faf7}
   padding:11px 18px;border-radius:11px;font-weight:700;font-size:14px;opacity:0;transition:.25s;
   pointer-events:none;z-index:99;max-width:90%}
 #toast.ok{background:var(--vert-fonce)}#toast.err{background:var(--rouge)}#toast.on{opacity:1}
-.pied{text-align:center;color:var(--muet);font-size:12.5px;padding:14px}
+.pied{text-align:center;color:var(--muet);font-size:12.5px;padding:14px;line-height:1.7}
 .avatar{width:44px;height:44px;border-radius:99px;object-fit:cover;background:var(--vert-eau);color:var(--vert-fonce);
   display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
 .avatar.xl{width:84px;height:84px;font-size:28px}.avatar.sm{width:30px;height:30px;font-size:11px}
@@ -1352,7 +1352,9 @@ function rendu(){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
   }
   app.innerHTML = entete() + corps
-    + '<p class="pied">ComptaConnect · pointage automatique des cotisations</p>';
+    + '<p class="pied">ComptaConnect · pointage automatique des cotisations<br>'
+    + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
+    + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
 }
 
 /* --------------------------- Vues publiques --------------------------- */
