@@ -48,7 +48,7 @@ général depuis le début ; chaque page se filtre par mois ou par période. Les
 CinetPay se saisissent dans *Paramètres* par le titulaire du compte (table privée `cc_secrets`).
 Chaque membre voit sur sa page le détail mois par mois depuis son adhésion.
 
-La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?code=006`
+La page publique des membres : `https://doregoservices.github.io/compta-connect/#/payer?m=CC-26-00026` (matricule de la carte ; les anciens liens `?code=006` restent valables)
 
 > Sécurité : la clé anon est publique par conception — la
 > lecture est publique, l'**écriture exige la connexion du trésorier** (droits
@@ -286,7 +286,7 @@ Doit renvoyer :
 
 Puis vérifier à la main :
 1. `/` → le tableau de bord s'affiche,
-2. `/payer?code=001` → la situation du membre 001 et un QR code,
+2. `/payer?m=CC-26-00001` → la situation du membre CC-26-00001 et un QR code,
 3. `/portail/connexion` → connexion avec un code + 4 chiffres,
 4. enregistrer un paiement test puis le supprimer.
 
@@ -335,3 +335,24 @@ réglez une cotisation fictive, vérifiez que la ligne du membre passe à
 | Frais pour 80 membres/mois | 60 000 | 0 | ≈ 14 000 |
 
 Les deux modes cohabitent : le bouton pour le confort, le motif pour le zéro frais.
+
+## Vie du réseau (`supabase/reseau.sql`)
+
+À exécuter une fois dans Supabase → SQL Editor (rejouable). Il apporte :
+
+- **Matricule de carte** `CC-AA-NNNNN` sur chaque membre, attribué automatiquement à la création
+  (formulaire, import CSV, adhésion en ligne). Les membres qui ont déjà une carte gardent leur numéro
+  (import avec le matricule, ou champ « N° matricule » dans Modifier). Paramètres → « Dernier n° de
+  carte déjà imprimé » réserve les numéros en cours d'impression. Le matricule est la clé d'accès du
+  membre : `#/payer?m=CC-26-00026`, saisie tolérante (`cc2600026`), récupération par téléphone.
+  Membres → « Export cartes » donne le fichier pour l'imprimeur (matricule, nom, titre, membre depuis, photo).
+- **Photos** : bucket Storage public `cc_photos` (images compressées par le navigateur, ≤ 400 Ko).
+  Le membre ajoute sa photo depuis sa page (confirmation des 4 derniers chiffres de son téléphone) ;
+  le trésorier peut la remplacer/retirer dans Membres → Modifier.
+- **Vie du réseau** (onglet trésorier) : bureau (nom, poste, photo → page d'accueil), photo de groupe,
+  texte de présentation, galerie « Nos rencontres » (page publique `#/rencontres`).
+- **Appels à paiement** (onglet trésorier) : formation, document, carte de membre… Lien public
+  `#/appel?id=N` à partager sur WhatsApp ; le membre entre son matricule et paie via CinetPay ;
+  suivi (qui a payé, relance WhatsApp, CSV). Ces paiements ont `appel_id` et `mois` vide : ils
+  comptent dans les recettes/solde mais jamais dans le pointage des cotisations.
+  Les Edge Functions `cinetpay-init`/`cinetpay-notify` doivent être redéployées (paramètre `appel`).

@@ -92,6 +92,18 @@ tr:hover td{background:#f4faf7}
   pointer-events:none;z-index:99;max-width:90%}
 #toast.ok{background:var(--vert-fonce)}#toast.err{background:var(--rouge)}#toast.on{opacity:1}
 .pied{text-align:center;color:var(--muet);font-size:12.5px;padding:14px}
+.avatar{width:44px;height:44px;border-radius:99px;object-fit:cover;background:var(--vert-eau);color:var(--vert-fonce);
+  display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.avatar.xl{width:84px;height:84px;font-size:28px}.avatar.sm{width:30px;height:30px;font-size:11px}
+.bureau{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.bureau .p{text-align:center;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--r);padding:14px 8px}
+.bureau .p .nm{font-weight:800;font-size:13.5px;margin-top:8px}.bureau .p .ps{font-size:12px;color:var(--or);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.galerie{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.galerie img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px;cursor:pointer}
+.groupe{width:100%;max-height:320px;object-fit:cover;border-radius:var(--r);display:block}
+.matricule{font-family:ui-monospace,Menlo,Consolas,monospace;font-weight:800;letter-spacing:.5px;color:var(--vert-fonce)}
+.cartem{display:flex;gap:14px;align-items:center;background:linear-gradient(135deg,var(--bleu),var(--bleu2));color:#fff;border-radius:var(--r);padding:14px 16px}
+.cartem .matricule{color:var(--menthe)}.cartem .mut{color:#cfe3da}
 </style>
 </head>
 <body>
@@ -984,6 +996,13 @@ function analyserReference(texte){
   return [annee + "-" + String(mm).padStart(2,"0"), code];
 }
 
+/* Matricule de carte : CC-AA-NNNNN (AA = année d'attribution, NNNNN = n° d'ordre). Saisie tolérante. */
+function matriculeNormaliser(texte){
+  let v = String(texte||"").toUpperCase().replace(/[^0-9A-Z]/g, "");
+  if(v.startsWith("CC")) v = v.slice(2);
+  if(!/^\d{7}$/.test(v)) return null;
+  return "CC-" + v.slice(0,2) + "-" + v.slice(2);
+}
 function telephoneNormalise(numero){
   /* Même règle que le serveur : tout ramener à la forme 225XXXXXXXXXX */
   let d = String(numero||"").replace(/\D/g,"");
@@ -1103,7 +1122,7 @@ function aujourdhui(){ return new Date().toISOString().slice(0,10); }
 
 if(typeof module !== "undefined" && module.exports){
   module.exports = { normaliserMois, moisCourt, moisSuivant, libelleMois, echeance, reference,
-    analyserReference, telephoneNormalise, correspondanceNom, rapprocherPaiement, pointage, fcfa };
+    analyserReference, telephoneNormalise, matriculeNormaliser, correspondanceNom, rapprocherPaiement, pointage, fcfa };
 }
 /* ==LOGIQUE-FIN== */
 
@@ -1114,7 +1133,7 @@ if(typeof module !== "undefined" && module.exports){
 const $ = s => document.querySelector(s);
 const ech = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], settings:{}, route:"", params:{}, msg:null };
+const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], settings:{}, bureau:[], rencontres:[], appels:[], route:"", params:{}, msg:null };
 
 /* Connexion intégrée : les membres n'ont rien à configurer. (La clé anon est publique par conception ;
    l'écriture reste protégée par la connexion du trésorier et les règles RLS.) */
@@ -1158,6 +1177,58 @@ async function chargerDonnees(){
   etat.paiements = paiements;
   etat.settings = {};
   for(const s of settings) etat.settings[s.cle] = s.valeur;
+  // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
+  const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
+  [etat.bureau, etat.rencontres, etat.appels] = await Promise.all([
+    opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
+    opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
+    opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
+  ]);
+}
+
+/* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
+function trouverMembre(saisie){
+  const mat = matriculeNormaliser(saisie);
+  if(mat){ const m = etat.membres.find(x => x.matricule === mat); if(m) return m; }
+  const chiffres = String(saisie||"").replace(/\D/g, "");
+  if(chiffres && chiffres.length <= 3) return etat.membres.find(x => String(x.code).padStart(3,"0") === chiffres.padStart(3,"0")) || null;
+  return null;
+}
+function idMembre(m){ return m.matricule || String(m.code).padStart(3,"0"); }
+function lienMembre(m, extra){ return "#/payer?m=" + encodeURIComponent(idMembre(m)) + (extra||""); }
+function lienMembreAbsolu(m, extra){ return location.origin + location.pathname + lienMembre(m, extra); }
+function initiales(nom){ return String(nom||"?").trim().split(/\s+/).slice(0,2).map(x => x[0]||"").join("").toUpperCase(); }
+function avatar(m, taille){
+  const cls = "avatar" + (taille ? " " + taille : "");
+  return m.photo_url ? '<img class="'+cls+'" src="'+ech(m.photo_url)+'" alt="">' : '<span class="'+cls+'">'+ech(initiales(m.nom))+'</span>';
+}
+function anneeAdhesion(m){ const a = String(m.date_adhesion||"").slice(0,4); return /^\d{4}$/.test(a) ? a : (m.matricule ? "20" + m.matricule.slice(3,5) : ""); }
+
+/* ---------- Photos : compression dans le navigateur puis dépôt dans Supabase Storage (bucket cc_photos) ---------- */
+function compresserImage(fichier, maxPx, qualite){
+  return new Promise((ok, ko) => {
+    const img = new Image(); const url = URL.createObjectURL(fichier);
+    img.onload = () => {
+      const r = Math.min(1, (maxPx||400) / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width*r); c.height = Math.round(img.height*r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => b ? ok(b) : ko(new Error("Image illisible")), "image/jpeg", qualite||0.82);
+    };
+    img.onerror = () => ko(new Error("Fichier image illisible"));
+    img.src = url;
+  });
+}
+async function televerserPhoto(chemin, blob){
+  const base = etat.cfg.url.replace(/\/$/,"");
+  const rep = await fetch(base + "/storage/v1/object/cc_photos/" + chemin, { method:"POST",
+    headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + (etat.session ? etat.session.token : etat.cfg.anon), "Content-Type":"image/jpeg", "x-upsert":"true" }, body: blob });
+  if(!rep.ok) throw new Error((await rep.text()).slice(0,200));
+  return base + "/storage/v1/object/public/cc_photos/" + chemin + "?v=" + Date.now();
+}
+function choisirImage(multiple){
+  return new Promise(ok => { const i = document.createElement("input"); i.type = "file"; i.accept = "image/*"; i.multiple = !!multiple;
+    i.onchange = () => ok(Array.from(i.files||[])); i.click(); });
 }
 
 async function connexion(email, motdepasse){
@@ -1208,6 +1279,8 @@ const PAGES = [
   ["paiements", "Paiements", "vuePaiements", true],
   ["depenses", "Dépenses", "vueDepenses", true],
   ["solde", "Solde", "vueSolde", true],
+  ["appels", "Appels à paiement", "vueAppels", true],
+  ["reseau", "Vie du réseau", "vueReseau", true],
   ["parametres", "Paramètres", "vueParametres", true],
 ];
 
@@ -1220,7 +1293,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a><a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1241,6 +1314,8 @@ function rendu(){
     else if(route === "payer") corps = vuePayer(params);
     else if(route === "adherer") corps = vueAdherer();
     else if(route === "simulation") corps = vueSimulation(params);
+    else if(route === "rencontres") corps = vueRencontres(params);
+    else if(route === "appel") corps = vueAppelPublic(params);
     else if(route === "connexion") corps = vueConnexion();
     else if(route === "installer") corps = vueInstallation();
     else if(!etat.session) corps = vueAccueil();
@@ -1251,6 +1326,8 @@ function rendu(){
     else if(route === "parametres"){ corps = vueParametres(); setTimeout(etatCles, 0); }
     else if(route === "depenses") corps = vueDepenses();
     else if(route === "solde") corps = vueSolde();
+    else if(route === "appels") corps = vueAppels(params);
+    else if(route === "reseau") corps = vueReseau();
     else corps = vueAccueil();
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
@@ -1260,53 +1337,115 @@ function rendu(){
 }
 
 /* --------------------------- Vues publiques --------------------------- */
+function sectionBureau(){
+  const b = etat.bureau.filter(x => x.actif !== false);
+  if(!b.length) return "";
+  return '<div class="carte"><h3>Le bureau</h3><div class="bureau">'
+    + b.map(x => '<div class="p">'+avatar(x, "xl")+'<div class="nm">'+ech(x.nom)+'</div><div class="ps">'+ech(x.poste)+'</div>'
+      + (x.telephone ? '<div class="mut" style="margin-top:4px"><a href="https://wa.me/'+ech(String(x.telephone).replace(/\D/g,""))+'" target="_blank" rel="noopener">WhatsApp</a></div>' : '')+'</div>').join("")
+    + '</div></div>';
+}
+function sectionAppelsOuverts(m){
+  const ouverts = etat.appels.filter(a => a.ouvert);
+  if(!ouverts.length) return "";
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  return '<div class="carte"><h3>Paiements demandés par le réseau</h3>'
+    + ouverts.map(a => {
+      const paye = m ? etat.paiements.filter(p => String(p.membre_id) === String(m.id) && String(p.appel_id) === String(a.id)).reduce((s,p)=>s+parseInt(p.montant,10),0) : 0;
+      const reste = Math.max(0, parseInt(a.montant,10) - paye);
+      return '<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--ligne)">'
+        + '<div style="font-size:26px">'+(icone[a.type]||"💳")+'</div><div style="flex:1"><strong>'+ech(a.titre)+'</strong>'
+        + (a.description ? '<div class="mut">'+ech(a.description)+'</div>' : '')
+        + '<div class="mut">'+fcfa(a.montant)+' FCFA'+(a.date_limite ? ' · avant le '+dateFR(a.date_limite) : '')+'</div></div>'
+        + (m ? (reste <= 0 ? '<span class="badge b-paye">payé ✓</span>'+(a.lien_apres ? ' <a class="btn sm sec" href="javascript:void(0)" onclick="ouvrirAccesAppel(\''+ech(idMembre(m))+'\','+a.id+')">Accéder</a>' : '')
+                         : '<button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+a.id+')">Payer '+fcfa(reste)+' F</button>')
+             : '<a class="btn sm" href="#/appel?id='+a.id+'">Payer</a>')
+        + '</div>'; }).join("")
+    + '</div>';
+}
 function vueAccueil(){
+  const s = etat.settings;
   return '<main><div class="hero"><img src="logo.jpg" alt="logo">'
     + '<h1>COMPTA<b class="b">CONNECT</b></h1>'
-    + '<p style="color:#cfe3da;margin:0 0 14px">'+ech(etat.settings.slogan||"")+'</p>'
-    + '<div style="max-width:340px;margin:0 auto;display:flex;gap:8px">'
-    + '<input id="codeAccueil" placeholder="Votre code membre (ex. 006)" inputmode="numeric" maxlength="3">'
-    + '<button class="btn" onclick="verifierCode()">Vérifier</button></div>'
-    + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(etat.settings.adhesion||etat.settings.cotisation||5000)+' FCFA</a></p></div>'
+    + '<p style="color:#cfe3da;margin:0 0 14px">'+ech(s.slogan||"")+'</p>'
+    + '<div style="max-width:380px;margin:0 auto;display:flex;gap:8px">'
+    + '<input id="matAccueil" placeholder="N° matricule (ex. CC-26-00026)" autocapitalize="characters" autocomplete="off">'
+    + '<button class="btn" onclick="verifierMatricule()">Vérifier</button></div>'
+    + '<p class="mut" style="margin:8px 0 0;color:#cfe3da"><a href="javascript:void(0)" style="color:#fff" onclick="retrouverMatricule()">Je ne connais pas mon matricule</a></p>'
+    + '<div id="zoneRetrouver"></div>'
+    + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
+    + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
+    + (s.presentation ? '<div class="carte"><h3>Le réseau</h3><p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p></div>' : '')
+    + sectionBureau()
+    + sectionAppelsOuverts(null)
+    + (etat.rencontres.filter(r => r.publie !== false).length ? '<div class="carte"><h3>Nos rencontres</h3>'
+        + etat.rencontres.filter(r => r.publie !== false).slice(0,3).map(r => '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--ligne)">'
+          + (r.photos && r.photos[0] ? '<img src="'+ech(r.photos[0])+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px" alt="">' : '<span class="avatar" style="width:64px;height:64px;border-radius:10px">📷</span>')
+          + '<div><strong>'+ech(r.titre)+'</strong><div class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+' · '+(r.photos||[]).length+' photo'+((r.photos||[]).length>1?'s':'')+'</div></div></div>').join("")
+        + '<p style="margin-top:10px"><a class="btn sec" href="#/rencontres">Voir toutes les rencontres</a></p></div>' : '')
     + '<div class="carte"><h3>Comment ça marche ?</h3>'
-    + '<div class="etape"><div class="n">1</div><div>Chaque membre possède un <strong>code à 3 chiffres</strong> (donné par le trésorier).</div></div>'
-    + '<div class="etape"><div class="n">2</div><div>Saisissez votre code : vous voyez votre situation, mois par mois, depuis votre adhésion.</div></div>'
+    + '<div class="etape"><div class="n">1</div><div>Chaque membre possède un <strong>numéro matricule</strong> (celui de sa carte de membre, ex. CC-26-00026).</div></div>'
+    + '<div class="etape"><div class="n">2</div><div>Saisissez-le : vous voyez votre situation, mois par mois, depuis votre adhésion.</div></div>'
     + '<div class="etape"><div class="n">3</div><div>Cliquez sur <strong>Payer en ligne</strong> : Wave, Orange Money, MTN ou Moov, directement depuis votre téléphone.</div></div>'
     + '<div class="etape"><div class="n">4</div><div>Le pointage est <strong>immédiat</strong> : votre ligne passe à « à jour » et vos accès (WhatsApp, Skool) s’affichent.</div></div></div>'
     + '</main>';
 }
 
-function verifierCode(){
-  const c = ($("#codeAccueil").value||"").replace(/\D/g,"");
-  if(c.length < 3){ toast("Entrez vos 3 chiffres.", "err"); return; }
-  aller("#/payer?code=" + c.padStart(3,"0"));
+function verifierMatricule(){
+  const v = ($("#matAccueil").value||"").trim();
+  const m = trouverMembre(v);
+  if(!m){ toast(matriculeNormaliser(v) ? "Matricule inconnu. Vérifiez votre carte ou contactez le trésorier." : "Saisissez votre matricule complet, ex. CC-26-00026.", "err"); return; }
+  aller(lienMembre(m));
+}
+function retrouverMatricule(){
+  const z = $("#zoneRetrouver"); if(!z) return;
+  z.innerHTML = '<div style="max-width:380px;margin:10px auto 0;display:flex;gap:8px"><input id="telRetrouver" placeholder="Votre numéro de téléphone" inputmode="tel">'
+    + '<button class="btn sec" onclick="chercherParTelephone()">Retrouver</button></div>';
+  $("#telRetrouver").focus();
+}
+async function chercherParTelephone(){
+  const tel = ($("#telRetrouver").value||"").trim();
+  if(tel.replace(/\D/g,"").length < 8){ toast("Numéro incomplet.", "err"); return; }
+  try{
+    const r = await sb("rpc/cc_retrouver_matricule", { method:"POST", body: JSON.stringify({ p_tel: tel }) });
+    if(!r.ok){ toast("Aucun membre avec ce numéro. Contactez le trésorier : "+(etat.settings.tresorier_tel||""), "err"); return; }
+    toast("Bonjour "+r.prenom+" — votre matricule est "+r.matricule, "ok");
+    const m = trouverMembre(r.matricule); if(m) aller(lienMembre(m)); else aller("#/payer?m="+encodeURIComponent(r.matricule));
+  }catch(e){ toast("Recherche impossible : "+e.message, "err"); }
 }
 
 function vuePayer(params){
-  const code = String(params.code||"").padStart(3,"0");
+  const saisie = params.m || params.code || "";
   const mois = normaliserMois(params.mois || moisCourant());
-  const m = etat.membres.find(x => String(x.code).padStart(3,"0") === code);
+  const m = trouverMembre(saisie);
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
-    + '<div style="display:flex;gap:8px"><input id="codePayer" value="'+(params.code||"")+'" placeholder="Code membre" inputmode="numeric" maxlength="3">'
-    + '<button class="btn" onclick="aller(\'#/payer?code=\'+(document.querySelector(\'#codePayer\').value||\'\').padStart(3,\'0\'))">Vérifier</button></div></div>';
+    + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="N° matricule (ex. CC-26-00026)" autocapitalize="characters" autocomplete="off">'
+    + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matPayer\').value);if(m)aller(lienMembre(m));else toast(\'Matricule inconnu.\',\'err\')})()">Vérifier</button></div></div>';
   if(!m){
-    if(code !== "000") corps += '<div class="alerte al-err">Code '+ech(code)+' introuvable. Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
+    if(saisie) corps += '<div class="alerte al-err">Matricule « '+ech(saisie)+' » introuvable. Vérifiez votre carte ou contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
     return corps + '</main>';
   }
+  const code = String(m.code).padStart(3,"0");
   const enAttente = !m.actif;
   const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
+  const cot = parseInt(m.cotisation||etat.settings.cotisation||"5000",10);
+  const adhesion = parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10);
+  const montant = enAttente ? adhesion : (l.statut === "PARTIEL" ? l.reliquat : cot);
   setTimeout(() => chargerBienvenue(code), 0);
-  setTimeout(() => chargerPaiementEnLigne(code, mois, enAttente ? montant : (l.statut === "PARTIEL" ? l.reliquat : cot)), 0);
+  setTimeout(() => chargerPaiementEnLigne(code, mois, montant), 0);
   if(params.retour) setTimeout(() => verifierRetourPaiement(code), 0);
   const badges = { PAYE:'<span class="badge b-paye">à jour</span>', PARTIEL:'<span class="badge b-partiel">paiement partiel</span>',
     IMPAYE:'<span class="badge b-impaye">non réglée</span>', AVANCE:'<span class="badge b-avance">avance</span>',
     EXONERE:'<span class="badge b-neutre">exonéré</span>' };
-  const cot = parseInt(m.cotisation||etat.settings.cotisation||"5000",10);
-  const adhesion = parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10);
-  const montant = enAttente ? adhesion : (l.statut === "PARTIEL" ? l.reliquat : cot);
+  const annee = anneeAdhesion(m);
   return corps
+    + '<div class="cartem">'+avatar(m, "xl")+'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:17px">'+ech(m.nom)+'</div>'
+    + (m.titre || m.specialite ? '<div class="mut">'+ech(m.titre||m.specialite)+'</div>' : '')
+    + '<div class="mut" style="margin-top:4px">N° MATRICULE</div><div class="matricule" style="font-size:18px">'+ech(m.matricule||("code "+code))+'</div>'
+    + (annee ? '<div class="mut">Membre depuis '+annee+'</div>' : '')
+    + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
-    + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le code <strong>'+ech(code)+'</strong> (gardez-le précieusement). '
+    + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le matricule <strong>'+ech(m.matricule||code)+'</strong> (gardez-le précieusement : il figurera sur votre carte de membre). '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
     + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
@@ -1315,6 +1454,7 @@ function vuePayer(params){
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
     + '<div id="payerEnLigne"><div class="mut" style="text-align:center;margin-top:10px">Chargement du paiement…</div></div>'
     + '</div>'
+    + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
     + '<div class="carte"><h3>Comment ça marche</h3>'
     + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov.</div></div>'
@@ -1322,6 +1462,66 @@ function vuePayer(params){
     + '<div class="etape"><div class="n">3</div><div>Vous revenez ici automatiquement : votre ligne passe à <strong>« à jour »</strong> immédiatement'+(enAttente ? ', et vos accès WhatsApp et Skool s’affichent' : '')+'.</div></div>'
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
     + '</main>';
+}
+async function changerMaPhoto(identifiant){
+  const m = trouverMembre(identifiant); if(!m) return;
+  const tel = String(m.telephone||"").replace(/\D/g,"");
+  let tel4 = "";
+  if(tel.length >= 4){
+    tel4 = prompt("Pour confirmer que c’est bien vous, entrez les 4 derniers chiffres de votre numéro de téléphone enregistré :") || "";
+    if(tel4.replace(/\D/g,"") !== tel.slice(-4)){ toast("Les chiffres ne correspondent pas au numéro enregistré.", "err"); return; }
+  }
+  const [f] = await choisirImage(false); if(!f) return;
+  toast("Envoi de la photo…", "ok");
+  try{
+    const blob = await compresserImage(f, 400);
+    const url = await televerserPhoto("membres/" + m.id + ".jpg", blob);
+    const r = await sb("rpc/cc_membre_photo", { method:"POST", body: JSON.stringify({ p_matricule: m.matricule || "", p_tel4: tel4, p_url: url }) });
+    if(!r.ok) throw new Error(r.motif === "telephone" ? "téléphone non confirmé" : "membre inconnu");
+    await chargerDonnees(); rendu(); toast("Photo enregistrée ✅", "ok");
+  }catch(e){ toast("Photo non enregistrée : "+e.message+(/not found|Bucket|exécut/i.test(e.message) ? " — le trésorier doit exécuter supabase/reseau.sql" : ""), "err"); }
+}
+async function ouvrirAccesAppel(identifiant, appelId){
+  try{
+    const r = await sb("rpc/cc_appel_acces", { method:"POST", body: JSON.stringify({ p_matricule: identifiant, p_appel: appelId }) });
+    if(r.ok && r.lien) window.open(r.lien, "_blank", "noopener");
+    else toast(r.ok ? "Aucun lien n’a été prévu pour cet appel." : "Accès réservé aux membres ayant réglé.", "err");
+  }catch(e){ toast(e.message, "err"); }
+}
+
+/* --------------------------- Pages publiques : rencontres, appel --------------------------- */
+function vueRencontres(params){
+  const liste = etat.rencontres.filter(r => r.publie !== false);
+  if(params.id){
+    const r = liste.find(x => String(x.id) === String(params.id));
+    if(!r) return '<main><div class="alerte al-err">Rencontre introuvable.</div></main>';
+    return '<main><p><a href="#/rencontres">← Toutes les rencontres</a></p><div class="carte"><h3>'+ech(r.titre)+'</h3>'
+      + '<p class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+'</p>'+(r.description ? '<p>'+ech(r.description).replace(/\n/g,"<br>")+'</p>' : '')
+      + '<div class="galerie">'+(r.photos||[]).map(u => '<a href="'+ech(u)+'" target="_blank" rel="noopener"><img src="'+ech(u)+'" alt="" loading="lazy"></a>').join("")+'</div></div></main>';
+  }
+  return '<main><div class="carte"><h3>Nos rencontres</h3><p class="mut">Les moments forts du réseau '+ech(etat.settings.reseau||"ComptaConnect")+'.</p></div>'
+    + (liste.length ? liste.map(r => '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">'+ech(r.titre)+'</h3><span class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+'</span></div>'
+        + (r.description ? '<p>'+ech(r.description).replace(/\n/g,"<br>")+'</p>' : '')
+        + '<div class="galerie">'+(r.photos||[]).slice(0,8).map(u => '<img src="'+ech(u)+'" alt="" loading="lazy" onclick="aller(\'#/rencontres?id='+r.id+'\')">').join("")+'</div>'
+        + ((r.photos||[]).length > 8 ? '<p style="margin-top:8px"><a href="#/rencontres?id='+r.id+'">Voir les '+(r.photos||[]).length+' photos</a></p>' : '')+'</div>').join("")
+      : '<div class="carte mut">Aucune rencontre publiée pour le moment.</div>')
+    + '</main>';
+}
+function vueAppelPublic(params){
+  const a = etat.appels.find(x => String(x.id) === String(params.id));
+  if(!a) return '<main><div class="alerte al-err">Cet appel à paiement n’existe pas.</div></main>';
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  return '<main style="max-width:560px"><div class="carte"><div style="font-size:40px;text-align:center">'+(icone[a.type]||"💳")+'</div>'
+    + '<h3 style="text-align:center">'+ech(a.titre)+'</h3>'
+    + (a.description ? '<p>'+ech(a.description).replace(/\n/g,"<br>")+'</p>' : '')
+    + '<div class="grille g2"><div class="kpi"><div class="t">Montant</div><div class="v">'+fcfa(a.montant)+' F</div></div>'
+    + '<div class="kpi"><div class="t">'+(a.date_limite ? 'Date limite' : 'Statut')+'</div><div class="v" style="font-size:16px">'+(a.date_limite ? dateFR(a.date_limite) : (a.ouvert ? 'Ouvert' : 'Clôturé'))+'</div></div></div>'
+    + (a.ouvert ? '<p style="margin-top:12px"><strong>Entrez votre matricule pour payer :</strong></p>'
+        + '<div style="display:flex;gap:8px"><input id="matAppel" placeholder="CC-26-00026" autocapitalize="characters" autocomplete="off">'
+        + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matAppel\').value);if(m)aller(lienMembre(m,\'&appel='+a.id+'\'));else toast(\'Matricule inconnu.\',\'err\')})()">Continuer</button></div>'
+        + '<p class="mut" style="margin-top:8px">Pas encore membre ? <a href="#/adherer">Adhérez d’abord</a>, puis revenez sur ce lien.</p>'
+      : '<div class="alerte al-info" style="margin-top:12px">Cet appel à paiement est clôturé.</div>')
+    + '</div></main>';
 }
 
 function carteHistorique(m, mois){
@@ -1358,7 +1558,7 @@ function vueAdherer(){
     + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
     + champ("aEmail","Email","email","facultatif")
     + '<button class="btn blk" id="aBtn" onclick="soumettreAdhesion()">Continuer vers le paiement →</button>'
-    + '<p class="mut" style="margin-top:10px">Déjà membre ? <a href="#/">Vérifiez votre situation avec votre code</a>.</p>'
+    + '<p class="mut" style="margin-top:10px">Déjà membre ? <a href="#/">Vérifiez votre situation avec votre matricule</a>.</p>'
     + '</div></main>';
 }
 async function soumettreAdhesion(){
@@ -1372,7 +1572,7 @@ async function soumettreAdhesion(){
       p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim() }) });
     await chargerDonnees();
     if(r.existant) toast("Ce numéro est déjà enregistré — voici votre situation.", "ok");
-    aller("#/payer?code=" + String(r.code).padStart(3,"0") + "&nouveau=1");
+    aller("#/payer?m=" + encodeURIComponent(r.matricule || String(r.code).padStart(3,"0")) + "&nouveau=1");
   }catch(e){ toast("Inscription impossible : " + e.message, "err"); btn.disabled = false; btn.textContent = "Continuer vers le paiement →"; }
 }
 let _payEnLigneDispo = null;
@@ -1387,12 +1587,12 @@ async function chargerPaiementEnLigne(code, mois, montant){
       + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat.</div></div>';
   }catch(e){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation. Contactez le trésorier : '+ech(etat.settings.tresorier_tel||"")+'</div>'; }
 }
-async function payerEnLigne(code, mois){
+async function payerEnLigne(code, mois, appel){
   const b = $("#btnPayer"); if(b){ b.disabled = true; b.textContent = "Ouverture du paiement…"; }
   try{
     const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-init", { method:"POST",
       headers:{ "Content-Type":"application/json", "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon },
-      body: JSON.stringify({ code, mois, retour: location.origin + location.pathname }) });
+      body: JSON.stringify({ code, mois: mois || undefined, appel: appel || undefined, retour: location.origin + location.pathname }) });
     const j = await rep.json();
     if(!rep.ok || !j.url) throw new Error(j.erreur || "Service indisponible");
     sessionStorage.setItem("cc_tx", j.transaction_id);
@@ -1437,21 +1637,21 @@ function vueSimulation(params){
   return '<main style="max-width:480px"><div class="carte" style="border:2px dashed #b3261e">'
     + '<div class="badge b-impaye" style="margin-bottom:8px">MODE DÉMONSTRATION — aucun argent n’est débité</div>'
     + '<h3>Page de paiement (simulée)</h3>'
-    + '<p>Ceci remplace la page CinetPay pendant les tests. Montant : <strong>'+fcfa(params.montant||0)+' FCFA</strong> — membre '+ech(params.code||"")+'.</p>'
+    + '<p>Ceci remplace la page CinetPay pendant les tests. Montant : <strong>'+fcfa(params.montant||0)+' FCFA</strong>'+(params.libelle ? ' — '+ech(params.libelle) : '')+'.</p>'
     + '<div class="grille g2" style="margin:12px 0">'
     + '<div class="kpi" style="text-align:center">📱<br>Wave</div><div class="kpi" style="text-align:center">🟠<br>Orange Money</div>'
     + '<div class="kpi" style="text-align:center">🟡<br>MTN MoMo</div><div class="kpi" style="text-align:center">🔵<br>Moov Money</div></div>'
-    + '<button class="btn blk" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.code||"")+'\',\'ok\')">✅ Simuler un paiement réussi</button>'
-    + '<button class="btn blk sec" style="margin-top:8px" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.code||"")+'\',\'refus\')">❌ Simuler un paiement refusé / annulé</button>'
+    + '<button class="btn blk" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.retour||"")+'\',\'ok\')">✅ Simuler un paiement réussi</button>'
+    + '<button class="btn blk sec" style="margin-top:8px" onclick="finSimulation(\''+ech(params.tx||"")+'\',\''+ech(params.retour||"")+'\',\'refus\')">❌ Simuler un paiement refusé / annulé</button>'
     + '</div></main>';
 }
-async function finSimulation(tx, code, choix){
+async function finSimulation(tx, retour, choix){
   try{
     const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-notify?transaction_id=" + encodeURIComponent(tx) + "&simulation=" + choix,
       { headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon } });
     const j = await rep.json();
     sessionStorage.setItem("cc_tx", tx);
-    aller("#/payer?code=" + code + "&retour=1" + (j.statut === "ACCEPTEE" ? "&nouveau=1" : ""));
+    aller((retour && retour.startsWith("#/") ? retour : "#/") + (j.statut === "ACCEPTEE" ? "&nouveau=1" : ""));
   }catch(e){ toast("Simulation impossible : " + e.message, "err"); }
 }
 
@@ -1595,7 +1795,7 @@ function vueTableauBord(){
   const relances = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").sort((x,y) => y.reste - x.reste);
   const enAttente = etat.membres.filter(m => !m.actif).length;
   const texteRelance = l => encodeURIComponent("Bonjour "+l.membre.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
-    +" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre situation : "+location.origin+location.pathname+"#/payer?code="+l.membre.code+" — Merci !");
+    +" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre matricule : "+idMembre(l.membre)+" · Votre situation : "+lienMembreAbsolu(l.membre)+" — Merci !");
   return '<main>'
     + barrePeriode("", per, "Tableau de bord")
     + '<div class="grille g4">'
@@ -1642,39 +1842,59 @@ function vueMembres(){
     + barrePeriode("membres", per, "Membres ("+etat.membres.length+")")
     + '<div class="carte"><h3>Ajouter un membre</h3>'
     + '<div class="grille g2"><div>'
-    + '<div class="champ"><span>Code (3 chiffres)</span><input id="mCode" maxlength="3" inputmode="numeric"></div>'
+    + '<div class="champ"><span>N° matricule (vide = attribué automatiquement)</span><input id="mMat" placeholder="CC-26-00026" autocapitalize="characters"></div>'
     + '<div class="champ"><span>Nom complet</span><input id="mNom"></div>'
     + '<div class="champ"><span>Téléphone</span><input id="mTel" inputmode="tel"></div>'
     + '</div><div>'
     + '<div class="champ"><span>Ville</span><input id="mVille"></div>'
     + '<div class="champ"><span>Spécialité</span><input id="mSpe"></div>'
     + '<div class="champ"><span>Cotisation mensuelle (FCFA)</span><input id="mCot" value="5000" inputmode="numeric"></div>'
+    + '<div class="champ"><span>Date d’adhésion (AAAA-MM-JJ)</span><input id="mDate" placeholder="'+aujourdhui()+'"></div>'
     + '</div></div>'
-    + '<button class="btn" onclick="ajouterMembre()">+ Ajouter le membre</button></div>'
-    + '<div class="carte"><h3>Importer depuis un relevé (CSV)</h3>'
-    + '<p class="mut">Une ligne par membre : <code>code;nom;téléphone;ville</code> (séparateur ; ou , ou tabulation). Les doublons de code sont ignorés.</p>'
-    + '<textarea id="csvMembres" placeholder="081;KOUAME Jean;0500000000;Abidjan"></textarea>'
+    + '<button class="btn" onclick="ajouterMembre()">+ Ajouter le membre</button>'
+    + '<span class="mut" style="margin-left:10px">Prochain matricule automatique : <span class="matricule">'+ech(prochainMatricule())+'</span></span></div>'
+    + '<div class="carte"><h3>Importer une liste (CSV)</h3>'
+    + '<p class="mut">Une ligne par membre : <code>matricule;nom;téléphone;ville;date d’adhésion</code> (séparateur ; ou , ou tabulation). '
+    + 'Laissez le matricule <strong>vide</strong> pour les membres qui n’ont pas encore de carte : il est attribué automatiquement à la suite. Les matricules et téléphones déjà présents sont ignorés.</p>'
+    + '<textarea id="csvMembres" placeholder="CC-26-00026;DOREGO Mouhamed Nabil;0717579556;Abidjan;2026-06-11&#10;;KOUAME Jean;0500000000;Abidjan;2026-07-02"></textarea>'
     + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
     + '<div id="editeurMembre"></div>'
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
-    + '<input id="rechMembre" placeholder="Rechercher nom, code, téléphone…" style="width:auto;min-width:220px" oninput="filtrerMembres()">'
-    + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button></div>'
+    + '<input id="rechMembre" placeholder="Rechercher nom, matricule, téléphone…" style="width:auto;min-width:220px" oninput="filtrerMembres()">'
+    + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button>'
+    + '<button class="btn sm sec" onclick="exportCartesCSV()" title="Fichier pour l’imprimeur des cartes de membre">🪪 Export cartes</button></div>'
     + '<div class="survol"><table id="tabMembres">'
-    + '<tr><th>Code</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
-    + etat.membres.map(m => '<tr data-rech="'+ech(accentMin(m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td><strong>'+m.code+'</strong></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
+    + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
+    + etat.membres.map(m => '<tr data-rech="'+ech(accentMin((m.matricule||"")+" "+m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
       + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
       + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
-      + '<td style="white-space:nowrap"><button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
+      + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", votre matricule "+(etat.settings.reseau||"ComptaConnect")+" est "+idMembre(m)+". Votre situation : "+lienMembreAbsolu(m))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
+function prochainMatricule(){
+  let max = parseInt(etat.settings.matricule_depart||"0",10) || 0;
+  for(const m of etat.membres){ const n = /^CC-\d{2}-(\d{5})$/.exec(m.matricule||""); if(n && parseInt(n[1],10) > max) max = parseInt(n[1],10); }
+  return "CC-" + String(new Date().getFullYear()).slice(2) + "-" + String(max + 1).padStart(5,"0");
+}
+function prochainCode(){
+  let max = 0; for(const m of etat.membres){ const c = parseInt(String(m.code).replace(/\D/g,""),10); if(c > max) max = c; }
+  return String(max + 1).padStart(3,"0");
+}
+function exportCartesCSV(){
+  telechargerCSV("cartes_membres.csv", ["Matricule","Nom","Titre","Membre depuis","Ville","Téléphone","Photo"],
+    etat.membres.filter(m => m.actif).map(m => [m.matricule||"", m.nom, m.titre||m.specialite||"Membre", anneeAdhesion(m), m.ville||"", m.telephone||"", m.photo_url||""]));
+}
 async function ajouterMembre(){
-  const code = ($("#mCode").value||"").replace(/\D/g,"").padStart(3,"0");
+  const matS = ($("#mMat").value||"").trim();
   const nom = $("#mNom").value.trim();
-  if(!nom || code === "000"){ toast("Code et nom obligatoires.", "err"); return; }
+  if(!nom){ toast("Le nom est obligatoire.", "err"); return; }
+  if(matS && !matriculeNormaliser(matS)){ toast("Matricule invalide : format CC-26-00026 (ou laissez vide).", "err"); return; }
+  const corps = { code: prochainCode(), nom, telephone: $("#mTel").value.trim(), ville: $("#mVille").value.trim(),
+    specialite: $("#mSpe").value.trim(), cotisation: parseInt(($("#mCot").value||"5000").replace(/\D/g,""),10)||5000,
+    date_adhesion: ($("#mDate").value||"").trim() || aujourdhui() };
+  if(matS) corps.matricule = matriculeNormaliser(matS);
   try{
-    await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
-      body: JSON.stringify({ code, nom, telephone: $("#mTel").value.trim(), ville: $("#mVille").value.trim(),
-        specialite: $("#mSpe").value.trim(), cotisation: parseInt(($("#mCot").value||"5000").replace(/\D/g,""),10)||5000 }) });
+    await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); toast("Membre ajouté.", "ok"); rendu();
   }catch(e){ toast("Ajout refusé : "+e.message, "err"); }
 }
@@ -1683,14 +1903,17 @@ function filtrerMembres(){
   document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; });
 }
 function exportMembresCSV(){
-  telechargerCSV("membres.csv", ["Code","Nom","Téléphone","Ville","Spécialité","Email","Cotisation","Date adhésion","Actif","Exonéré"],
-    etat.membres.map(m => [m.code, m.nom, m.telephone, m.ville, m.specialite, m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non"]));
+  telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Ville","Spécialité","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré"],
+    etat.membres.map(m => [m.matricule||"", m.code, m.nom, m.telephone, m.ville, m.specialite, m.titre||"", m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non"]));
 }
 function editerMembre(id){
   const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
   const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="e_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
-  $("#editeurMembre").innerHTML = '<div class="carte" style="border:2px solid var(--or)"><h3>Modifier le membre '+m.code+' — '+ech(m.nom)+'</h3>'
+  $("#editeurMembre").innerHTML = '<div class="carte" style="border:2px solid var(--or)"><div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'+avatar(m,"xl")
+    + '<div><h3 style="margin:0">Modifier — '+ech(m.nom)+'</h3><div class="mut">code interne '+m.code+'</div>'
+    + '<div style="margin-top:6px"><button class="btn sm sec" onclick="photoMembreTresorier('+m.id+')">📷 Photo</button> '+(m.photo_url ? '<button class="btn sm dgr" onclick="retirerPhotoMembre('+m.id+')">Retirer la photo</button>' : '')+'</div></div></div>'
     + '<div class="grille g2">'
+    + champ("matricule","N° matricule (carte)",m.matricule) + champ("titre","Titre sur la carte (ex. Comptable senior)",m.titre)
     + champ("nom","Nom complet",m.nom) + champ("telephone","Téléphone",m.telephone,"tel")
     + champ("ville","Ville",m.ville) + champ("specialite","Spécialité",m.specialite)
     + champ("email","Email",m.email,"email") + champ("cotisation","Cotisation mensuelle (FCFA)",m.cotisation,"number")
@@ -1704,15 +1927,28 @@ function editerMembre(id){
 }
 async function enregistrerMembre(id){
   const v = k => $("#e_"+k).value.trim();
-  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), email: v("email"),
+  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), email: v("email"), titre: v("titre"),
     cotisation: parseInt(v("cotisation").replace(/\D/g,""),10) || 0, date_adhesion: v("date_adhesion"),
     actif: $("#e_actif").value === "true", exonere: $("#e_exonere").value === "true" };
   if(!corps.nom){ toast("Le nom est obligatoire.", "err"); return; }
+  if(v("matricule")){ if(!matriculeNormaliser(v("matricule"))){ toast("Matricule invalide : format CC-26-00026.", "err"); return; } corps.matricule = matriculeNormaliser(v("matricule")); }
   if(corps.date_adhesion && !/^\d{4}-\d{2}-\d{2}$/.test(corps.date_adhesion)){ toast("Date d’adhésion au format AAAA-MM-JJ.", "err"); return; }
   try{
     await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); toast("Membre mis à jour.", "ok"); rendu();
   }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function photoMembreTresorier(id){
+  const [f] = await choisirImage(false); if(!f) return;
+  try{
+    const url = await televerserPhoto("membres/" + id + ".jpg", await compresserImage(f, 400));
+    await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photo_url: url }) });
+    await chargerDonnees(); rendu(); editerMembre(id); toast("Photo enregistrée.", "ok");
+  }catch(e){ toast("Photo refusée : "+e.message, "err"); }
+}
+async function retirerPhotoMembre(id){
+  try{ await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photo_url: "" }) });
+    await chargerDonnees(); rendu(); editerMembre(id); toast("Photo retirée.", "ok"); }catch(e){ toast(e.message, "err"); }
 }
 async function supprimerMembre(id){
   const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
@@ -1729,17 +1965,24 @@ async function supprimerMembre(id){
 async function importerMembres(){
   const lignes = ($("#csvMembres").value||"").split(/\r?\n/).filter(l => l.trim());
   let nb = 0;
+  let ignores = 0;
+  const telsConnus = new Set(etat.membres.map(m => telephoneNormalise(m.telephone||"")).filter(Boolean));
+  let code = parseInt(prochainCode(),10);
   for(const ligne of lignes){
     const c = ligne.split(/[,;\t]/).map(x => x.trim());
-    if(!c[1]) continue;
+    if(!c[1] || /^nom$/i.test(c[1])) continue;
+    const tel = telephoneNormalise(c[2]||"");
+    if(tel && telsConnus.has(tel)){ ignores++; continue; }
+    const corps = { code: String(code).padStart(3,"0"), nom: c[1], telephone: c[2]||"", ville: c[3]||"", cotisation: parseInt(etat.settings.cotisation||"5000",10)||5000,
+      date_adhesion: /^\d{4}-\d{2}-\d{2}$/.test(c[4]||"") ? c[4] : (/^\d{2}\/\d{2}\/\d{4}$/.test(c[4]||"") ? c[4].split("/").reverse().join("-") : aujourdhui()) };
+    if(c[0] && matriculeNormaliser(c[0])) corps.matricule = matriculeNormaliser(c[0]);
+    else if(c[0] && /^\d{1,3}$/.test(c[0])) corps.code = c[0].padStart(3,"0");
     try{
-      await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" },
-        body: JSON.stringify({ code: (c[0]||"").replace(/\D/g,"").padStart(3,"0"), nom: c[1],
-          telephone: c[2]||"", ville: c[3]||"", cotisation: 5000 }) });
-      nb++;
-    }catch(e){ /* doublon ignoré */ }
+      await sb("cc_membres", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+      nb++; code++; if(tel) telsConnus.add(tel);
+    }catch(e){ ignores++; }
   }
-  await chargerDonnees(); toast(nb+" membre(s) importé(s).", "ok"); rendu();
+  await chargerDonnees(); toast(nb+" membre(s) importé(s)"+(ignores ? ", "+ignores+" ignoré(s) (doublon ou matricule déjà pris)" : "")+".", "ok"); rendu();
 }
 
 /* --------------------------- Pointage --------------------------- */
@@ -1803,7 +2046,7 @@ function vuePaiements(params){
     + '<tr><th>Date</th><th>Montant</th><th>Canal</th><th>Membre</th><th>Motif</th><th>Détection</th><th></th></tr>'
     + duMois.slice(0,60).map(p => '<tr><td>'+dateFR(p.date)+'</td><td>'+fcfa(p.montant)+' F</td><td>'+ech(p.canal)+'</td>'
       + '<td>'+(p.membre_id ? ech(nomDe(p.membre_id)) : '<span class="badge b-impaye">à pointer</span>')+'</td>'
-      + '<td>'+ech(p.libelle)+'</td><td class="mut">'+ech(p.methode)+'</td>'
+      + '<td>'+(p.appel_id ? '<span class="badge b-avance">'+ech((etat.appels.find(a => String(a.id)===String(p.appel_id))||{}).titre||"appel")+'</span> ' : '')+ech(p.libelle)+'</td><td class="mut">'+ech(p.methode)+'</td>'
       + '<td><button class="btn sm dgr" onclick="supprimerPaiement('+p.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
@@ -2006,6 +2249,7 @@ function vueParametres(){
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("bienvenue","Message de bienvenue")
+    + champ("matricule_depart","Dernier n° de carte déjà imprimé (les nouveaux matricules continuent après)","number")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<h3>Paiement en ligne CinetPay</h3>'
@@ -2052,7 +2296,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart"];
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();
@@ -2062,6 +2306,192 @@ async function enregistrerParametres(){
     }
     await chargerDonnees(); toast("Paramètres enregistrés.", "ok"); rendu();
   }catch(e){ toast("Enregistrement refusé : "+e.message, "err"); }
+}
+
+/* --------------------------- Appels à paiement (trésorier) --------------------------- */
+function vueAppels(params){
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  const suivi = a => {
+    const parM = {}; for(const p of etat.paiements) if(String(p.appel_id) === String(a.id)) parM[p.membre_id] = (parM[p.membre_id]||0) + parseInt(p.montant,10);
+    const payes = Object.keys(parM).filter(id => parM[id] >= parseInt(a.montant,10)).length;
+    const total = Object.values(parM).reduce((s,v)=>s+v,0);
+    return { parM, payes, total };
+  };
+  const actifs = etat.membres.filter(m => m.actif);
+  let detail = "";
+  if(params.id){
+    const a = etat.appels.find(x => String(x.id) === String(params.id));
+    if(a){
+      const sv = suivi(a);
+      const lignes = actifs.map(m => ({ m, paye: sv.parM[m.id]||0 })).sort((x,y) => (y.paye - x.paye) || x.m.nom.localeCompare(y.m.nom));
+      const texte = m => encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")+" vous invite à régler « "+a.titre+" » ("+fcfa(a.montant)+" FCFA"+(a.date_limite ? ", avant le "+dateFR(a.date_limite) : "")+"). Payez ici : "+lienMembreAbsolu(m, "&appel="+a.id)+" — Merci !");
+      detail = '<div class="carte" style="border:2px solid var(--or)"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">Suivi — '+ech(a.titre)+'</h3><span style="flex:1"></span>'
+        + '<button class="btn sm sec" onclick="exportAppelCSV('+a.id+')">Télécharger CSV</button><a class="btn sm sec" href="#/appels">Fermer</a></div>'
+        + '<div class="grille g3" style="margin:10px 0">'+kpi("Ont payé", sv.payes+" / "+actifs.length, Math.round(100*sv.payes/Math.max(1,actifs.length))+" %")+kpi("Encaissé", fcfa(sv.total)+" F", "")+kpi("Reste attendu", fcfa(Math.max(0, actifs.length*parseInt(a.montant,10) - sv.total))+" F", "si tous paient")+'</div>'
+        + '<div class="survol"><table><tr><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Payé</th><th></th></tr>'
+        + lignes.map(({m, paye}) => '<tr><td><span class="matricule">'+ech(m.matricule||m.code)+'</span></td><td>'+ech(m.nom)+'</td><td>'+ech(m.telephone||"")+'</td>'
+          + '<td>'+(paye >= parseInt(a.montant,10) ? '<span class="badge b-paye">'+fcfa(paye)+' F</span>' : paye > 0 ? '<span class="badge b-partiel">'+fcfa(paye)+' F</span>' : '<span class="badge b-impaye">—</span>')+'</td>'
+          + '<td>'+(paye < parseInt(a.montant,10) && m.telephone ? '<a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone).replace(/\D/g,""))+'?text='+texte(m)+'" target="_blank" rel="noopener">Relancer</a>' : '')+'</td></tr>').join("")
+        + '</table></div></div>';
+    }
+  }
+  const lienPublic = a => location.origin + location.pathname + "#/appel?id=" + a.id;
+  return '<main><div class="carte"><h3>Appels à paiement</h3>'
+    + '<p class="mut">Formation, document, carte de membre, cotisation exceptionnelle… Créez l’appel, puis partagez son <strong>lien</strong> sur le groupe WhatsApp : chaque membre entre son matricule et paie en ligne. Le suivi est automatique et séparé des cotisations mensuelles.</p>'
+    + '<div id="editeurAppel"></div>'
+    + '<button class="btn" onclick="editerAppel(0)">+ Nouvel appel à paiement</button></div>'
+    + detail
+    + (etat.appels.length ? '<div class="carte"><div class="survol"><table><tr><th></th><th>Titre</th><th>Montant</th><th>Date limite</th><th>Ont payé</th><th>Encaissé</th><th>Statut</th><th></th></tr>'
+      + etat.appels.map(a => { const sv = suivi(a); return '<tr><td style="font-size:20px">'+(icone[a.type]||"💳")+'</td><td><strong>'+ech(a.titre)+'</strong>'+(a.description ? '<div class="mut">'+ech(a.description).slice(0,80)+'</div>' : '')+'</td>'
+        + '<td>'+fcfa(a.montant)+' F</td><td>'+(a.date_limite ? dateFR(a.date_limite) : '—')+'</td><td>'+sv.payes+' / '+actifs.length+'</td><td>'+fcfa(sv.total)+' F</td>'
+        + '<td>'+(a.ouvert ? '<span class="badge b-paye">ouvert</span>' : '<span class="badge b-neutre">clôturé</span>')+'</td>'
+        + '<td style="white-space:nowrap"><a class="btn sm" href="#/appels?id='+a.id+'">Suivi</a> '
+        + '<button class="btn sm sec" onclick="copier(\''+lienPublic(a)+'\')" title="'+lienPublic(a)+'">Copier le lien</button> '
+        + '<a class="btn sm sec" href="https://wa.me/?text='+encodeURIComponent("📢 "+(etat.settings.reseau||"ComptaConnect")+" — "+a.titre+" : "+fcfa(a.montant)+" FCFA"+(a.date_limite ? " avant le "+dateFR(a.date_limite) : "")+". Payez en ligne avec votre matricule : "+lienPublic(a))+'" target="_blank" rel="noopener">WhatsApp</a> '
+        + '<button class="btn sm sec" onclick="editerAppel('+a.id+')">Modifier</button> '
+        + '<button class="btn sm '+(a.ouvert ? 'dgr' : 'sec')+'" onclick="basculerAppel('+a.id+','+(!a.ouvert)+')">'+(a.ouvert ? 'Clôturer' : 'Rouvrir')+'</button></td></tr>'; }).join("")
+      + '</table></div></div>' : '<div class="carte mut">Aucun appel à paiement pour l’instant.</div>')
+    + '</main>';
+}
+function copier(texte){ (navigator.clipboard ? navigator.clipboard.writeText(texte) : Promise.reject()).then(() => toast("Lien copié : "+texte, "ok"), () => prompt("Copiez ce lien :", texte)); }
+function editerAppel(id){
+  const a = etat.appels.find(x => String(x.id) === String(id)) || { titre:"", type:"formation", description:"", montant:"", date_limite:"", lien_apres:"" };
+  const champ = (k, label, val, type, ph) => '<div class="champ"><span>'+label+'</span><input id="ap_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'" placeholder="'+(ph||"")+'"></div>';
+  $("#editeurAppel").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin-bottom:10px"><h3>'+(id ? 'Modifier l’appel' : 'Nouvel appel à paiement')+'</h3><div class="grille g2">'
+    + champ("titre","Titre",a.titre,"text","Formation TVA du 15 décembre")
+    + '<div class="champ"><span>Type</span><select id="ap_type">'+[["formation","🎓 Formation"],["document","📄 Document"],["carte","🪪 Carte de membre"],["autre","💳 Autre"]].map(([v,l]) => '<option value="'+v+'"'+(a.type===v?' selected':'')+'>'+l+'</option>').join("")+'</select></div>'
+    + champ("montant","Montant (FCFA)",a.montant,"number") + champ("date_limite","Date limite (facultatif)",a.date_limite||"","date")
+    + champ("lien_apres","Lien remis après paiement (document, salle Zoom… facultatif)",a.lien_apres,"url","https://")
+    + '<div class="champ"><span>Description (facultatif)</span><textarea id="ap_description" style="min-height:70px">'+ech(a.description||"")+'</textarea></div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerAppel('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurAppel\').innerHTML=\'\'">Annuler</button></div></div>';
+}
+async function enregistrerAppel(id){
+  const v = k => ($("#ap_"+k).value||"").trim();
+  const corps = { titre: v("titre"), type: v("type"), description: v("description"), montant: parseInt(v("montant").replace(/\D/g,""),10)||0,
+    date_limite: v("date_limite") || null, lien_apres: v("lien_apres") };
+  if(!corps.titre || corps.montant <= 0){ toast("Titre et montant obligatoires.", "err"); return; }
+  try{
+    if(id) await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_appels", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(Object.assign({ ouvert:true }, corps)) });
+    await chargerDonnees(); rendu(); toast(id ? "Appel modifié." : "Appel créé — partagez son lien sur le groupe.", "ok");
+  }catch(e){ toast("Refusé : "+e.message+(/cc_appels/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+}
+async function basculerAppel(id, ouvert){
+  try{ await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ ouvert }) });
+    await chargerDonnees(); rendu(); toast(ouvert ? "Appel rouvert." : "Appel clôturé : plus aucun paiement possible.", "ok"); }catch(e){ toast(e.message, "err"); }
+}
+function exportAppelCSV(id){
+  const a = etat.appels.find(x => String(x.id) === String(id)); if(!a) return;
+  const parM = {}; for(const p of etat.paiements) if(String(p.appel_id) === String(a.id)) parM[p.membre_id] = (parM[p.membre_id]||0) + parseInt(p.montant,10);
+  telechargerCSV("appel_"+a.id+".csv", ["Matricule","Nom","Téléphone","Payé (FCFA)","Statut"],
+    etat.membres.filter(m => m.actif).map(m => [m.matricule||m.code, m.nom, m.telephone||"", parM[m.id]||0, (parM[m.id]||0) >= parseInt(a.montant,10) ? "payé" : (parM[m.id] ? "partiel" : "non payé")]));
+}
+
+/* --------------------------- Vie du réseau (trésorier) : bureau, photo de groupe, rencontres --------------------------- */
+function vueReseau(){
+  const s = etat.settings;
+  return '<main>'
+    + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
+    + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec" onclick="changerPhotoGroupe()">📷 '+(s.photo_groupe_url ? 'Changer' : 'Ajouter')+' la photo de groupe</button>'
+    + (s.photo_groupe_url ? '<button class="btn sm dgr" onclick="enregistrerSetting(\'photo_groupe_url\',\'\')">Retirer</button>' : '')+'</div>'
+    + '<div class="champ" style="margin-top:12px"><span>Texte de présentation du réseau (facultatif)</span><textarea id="s_presentation" style="min-height:80px">'+ech(s.presentation||"")+'</textarea></div>'
+    + '<button class="btn" onclick="enregistrerSetting(\'presentation\', document.querySelector(\'#s_presentation\').value.trim())">Enregistrer la présentation</button></div>'
+    + '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">Le bureau</h3><span style="flex:1"></span><button class="btn sm" onclick="editerBureau(0)">+ Ajouter</button></div>'
+    + '<div id="editeurBureau"></div>'
+    + (etat.bureau.length ? '<div class="survol"><table><tr><th></th><th>Nom</th><th>Poste</th><th>Téléphone</th><th>Ordre</th><th></th></tr>'
+      + etat.bureau.map(b => '<tr><td>'+avatar(b)+'</td><td><strong>'+ech(b.nom)+'</strong>'+(b.actif===false ? ' <span class="badge b-neutre">masqué</span>' : '')+'</td><td>'+ech(b.poste)+'</td><td>'+ech(b.telephone||"")+'</td><td>'+b.ordre+'</td>'
+        + '<td style="white-space:nowrap"><button class="btn sm sec" onclick="photoBureau('+b.id+')">📷</button> <button class="btn sm sec" onclick="editerBureau('+b.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerBureau('+b.id+')">✕</button></td></tr>').join("")
+      + '</table></div>' : '<p class="mut">Ajoutez les membres du bureau : ils apparaissent sur la page d’accueil avec nom, poste et photo.</p>')
+    + '<p class="mut" style="margin-top:8px">Astuce : si un membre du bureau est aussi membre du réseau, choisissez-le dans la liste pour reprendre sa photo.</p></div>'
+    + '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">Nos rencontres (galerie)</h3><span style="flex:1"></span><button class="btn sm" onclick="editerRencontre(0)">+ Nouvelle rencontre</button></div>'
+    + '<div id="editeurRencontre"></div>'
+    + etat.rencontres.map(r => '<div style="border-top:1px solid var(--ligne);padding:10px 0"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong>'+ech(r.titre)+'</strong><span class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+' · '+(r.photos||[]).length+' photo(s)</span>'+(r.publie===false ? '<span class="badge b-neutre">brouillon</span>' : '')+'<span style="flex:1"></span>'
+        + '<button class="btn sm sec" onclick="ajouterPhotosRencontre('+r.id+')">📷 Ajouter des photos</button> <button class="btn sm sec" onclick="editerRencontre('+r.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerRencontre('+r.id+')">✕</button></div>'
+        + '<div class="galerie" style="margin-top:8px">'+(r.photos||[]).map((u,i) => '<div style="position:relative"><img src="'+ech(u)+'" alt=""><button class="btn sm dgr" style="position:absolute;top:4px;right:4px;padding:2px 7px" onclick="retirerPhotoRencontre('+r.id+','+i+')">✕</button></div>').join("")+'</div></div>').join("")
+    + '</div></main>';
+}
+async function enregistrerSetting(cle, valeur){
+  try{ await sb("cc_settings", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
+    await chargerDonnees(); rendu(); toast("Enregistré.", "ok"); }catch(e){ toast(e.message, "err"); }
+}
+async function changerPhotoGroupe(){
+  const [f] = await choisirImage(false); if(!f) return;
+  try{ const url = await televerserPhoto("groupe/photo.jpg", await compresserImage(f, 1400, 0.85)); await enregistrerSetting("photo_groupe_url", url); }
+  catch(e){ toast("Photo refusée : "+e.message, "err"); }
+}
+function editerBureau(id){
+  const b = etat.bureau.find(x => String(x.id) === String(id)) || { nom:"", poste:"", telephone:"", ordre: (etat.bureau.length+1)*10, actif:true, photo_url:"" };
+  const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="bu_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
+  $("#editeurBureau").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
+    + '<div class="champ"><span>Reprendre un membre du réseau (facultatif)</span><select id="bu_membre" onchange="(function(s){const m=etat.membres.find(x=>String(x.id)===s.value);if(m){document.querySelector(\'#bu_nom\').value=m.nom;document.querySelector(\'#bu_telephone\').value=m.telephone||\'\';document.querySelector(\'#bu_photo_url\').value=m.photo_url||\'\';}})(this)"><option value="">—</option>'
+      + etat.membres.map(m => '<option value="'+m.id+'">'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + champ("nom","Nom complet",b.nom) + champ("poste","Poste (Président, Trésorier…)",b.poste) + champ("telephone","Téléphone (facultatif)",b.telephone,"tel")
+    + champ("ordre","Ordre d’affichage",b.ordre,"number") + '<input id="bu_photo_url" type="hidden" value="'+ech(b.photo_url||"")+'">'
+    + '<div class="champ"><span>Affichage</span><select id="bu_actif"><option value="true"'+(b.actif!==false?' selected':'')+'>Visible sur l’accueil</option><option value="false"'+(b.actif===false?' selected':'')+'>Masqué</option></select></div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerBureau('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurBureau\').innerHTML=\'\'">Annuler</button></div></div>';
+}
+async function enregistrerBureau(id){
+  const v = k => ($("#bu_"+k).value||"").trim();
+  const corps = { nom: v("nom"), poste: v("poste"), telephone: v("telephone"), ordre: parseInt(v("ordre"),10)||100, actif: $("#bu_actif").value === "true", photo_url: v("photo_url") };
+  if(!corps.nom || !corps.poste){ toast("Nom et poste obligatoires.", "err"); return; }
+  try{
+    if(id) await sb("cc_bureau?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_bureau", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); rendu(); toast("Bureau mis à jour.", "ok");
+  }catch(e){ toast("Refusé : "+e.message+(/cc_bureau/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+}
+async function photoBureau(id){
+  const [f] = await choisirImage(false); if(!f) return;
+  try{ const url = await televerserPhoto("bureau/" + id + ".jpg", await compresserImage(f, 400));
+    await sb("cc_bureau?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photo_url: url }) });
+    await chargerDonnees(); rendu(); toast("Photo enregistrée.", "ok"); }catch(e){ toast("Photo refusée : "+e.message, "err"); }
+}
+async function supprimerBureau(id){
+  if(!confirm("Retirer cette personne du bureau ?")) return;
+  try{ await sb("cc_bureau?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
+}
+function editerRencontre(id){
+  const r = etat.rencontres.find(x => String(x.id) === String(id)) || { titre:"", date: aujourdhui(), lieu:"", description:"", publie:true };
+  const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="re_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
+  $("#editeurRencontre").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
+    + champ("titre","Titre (ex. Assemblée générale)",r.titre) + champ("date","Date",r.date,"date") + champ("lieu","Lieu",r.lieu)
+    + '<div class="champ"><span>Publication</span><select id="re_publie"><option value="true"'+(r.publie!==false?' selected':'')+'>Publiée</option><option value="false"'+(r.publie===false?' selected':'')+'>Brouillon</option></select></div>'
+    + '<div class="champ"><span>Description</span><textarea id="re_description" style="min-height:70px">'+ech(r.description||"")+'</textarea></div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerRencontre('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurRencontre\').innerHTML=\'\'">Annuler</button></div>'
+    + (id ? '' : '<p class="mut" style="margin-top:8px">Après l’enregistrement, cliquez sur « Ajouter des photos ».</p>')+'</div>';
+}
+async function enregistrerRencontre(id){
+  const v = k => ($("#re_"+k).value||"").trim();
+  const corps = { titre: v("titre"), date: v("date") || aujourdhui(), lieu: v("lieu"), description: v("description"), publie: $("#re_publie").value === "true" };
+  if(!corps.titre){ toast("Le titre est obligatoire.", "err"); return; }
+  try{
+    if(id) await sb("cc_rencontres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_rencontres", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); rendu(); toast("Rencontre enregistrée.", "ok");
+  }catch(e){ toast("Refusé : "+e.message+(/cc_rencontres/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+}
+async function ajouterPhotosRencontre(id){
+  const r = etat.rencontres.find(x => String(x.id) === String(id)); if(!r) return;
+  const fichiers = await choisirImage(true); if(!fichiers.length) return;
+  toast("Envoi de "+fichiers.length+" photo(s)…", "ok");
+  const photos = (r.photos||[]).slice();
+  try{
+    for(let i = 0; i < fichiers.length && i < 30; i++){
+      photos.push(await televerserPhoto("rencontres/" + id + "/" + Date.now() + "_" + i + ".jpg", await compresserImage(fichiers[i], 1200, 0.8)));
+    }
+    await sb("cc_rencontres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photos }) });
+    await chargerDonnees(); rendu(); toast("Photos ajoutées.", "ok");
+  }catch(e){ toast("Envoi interrompu : "+e.message, "err"); }
+}
+async function retirerPhotoRencontre(id, index){
+  const r = etat.rencontres.find(x => String(x.id) === String(id)); if(!r) return;
+  const photos = (r.photos||[]).filter((_,i) => i !== index);
+  try{ await sb("cc_rencontres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photos }) }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
+}
+async function supprimerRencontre(id){
+  if(!confirm("Supprimer cette rencontre et sa galerie ?")) return;
+  try{ await sb("cc_rencontres?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
 }
 
 /* --------------------------- Démarrage --------------------------- */

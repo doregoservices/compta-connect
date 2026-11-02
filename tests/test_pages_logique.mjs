@@ -77,4 +77,12 @@ eq(L.pointage(un, [paie(5000, "2026-10")], "2026-09").lignes[0].statut, "IMPAYE"
 eq(L.pointage(un, [paie(5000)], "2026-09").totaux.taux, 100, "taux de recouvrement");
 eq(L.fcfa(400000), "400 000", "formatage FCFA");
 
+
+/* --- matricule de carte --- */
+eq(L.matriculeNormaliser("CC-26-00026"), "CC-26-00026", "matricule déjà propre");
+eq(L.matriculeNormaliser("cc2600026"), "CC-26-00026", "matricule minuscule sans tirets");
+eq(L.matriculeNormaliser(" 26 00026 "), "CC-26-00026", "matricule sans préfixe");
+eq(L.matriculeNormaliser("006"), null, "ancien code à 3 chiffres ≠ matricule");
+eq(L.matriculeNormaliser("CC-26-26"), null, "matricule incomplet");
+
 console.log(process.exitCode ? "ÉCHECS — voir ci-dessus" : `OK — ${nb} assertions sur la logique GitHub Pages`);
