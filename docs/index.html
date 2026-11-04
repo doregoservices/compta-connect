@@ -1133,7 +1133,7 @@ if(typeof module !== "undefined" && module.exports){
 const $ = s => document.querySelector(s);
 const ech = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 
-const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], settings:{}, bureau:[], rencontres:[], appels:[], route:"", params:{}, msg:null };
+const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], settings:{}, bureau:[], rencontres:[], appels:[], annonces:[], vitrines:[], route:"", params:{}, msg:null };
 
 /* Connexion intégrée : les membres n'ont rien à configurer. (La clé anon est publique par conception ;
    l'écriture reste protégée par la connexion du trésorier et les règles RLS.) */
@@ -1198,10 +1198,12 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
+    opt("cc_annonces?select=*&order=epingle.desc,date.desc,id.desc", []),
+    opt("cc_vitrines?select=*&order=en_avant.desc,id.desc", []),
   ]);
 }
 
@@ -1300,6 +1302,7 @@ const PAGES = [
   ["solde", "Solde", "vueSolde", true],
   ["appels", "Appels à paiement", "vueAppels", true],
   ["reseau", "Vie du réseau", "vueReseau", true],
+  ["marche", "Marché", "vueMarcheAdmin", true],
   ["parametres", "Paramètres", "vueParametres", true],
 ];
 
@@ -1312,7 +1315,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1335,6 +1338,8 @@ function rendu(){
     else if(route === "simulation") corps = vueSimulation(params);
     else if(route === "rencontres") corps = vueRencontres(params);
     else if(route === "appel") corps = vueAppelPublic(params);
+    else if(route === "annonces") corps = vueAnnonces(params);
+    else if(route === "marche" && !etat.session) corps = vueMarche(params);
     else if(route === "connexion") corps = vueConnexion();
     else if(route === "installer") corps = vueInstallation();
     else if(!etat.session) corps = vueAccueil();
@@ -1347,6 +1352,7 @@ function rendu(){
     else if(route === "solde") corps = vueSolde();
     else if(route === "appels") corps = vueAppels(params);
     else if(route === "reseau") corps = vueReseau();
+    else if(route === "marche") corps = vueMarcheAdmin(params);
     else corps = vueAccueil();
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
@@ -1369,7 +1375,7 @@ function sectionBureau(){
 function sectionAppelsOuverts(m){
   const ouverts = etat.appels.filter(a => a.ouvert);
   if(!ouverts.length) return "";
-  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", vitrine:"🏪", autre:"💳" };
   return '<div class="carte"><h3>Paiements demandés par le réseau</h3>'
     + ouverts.map(a => {
       const paye = m ? etat.paiements.filter(p => String(p.membre_id) === String(m.id) && String(p.appel_id) === String(a.id)).reduce((s,p)=>s+parseInt(p.montant,10),0) : 0;
@@ -1395,10 +1401,12 @@ function vueAccueil(){
     + '<p class="mut" style="margin:8px 0 0;color:#cfe3da"><a href="javascript:void(0)" style="color:#fff" onclick="retrouverMatricule()">Je ne connais pas mon matricule</a></p>'
     + '<div id="zoneRetrouver"></div>'
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
+    + sectionAnnonces(3)
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
     + (s.presentation ? '<div class="carte"><h3>Le réseau</h3><p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p></div>' : '')
     + sectionBureau()
     + sectionAppelsOuverts(null)
+    + sectionVitrines()
     + (etat.rencontres.filter(r => r.publie !== false).length ? '<div class="carte"><h3>Nos rencontres</h3>'
         + etat.rencontres.filter(r => r.publie !== false).slice(0,3).map(r => '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--ligne)">'
           + (r.photos && r.photos[0] ? '<img src="'+ech(r.photos[0])+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px" alt="">' : '<span class="avatar" style="width:64px;height:64px;border-radius:10px">📷</span>')
@@ -1466,6 +1474,7 @@ function vuePayer(params){
     + (annee ? '<div class="mut">Membre depuis '+annee+'</div>' : '')
     + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
+    + (enAttente ? "" : sectionAnnonces(2))
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le matricule <strong>'+ech(m.matricule||code)+'</strong> (gardez-le précieusement : il figurera sur votre carte de membre). '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
@@ -1531,7 +1540,7 @@ function vueRencontres(params){
 function vueAppelPublic(params){
   const a = etat.appels.find(x => String(x.id) === String(params.id));
   if(!a) return '<main><div class="alerte al-err">Cet appel à paiement n’existe pas.</div></main>';
-  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", vitrine:"🏪", autre:"💳" };
   return '<main style="max-width:560px"><div class="carte"><div style="font-size:40px;text-align:center">'+(icone[a.type]||"💳")+'</div>'
     + '<h3 style="text-align:center">'+ech(a.titre)+'</h3>'
     + (a.description ? '<p>'+ech(a.description).replace(/\n/g,"<br>")+'</p>' : '')
@@ -2331,7 +2340,7 @@ async function enregistrerParametres(){
 
 /* --------------------------- Appels à paiement (trésorier) --------------------------- */
 function vueAppels(params){
-  const icone = { formation:"🎓", document:"📄", carte:"🪪", autre:"💳" };
+  const icone = { formation:"🎓", document:"📄", carte:"🪪", vitrine:"🏪", autre:"💳" };
   const suivi = a => {
     const parM = {}; for(const p of etat.paiements) if(String(p.appel_id) === String(a.id)) parM[p.membre_id] = (parM[p.membre_id]||0) + parseInt(p.montant,10);
     const payes = Object.keys(parM).filter(id => parM[id] >= parseInt(a.montant,10)).length;
@@ -2381,16 +2390,19 @@ function editerAppel(id){
   const champ = (k, label, val, type, ph) => '<div class="champ"><span>'+label+'</span><input id="ap_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'" placeholder="'+(ph||"")+'"></div>';
   $("#editeurAppel").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin-bottom:10px"><h3>'+(id ? 'Modifier l’appel' : 'Nouvel appel à paiement')+'</h3><div class="grille g2">'
     + champ("titre","Titre",a.titre,"text","Formation TVA du 15 décembre")
-    + '<div class="champ"><span>Type</span><select id="ap_type">'+[["formation","🎓 Formation"],["document","📄 Document"],["carte","🪪 Carte de membre"],["autre","💳 Autre"]].map(([v,l]) => '<option value="'+v+'"'+(a.type===v?' selected':'')+'>'+l+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Type</span><select id="ap_type">'+[["formation","🎓 Formation"],["document","📄 Document"],["carte","🪪 Carte de membre"],["vitrine","🏪 Loyer de vitrine"],["autre","💳 Autre"]].map(([v,l]) => '<option value="'+v+'"'+(a.type===v?' selected':'')+'>'+l+'</option>').join("")+'</select></div>'
     + champ("montant","Montant (FCFA)",a.montant,"number") + champ("date_limite","Date limite (facultatif)",a.date_limite||"","date")
     + champ("lien_apres","Lien remis après paiement (document, salle Zoom… facultatif)",a.lien_apres,"url","https://")
+    + '<div class="champ"><span>Vitrine concernée (loyer)</span><select id="ap_vitrine"><option value="">—</option>'+etat.vitrines.map(v => '<option value="'+v.id+'"'+(String(a.vitrine_id)===String(v.id)?' selected':'')+'>'+ech(v.nom)+'</option>').join("")+'</select></div>'
+    + champ("duree_mois","Durée de location payée (mois) — prolonge la vitrine automatiquement",a.duree_mois||"","number")
     + '<div class="champ"><span>Description (facultatif)</span><textarea id="ap_description" style="min-height:70px">'+ech(a.description||"")+'</textarea></div>'
     + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerAppel('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurAppel\').innerHTML=\'\'">Annuler</button></div></div>';
 }
 async function enregistrerAppel(id){
   const v = k => ($("#ap_"+k).value||"").trim();
   const corps = { titre: v("titre"), type: v("type"), description: v("description"), montant: parseInt(v("montant").replace(/\D/g,""),10)||0,
-    date_limite: v("date_limite") || null, lien_apres: v("lien_apres") };
+    date_limite: v("date_limite") || null, lien_apres: v("lien_apres"),
+    vitrine_id: v("vitrine") ? parseInt(v("vitrine"),10) : null, duree_mois: parseInt(v("duree_mois"),10) || 0 };
   if(!corps.titre || corps.montant <= 0){ toast("Titre et montant obligatoires.", "err"); return; }
   try{
     if(id) await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
@@ -2419,6 +2431,7 @@ function exportAppelCSV(id){
 function vueReseau(){
   const s = etat.settings;
   return '<main>'
+    + sectionAnnoncesAdmin()
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec" onclick="changerPhotoGroupe()">📷 '+(s.photo_groupe_url ? 'Changer' : 'Ajouter')+' la photo de groupe</button>'
@@ -2520,6 +2533,188 @@ async function retirerPhotoRencontre(id, index){
 async function supprimerRencontre(id){
   if(!confirm("Supprimer cette rencontre et sa galerie ?")) return;
   try{ await sb("cc_rencontres?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
+}
+
+/* --------------------------- Annonces (public + trésorier) --------------------------- */
+function annoncesVisibles(){ return etat.annonces.filter(a => a.publie !== false); }
+function carteAnnonce(a, complet){
+  const ap = a.appel_id ? etat.appels.find(x => String(x.id) === String(a.appel_id)) : null;
+  return '<div style="display:flex;gap:12px;padding:10px 0;border-top:1px solid var(--ligne)">'
+    + (a.image_url ? '<img src="'+ech(a.image_url)+'" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:10px;flex-shrink:0">' : '<div style="font-size:26px;flex-shrink:0">'+(a.epingle ? '📌' : '📣')+'</div>')
+    + '<div style="flex:1;min-width:0"><div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap"><strong>'+ech(a.titre)+'</strong><span class="mut">'+dateFR(a.date)+'</span>'+(a.epingle ? '<span class="badge b-avance">important</span>' : '')+'</div>'
+    + (a.texte ? '<div style="margin-top:4px;white-space:pre-line">'+(complet ? ech(a.texte) : ech(a.texte.length > 220 ? a.texte.slice(0,220)+"…" : a.texte))+'</div>' : '')
+    + '<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">'
+    + (ap ? '<a class="btn sm" href="#/appel?id='+ap.id+'">'+(ap.type==="formation" ? "S’inscrire" : "Payer")+' — '+fcfa(ap.montant)+' F</a>' : '')
+    + (a.lien ? '<a class="btn sm sec" href="'+ech(a.lien)+'" target="_blank" rel="noopener">'+ech(a.lien_libelle||"En savoir plus")+'</a>' : '')
+    + (!complet && a.texte && a.texte.length > 220 ? '<a class="btn sm sec" href="#/annonces?id='+a.id+'">Lire la suite</a>' : '')
+    + '</div></div></div>';
+}
+function sectionAnnonces(max){
+  const l = annoncesVisibles(); if(!l.length) return "";
+  return '<div class="carte"><div style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">📣 Annonces du bureau</h3><span style="flex:1"></span>'+(l.length > max ? '<a href="#/annonces">Toutes ('+l.length+')</a>' : '')+'</div>'
+    + l.slice(0, max).map(a => carteAnnonce(a, false)).join("") + '</div>';
+}
+function vueAnnonces(params){
+  const l = annoncesVisibles();
+  if(params.id){ const a = l.find(x => String(x.id) === String(params.id)); if(!a) return '<main><div class="alerte al-err">Annonce introuvable.</div></main>';
+    return '<main style="max-width:680px"><p><a href="#/annonces">← Toutes les annonces</a></p><div class="carte">'+carteAnnonce(a, true)+'</div></main>'; }
+  return '<main style="max-width:680px"><div class="carte"><h3>📣 Annonces du bureau</h3>'+(l.length ? l.map(a => carteAnnonce(a, true)).join("") : '<p class="mut">Aucune annonce pour le moment.</p>')+'</div></main>';
+}
+function sectionAnnoncesAdmin(){
+  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">📣 Annonces du bureau</h3><span style="flex:1"></span><button class="btn sm" onclick="editerAnnonce(0)">+ Nouvelle annonce</button></div>'
+    + '<p class="mut">Affichées en haut de l’accueil et de la page de chaque membre. Une annonce « importante » reste en tête. Reliez-la à un appel à paiement pour y mettre un bouton « S’inscrire / Payer ».</p>'
+    + '<div id="editeurAnnonce"></div>'
+    + (etat.annonces.length ? '<div class="survol"><table><tr><th>Date</th><th>Titre</th><th>Statut</th><th></th></tr>'
+      + etat.annonces.map(a => '<tr><td>'+dateFR(a.date)+'</td><td><strong>'+ech(a.titre)+'</strong>'+(a.epingle ? ' 📌' : '')+(a.appel_id ? ' <span class="badge b-avance">appel</span>' : '')+'</td>'
+        + '<td>'+(a.publie !== false ? '<span class="badge b-paye">publiée</span>' : '<span class="badge b-neutre">brouillon</span>')+'</td>'
+        + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/?text='+encodeURIComponent("📣 "+(etat.settings.reseau||"ComptaConnect")+" — "+a.titre+"\n"+(a.texte||"").slice(0,300)+"\n"+location.origin+location.pathname+"#/annonces?id="+a.id)+'" target="_blank" rel="noopener">WhatsApp</a> '
+        + '<button class="btn sm sec" onclick="photoAnnonce('+a.id+')">📷</button> <button class="btn sm sec" onclick="editerAnnonce('+a.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerAnnonce('+a.id+')">✕</button></td></tr>').join("")
+      + '</table></div>' : '')
+    + '</div>';
+}
+function editerAnnonce(id){
+  const a = etat.annonces.find(x => String(x.id) === String(id)) || { titre:"", texte:"", lien:"", lien_libelle:"", appel_id:null, epingle:false, publie:true, date: aujourdhui() };
+  const champ = (k, label, val, type, ph) => '<div class="champ"><span>'+label+'</span><input id="an_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'" placeholder="'+(ph||"")+'"></div>';
+  $("#editeurAnnonce").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
+    + champ("titre","Titre",a.titre,"text","Assemblée générale le 20 décembre") + champ("date","Date",a.date,"date")
+    + '<div class="champ" style="grid-column:1/-1"><span>Texte</span><textarea id="an_texte" style="min-height:90px">'+ech(a.texte||"")+'</textarea></div>'
+    + '<div class="champ"><span>Appel à paiement lié (facultatif)</span><select id="an_appel"><option value="">—</option>'+etat.appels.filter(x => x.ouvert).map(x => '<option value="'+x.id+'"'+(String(a.appel_id)===String(x.id)?' selected':'')+'>'+ech(x.titre)+' — '+fcfa(x.montant)+' F</option>').join("")+'</select></div>'
+    + champ("lien","Lien externe (facultatif)",a.lien,"url","https://") + champ("lien_libelle","Texte du bouton du lien",a.lien_libelle,"text","En savoir plus")
+    + '<div class="champ"><span>Importance</span><select id="an_epingle"><option value="false"'+(!a.epingle?' selected':'')+'>Normale</option><option value="true"'+(a.epingle?' selected':'')+'>Importante (reste en tête)</option></select></div>'
+    + '<div class="champ"><span>Publication</span><select id="an_publie"><option value="true"'+(a.publie!==false?' selected':'')+'>Publiée</option><option value="false"'+(a.publie===false?' selected':'')+'>Brouillon</option></select></div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerAnnonce('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurAnnonce\').innerHTML=\'\'">Annuler</button></div></div>';
+}
+async function enregistrerAnnonce(id){
+  const v = k => ($("#an_"+k).value||"").trim();
+  const corps = { titre: v("titre"), texte: v("texte"), date: v("date") || aujourdhui(), lien: v("lien"), lien_libelle: v("lien_libelle"),
+    appel_id: v("appel") ? parseInt(v("appel"),10) : null, epingle: $("#an_epingle").value === "true", publie: $("#an_publie").value === "true" };
+  if(!corps.titre){ toast("Le titre est obligatoire.", "err"); return; }
+  try{
+    if(id) await sb("cc_annonces?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_annonces", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); rendu(); toast("Annonce enregistrée.", "ok");
+  }catch(e){ toast("Refusé : "+e.message+(/cc_annonces/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+}
+async function photoAnnonce(id){
+  const [f] = await choisirImage(false); if(!f) return;
+  try{ const url = await televerserPhoto("annonces/" + id + ".jpg", await compresserImage(f, 900, 0.8));
+    await sb("cc_annonces?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ image_url: url }) });
+    await chargerDonnees(); rendu(); toast("Image ajoutée.", "ok"); }catch(e){ toast("Image refusée : "+e.message, "err"); }
+}
+async function supprimerAnnonce(id){
+  if(!confirm("Supprimer cette annonce ?")) return;
+  try{ await sb("cc_annonces?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
+}
+
+/* --------------------------- Marché : vitrines louées (public + trésorier) --------------------------- */
+function vitrineActive(v){ return v.publie !== false && (!v.fin_location || String(v.fin_location) >= aujourdhui()); }
+function vitrinesActives(){ return etat.vitrines.filter(vitrineActive); }
+function carteVitrine(v, complet){
+  const prods = Array.isArray(v.produits) ? v.produits : [];
+  const wa = String(v.telephone||"").replace(/\D/g,"");
+  return '<div class="carte"'+(v.en_avant ? ' style="border:2px solid var(--or)"' : '')+'>'
+    + '<div style="display:flex;gap:12px;align-items:center">'+(v.logo_url ? '<img class="avatar xl" src="'+ech(v.logo_url)+'" alt="" style="border-radius:14px">' : '<span class="avatar xl" style="border-radius:14px">🏪</span>')
+    + '<div style="flex:1;min-width:0"><h3 style="margin:0">'+ech(v.nom)+'</h3><div class="mut">'+ech([v.categorie, v.proprietaire].filter(Boolean).join(" · "))+'</div>'+(v.en_avant ? '<span class="badge b-avance">à la une</span>' : '')+'</div></div>'
+    + (v.description ? '<p style="white-space:pre-line">'+ech(complet ? v.description : (v.description.length > 160 ? v.description.slice(0,160)+"…" : v.description))+'</p>' : '')
+    + (prods.length ? '<div class="survol"><table>'+prods.slice(0, complet ? 50 : 4).map(p => '<tr><td>'+ech(p.nom)+'</td><td style="text-align:right;white-space:nowrap"><strong>'+(p.prix ? fcfa(p.prix)+' F' : 'sur devis')+'</strong></td></tr>').join("")+'</table></div>' : '')
+    + (complet && (v.photos||[]).length ? '<div class="galerie" style="margin-top:8px">'+(v.photos||[]).map(u => '<a href="'+ech(u)+'" target="_blank" rel="noopener"><img src="'+ech(u)+'" alt="" loading="lazy"></a>').join("")+'</div>' : '')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
+    + (wa ? '<a class="btn" style="background:#25D366" href="https://wa.me/'+wa+'?text='+encodeURIComponent("Bonjour, je vous contacte depuis le Marché "+(etat.settings.reseau||"ComptaConnect")+" au sujet de « "+v.nom+" ».")+'" target="_blank" rel="noopener">Contacter sur WhatsApp</a>' : '')
+    + (!complet ? '<a class="btn sec" href="#/marche?id='+v.id+'">Voir la vitrine</a>' : '')+'</div>'
+    + '<p class="mut" style="margin:8px 0 0;font-size:11.5px">La vente se fait directement entre vous et le vendeur ; le réseau n’intervient pas dans la transaction.</p></div>';
+}
+function sectionVitrines(){
+  const l = vitrinesActives(); if(!l.length) return "";
+  const avant = l.filter(v => v.en_avant).concat(l.filter(v => !v.en_avant)).slice(0, 3);
+  return '<div class="carte"><div style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">🏪 Le Marché du réseau</h3><span style="flex:1"></span><a href="#/marche">Toutes les vitrines ('+l.length+')</a></div>'
+    + '<div class="bureau" style="margin-top:8px">'+avant.map(v => '<a class="p" href="#/marche?id='+v.id+'" style="text-decoration:none;color:inherit">'+(v.logo_url ? '<img class="avatar xl" src="'+ech(v.logo_url)+'" alt="" style="border-radius:14px">' : '<span class="avatar xl" style="border-radius:14px">🏪</span>')+'<div class="nm">'+ech(v.nom)+'</div><div class="ps">'+ech(v.categorie||"")+'</div></a>').join("")+'</div>'
+    + '<p class="mut" style="margin-top:10px">Vous voulez votre vitrine ici ? Contactez le trésorier : <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>';
+}
+function vueMarche(params){
+  const l = vitrinesActives();
+  if(params.id){ const v = l.find(x => String(x.id) === String(params.id)); if(!v) return '<main><div class="alerte al-err">Cette vitrine n’est pas disponible.</div></main>';
+    return '<main style="max-width:680px"><p><a href="#/marche">← Le Marché</a></p>'+carteVitrine(v, true)+'</main>'; }
+  return '<main><div class="carte"><h3>🏪 Le Marché du réseau</h3><p class="mut">Produits et services proposés par les membres et partenaires de '+ech(etat.settings.reseau||"ComptaConnect")+'. '
+    + 'Pour louer une vitrine, contactez le trésorier : <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a>.</p></div>'
+    + (l.length ? l.map(v => carteVitrine(v, false)).join("") : '<div class="carte mut">Aucune vitrine pour le moment.</div>') + '</main>';
+}
+function vueMarcheAdmin(params){
+  const loyer = parseInt(etat.settings.vitrine_loyer||"5000",10);
+  return '<main><div class="carte"><h3>🏪 Marché — vitrines louées</h3>'
+    + '<p class="mut">Un membre ou un partenaire loue une vitrine (logo, description, produits, bouton WhatsApp). Le réseau encaisse le loyer ; la vente se fait hors plateforme, sans argent de tiers ni litige à gérer. '
+    + 'La vitrine est visible tant que la date de fin de location n’est pas dépassée. Deux façons d’encaisser : <strong>un appel à paiement</strong> de type « Loyer de vitrine » (le paiement en ligne prolonge la vitrine automatiquement), ou <strong>Prolonger</strong> ci-dessous après un paiement reçu directement (inscrit en recette).</p>'
+    + '<div class="grille g2"><div class="champ"><span>Loyer mensuel conseillé (FCFA)</span><input id="s_vitrine_loyer" type="number" value="'+loyer+'"></div><div class="champ"><span>&nbsp;</span><button class="btn sec" onclick="enregistrerSetting(\'vitrine_loyer\', document.querySelector(\'#s_vitrine_loyer\').value)">Enregistrer</button></div></div>'
+    + '<div id="editeurVitrine"></div><button class="btn" onclick="editerVitrine(0)">+ Nouvelle vitrine</button></div>'
+    + (etat.vitrines.length ? '<div class="carte"><div class="survol"><table><tr><th></th><th>Vitrine</th><th>Vendeur</th><th>Fin de location</th><th>Statut</th><th></th></tr>'
+      + etat.vitrines.map(v => '<tr><td>'+(v.logo_url ? '<img class="avatar" src="'+ech(v.logo_url)+'" alt="" style="border-radius:10px">' : '<span class="avatar" style="border-radius:10px">🏪</span>')+'</td><td><strong>'+ech(v.nom)+'</strong>'+(v.en_avant ? ' ⭐' : '')+'<div class="mut">'+ech(v.categorie||"")+' · '+(Array.isArray(v.produits)?v.produits.length:0)+' produit(s) · '+(v.photos||[]).length+' photo(s)</div></td>'
+        + '<td>'+ech(v.proprietaire||"")+'<div class="mut">'+ech(v.telephone||"")+'</div></td><td>'+(v.fin_location ? dateFR(v.fin_location) : '<span class="mut">illimitée</span>')+'</td>'
+        + '<td>'+(vitrineActive(v) ? '<span class="badge b-paye">visible</span>' : (v.publie === false ? '<span class="badge b-neutre">masquée</span>' : '<span class="badge b-impaye">location expirée</span>'))+'</td>'
+        + '<td style="white-space:nowrap"><button class="btn sm" onclick="prolongerVitrine('+v.id+')">Prolonger</button> <button class="btn sm sec" onclick="logoVitrine('+v.id+')">Logo</button> <button class="btn sm sec" onclick="photosVitrine('+v.id+')">📷</button> '
+        + '<button class="btn sm sec" onclick="copier(\''+location.origin+location.pathname+'#/marche?id='+v.id+'\')">Lien</button> <button class="btn sm sec" onclick="editerVitrine('+v.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerVitrine('+v.id+')">✕</button></td></tr>').join("")
+      + '</table></div></div>' : '')
+    + '</main>';
+}
+function editerVitrine(id){
+  const v = etat.vitrines.find(x => String(x.id) === String(id)) || { nom:"", proprietaire:"", membre_id:null, telephone:"", categorie:"", description:"", produits:[], loyer_mensuel: parseInt(etat.settings.vitrine_loyer||"5000",10), fin_location:"", en_avant:false, publie:true };
+  const champ = (k, label, val, type, ph) => '<div class="champ"><span>'+label+'</span><input id="vi_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'" placeholder="'+(ph||"")+'"></div>';
+  const prods = (Array.isArray(v.produits) ? v.produits : []).map(p => p.nom + (p.prix ? " ; " + p.prix : "")).join("\n");
+  $("#editeurVitrine").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
+    + champ("nom","Nom de la vitrine",v.nom,"text","Cabinet XY — Formations Excel")
+    + '<div class="champ"><span>Membre du réseau (facultatif)</span><select id="vi_membre" onchange="(function(s){const m=etat.membres.find(x=>String(x.id)===s.value);if(m){document.querySelector(\'#vi_proprietaire\').value=m.nom;document.querySelector(\'#vi_telephone\').value=m.telephone||\'\';}})(this)"><option value="">— externe —</option>'+etat.membres.map(m => '<option value="'+m.id+'"'+(String(v.membre_id)===String(m.id)?' selected':'')+'>'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + champ("proprietaire","Vendeur (nom affiché)",v.proprietaire) + champ("telephone","WhatsApp du vendeur",v.telephone,"tel","07 00 00 00 00")
+    + champ("categorie","Catégorie",v.categorie,"text","Formation, Logiciel, Papeterie…") + champ("loyer_mensuel","Loyer mensuel (FCFA)",v.loyer_mensuel,"number")
+    + champ("fin_location","Fin de location (vide = illimitée)",v.fin_location||"","date")
+    + '<div class="champ"><span>Mise en avant</span><select id="vi_en_avant"><option value="false"'+(!v.en_avant?' selected':'')+'>Normale</option><option value="true"'+(v.en_avant?' selected':'')+'>À la une (accueil)</option></select></div>'
+    + '<div class="champ"><span>Publication</span><select id="vi_publie"><option value="true"'+(v.publie!==false?' selected':'')+'>Visible</option><option value="false"'+(v.publie===false?' selected':'')+'>Masquée</option></select></div>'
+    + '<div class="champ" style="grid-column:1/-1"><span>Description</span><textarea id="vi_description" style="min-height:70px">'+ech(v.description||"")+'</textarea></div>'
+    + '<div class="champ" style="grid-column:1/-1"><span>Produits / services — un par ligne : <code>nom ; prix</code> (prix facultatif)</span><textarea id="vi_produits" style="min-height:90px" placeholder="Formation Excel avancé ; 25000&#10;Audit de conformité fiscale">'+ech(prods)+'</textarea></div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerVitrine('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurVitrine\').innerHTML=\'\'">Annuler</button></div></div>';
+}
+async function enregistrerVitrine(id){
+  const v = k => ($("#vi_"+k).value||"").trim();
+  const produits = v("produits").split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => { const [nom, prix] = l.split(/\s*;\s*/); return { nom: nom.trim(), prix: parseInt(String(prix||"").replace(/\D/g,""),10) || 0 }; });
+  const corps = { nom: v("nom"), proprietaire: v("proprietaire"), membre_id: v("membre") ? parseInt(v("membre"),10) : null, telephone: v("telephone"), categorie: v("categorie"),
+    description: v("description"), produits, loyer_mensuel: parseInt(v("loyer_mensuel"),10) || 0, fin_location: v("fin_location") || null,
+    en_avant: $("#vi_en_avant").value === "true", publie: $("#vi_publie").value === "true" };
+  if(!corps.nom){ toast("Le nom de la vitrine est obligatoire.", "err"); return; }
+  try{
+    if(id) await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_vitrines", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); rendu(); toast("Vitrine enregistrée.", "ok");
+  }catch(e){ toast("Refusé : "+e.message+(/cc_vitrines/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+}
+async function prolongerVitrine(id){
+  const v = etat.vitrines.find(x => String(x.id) === String(id)); if(!v) return;
+  const mois = parseInt(prompt("Prolonger « "+v.nom+" » de combien de mois ? (paiement reçu directement)", "1")||"0",10); if(!(mois > 0)) return;
+  const montant = parseInt(prompt("Montant encaissé (FCFA) — inscrit en recette « Location vitrine » :", String((v.loyer_mensuel||0) * mois))||"0",10);
+  const base = (v.fin_location && String(v.fin_location) >= aujourdhui()) ? new Date(v.fin_location) : new Date();
+  base.setMonth(base.getMonth() + mois); const fin = base.toISOString().slice(0,10);
+  try{
+    await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ fin_location: fin, publie: true }) });
+    if(montant > 0) await sb("cc_paiements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ date: aujourdhui(), montant, canal: "Location vitrine", expediteur: v.proprietaire || v.nom,
+      telephone: v.telephone || "", libelle: "Location vitrine « "+v.nom+" » — "+mois+" mois", mois: "", membre_id: v.membre_id || null, statut: "RAPPROCHE", methode: "manuel" }) });
+    await chargerDonnees(); rendu(); toast("Vitrine prolongée jusqu’au "+dateFR(fin)+(montant > 0 ? " · "+fcfa(montant)+" F en recette." : "."), "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function logoVitrine(id){
+  const [f] = await choisirImage(false); if(!f) return;
+  try{ const url = await televerserPhoto("vitrines/" + id + "/logo.jpg", await compresserImage(f, 400));
+    await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ logo_url: url }) });
+    await chargerDonnees(); rendu(); toast("Logo enregistré.", "ok"); }catch(e){ toast("Logo refusé : "+e.message, "err"); }
+}
+async function photosVitrine(id){
+  const v = etat.vitrines.find(x => String(x.id) === String(id)); if(!v) return;
+  const fichiers = await choisirImage(true); if(!fichiers.length) return;
+  const photos = (v.photos||[]).slice();
+  try{
+    for(let i = 0; i < fichiers.length && photos.length < 6; i++) photos.push(await televerserPhoto("vitrines/" + id + "/" + Date.now() + "_" + i + ".jpg", await compresserImage(fichiers[i], 1000, 0.8)));
+    await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photos }) });
+    await chargerDonnees(); rendu(); toast("Photos ajoutées (6 maximum par vitrine).", "ok");
+  }catch(e){ toast("Envoi interrompu : "+e.message, "err"); }
+}
+async function supprimerVitrine(id){
+  if(!confirm("Supprimer cette vitrine ? (les loyers déjà encaissés restent dans la caisse)")) return;
+  try{ await sb("cc_vitrines?id=eq."+id, { method:"DELETE" }); await chargerDonnees(); rendu(); }catch(e){ toast(e.message, "err"); }
 }
 
 /* --------------------------- Démarrage --------------------------- */

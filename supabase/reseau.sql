@@ -239,3 +239,78 @@ begin
 end $$;
 revoke all on function cc_adherer(text,text,text,text,text) from public;
 grant execute on function cc_adherer(text,text,text,text,text) to anon, authenticated;
+
+-- ------------------------------------------------------------
+-- 7) ANNONCES (tableau d'affichage officiel du bureau)
+-- ------------------------------------------------------------
+create table if not exists cc_annonces (
+  id bigserial primary key,
+  titre text not null,
+  texte text default '',
+  image_url text default '',
+  lien text default '',
+  lien_libelle text default '',
+  appel_id bigint references cc_appels(id) on delete set null,
+  epingle boolean default false,
+  publie boolean default true,
+  date date not null default current_date,
+  cree_le timestamptz default now()
+);
+alter table cc_annonces enable row level security;
+drop policy if exists "lecture publique cc_annonces" on cc_annonces;
+create policy "lecture publique cc_annonces" on cc_annonces for select using (true);
+drop policy if exists "ecriture tresorier cc_annonces" on cc_annonces;
+create policy "ecriture tresorier cc_annonces" on cc_annonces for all to authenticated using (true) with check (true);
+grant select on cc_annonces to anon, authenticated;
+grant insert, update, delete on cc_annonces to authenticated;
+grant usage, select on sequence cc_annonces_id_seq to authenticated;
+
+-- ------------------------------------------------------------
+-- 8) MARCHÉ : vitrines louées (revenu du réseau ; la vente se fait entre acheteur et vendeur, hors plateforme)
+-- ------------------------------------------------------------
+create table if not exists cc_vitrines (
+  id bigserial primary key,
+  nom text not null,
+  proprietaire text default '',
+  membre_id bigint references cc_membres(id) on delete set null,
+  telephone text default '',                 -- WhatsApp du vendeur
+  categorie text default '',
+  description text default '',
+  logo_url text default '',
+  photos jsonb not null default '[]'::jsonb,
+  produits jsonb not null default '[]'::jsonb,   -- [{"nom":"…","prix":5000}]
+  loyer_mensuel integer default 0,
+  fin_location date,                         -- vitrine visible tant que fin_location >= aujourd'hui
+  en_avant boolean default false,
+  publie boolean default true,
+  cree_le timestamptz default now()
+);
+alter table cc_vitrines enable row level security;
+drop policy if exists "lecture publique cc_vitrines" on cc_vitrines;
+create policy "lecture publique cc_vitrines" on cc_vitrines for select using (true);
+drop policy if exists "ecriture tresorier cc_vitrines" on cc_vitrines;
+create policy "ecriture tresorier cc_vitrines" on cc_vitrines for all to authenticated using (true) with check (true);
+grant select on cc_vitrines to anon, authenticated;
+grant insert, update, delete on cc_vitrines to authenticated;
+grant usage, select on sequence cc_vitrines_id_seq to authenticated;
+
+-- Un appel à paiement peut être un loyer de vitrine : le paiement prolonge automatiquement la location
+alter table cc_appels add column if not exists vitrine_id bigint references cc_vitrines(id) on delete set null;
+alter table cc_appels add column if not exists duree_mois integer default 0;
+
+create or replace function cc_prolonger_vitrine() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare v_a record;
+begin
+  if new.appel_id is null or new.statut <> 'RAPPROCHE' then return new; end if;
+  select vitrine_id, duree_mois into v_a from cc_appels where id = new.appel_id;
+  if v_a.vitrine_id is null or coalesce(v_a.duree_mois,0) <= 0 then return new; end if;
+  update cc_vitrines
+     set fin_location = (greatest(coalesce(fin_location, current_date), current_date) + (v_a.duree_mois || ' months')::interval)::date,
+         publie = true
+   where id = v_a.vitrine_id;
+  return new;
+end $$;
+drop trigger if exists trg_cc_prolonger_vitrine on cc_paiements;
+create trigger trg_cc_prolonger_vitrine after insert or update of statut, appel_id on cc_paiements
+  for each row execute function cc_prolonger_vitrine();

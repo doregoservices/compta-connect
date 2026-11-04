@@ -356,3 +356,12 @@ Les deux modes cohabitent : le bouton pour le confort, le motif pour le zéro fr
   suivi (qui a payé, relance WhatsApp, CSV). Ces paiements ont `appel_id` et `mois` vide : ils
   comptent dans les recettes/solde mais jamais dans le pointage des cotisations.
   Les Edge Functions `cinetpay-init`/`cinetpay-notify` doivent être redéployées (paramètre `appel`).
+- **Annonces du bureau** (Vie du réseau) : tableau d'affichage officiel, en haut de l'accueil et de la page
+  de chaque membre ; « importante » = reste en tête ; peut être reliée à un appel à paiement (bouton
+  « S'inscrire / Payer ») ; page publique `#/annonces`.
+- **Marché — vitrines louées** (onglet Marché) : revenu du réseau. Vitrine = logo, description, produits,
+  bouton WhatsApp du vendeur ; visible tant que `fin_location` n'est pas dépassée. Encaissement du loyer :
+  appel à paiement de type « Loyer de vitrine » (le paiement prolonge la vitrine automatiquement, trigger
+  `cc_prolonger_vitrine`) ou bouton « Prolonger » après paiement direct (inscrit en recette « Location
+  vitrine »). La vente se fait hors plateforme : aucun argent de tiers ne transite par le réseau.
+  Page publique `#/marche`.
