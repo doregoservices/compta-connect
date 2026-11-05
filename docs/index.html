@@ -1209,13 +1209,15 @@ async function chargerDonnees(){
 
 /* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
 function trouverMembre(saisie){
-  // Seul le matricule de carte donne accès (l'ancien code interne à 3 chiffres n'est pas une clé d'accès)
+  // Accès par matricule de carte OU par numéro de téléphone (jamais par l'ancien code interne)
   const mat = matriculeNormaliser(saisie);
-  if(!mat) return null;
-  return etat.membres.find(x => x.matricule === mat) || null;
+  if(mat) return etat.membres.find(x => x.matricule === mat) || null;
+  const chiffres = String(saisie||"").replace(/\D/g, "");
+  if(chiffres.length >= 8){ const tel = telephoneNormalise(chiffres); return etat.membres.find(x => x.telephone && telephoneNormalise(x.telephone) === tel) || null; }
+  return null;
 }
-function idMembre(m){ return m.matricule || String(m.code).padStart(3,"0"); }
-function lienMembre(m, extra){ return "#/payer?m=" + encodeURIComponent(idMembre(m)) + (extra||""); }
+function idMembre(m){ return m.matricule || String(m.telephone||"").replace(/\D/g,""); }
+function lienMembre(m, extra){ return (m.matricule ? "#/payer?m=" + encodeURIComponent(m.matricule) : "#/payer?t=" + encodeURIComponent(String(m.telephone||"").replace(/\D/g,""))) + (extra||""); }
 function lienMembreAbsolu(m, extra){ return location.origin + location.pathname + lienMembre(m, extra); }
 function initiales(nom){ return String(nom||"?").trim().split(/\s+/).slice(0,2).map(x => x[0]||"").join("").toUpperCase(); }
 function avatar(m, taille){
@@ -1396,10 +1398,9 @@ function vueAccueil(){
     + '<h1>COMPTA<b class="b">CONNECT</b></h1>'
     + '<p style="color:#cfe3da;margin:0 0 14px">'+ech(s.slogan||"")+'</p>'
     + '<div style="max-width:380px;margin:0 auto;display:flex;gap:8px">'
-    + '<input id="matAccueil" placeholder="N° matricule (ex. CC-26-00026)" autocapitalize="characters" autocomplete="off">'
+    + '<input id="matAccueil" placeholder="Votre téléphone ou n° matricule" autocapitalize="characters" autocomplete="off">'
     + '<button class="btn" onclick="verifierMatricule()">Vérifier</button></div>'
-    + '<p class="mut" style="margin:8px 0 0;color:#cfe3da"><a href="javascript:void(0)" style="color:#fff" onclick="retrouverMatricule()">Je ne connais pas mon matricule</a></p>'
-    + '<div id="zoneRetrouver"></div>'
+    + '<p class="mut" style="margin:8px 0 0;color:#cfe3da">Le numéro de téléphone est celui utilisé pour vos cotisations.</p>'
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
     + sectionAnnonces(3)
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
@@ -1413,8 +1414,8 @@ function vueAccueil(){
           + '<div><strong>'+ech(r.titre)+'</strong><div class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+' · '+(r.photos||[]).length+' photo'+((r.photos||[]).length>1?'s':'')+'</div></div></div>').join("")
         + '<p style="margin-top:10px"><a class="btn sec" href="#/rencontres">Voir toutes les rencontres</a></p></div>' : '')
     + '<div class="carte"><h3>Comment ça marche ?</h3>'
-    + '<div class="etape"><div class="n">1</div><div>Chaque membre possède un <strong>numéro matricule</strong> (celui de sa carte de membre, ex. CC-26-00026).</div></div>'
-    + '<div class="etape"><div class="n">2</div><div>Saisissez-le : vous voyez votre situation, mois par mois, depuis votre adhésion.</div></div>'
+    + '<div class="etape"><div class="n">1</div><div>Saisissez votre <strong>numéro de téléphone</strong> ou le <strong>matricule</strong> de votre carte de membre : vous voyez votre situation, mois par mois, depuis votre adhésion.</div></div>'
+    + '<div class="etape"><div class="n">2</div><div>À votre première visite, enregistrez le matricule inscrit sur votre carte ; pas encore de carte ? commandez-la depuis votre page.</div></div>'
     + '<div class="etape"><div class="n">3</div><div>Cliquez sur <strong>Payer en ligne</strong> : Wave, Orange Money, MTN ou Moov, directement depuis votre téléphone.</div></div>'
     + '<div class="etape"><div class="n">4</div><div>Le pointage est <strong>immédiat</strong> : votre ligne passe à « à jour » et vos accès (WhatsApp, Skool) s’affichent.</div></div></div>'
     + '</main>';
@@ -1423,35 +1424,18 @@ function vueAccueil(){
 function verifierMatricule(){
   const v = ($("#matAccueil").value||"").trim();
   const m = trouverMembre(v);
-  if(!m){ toast(matriculeNormaliser(v) ? "Matricule inconnu. Vérifiez votre carte ou contactez le trésorier." : "Saisissez votre matricule complet, ex. CC-26-00026.", "err"); return; }
+  if(!m){ toast(matriculeNormaliser(v) ? "Matricule inconnu. Vérifiez votre carte ou contactez le trésorier." : (v.replace(/\D/g,"").length >= 8 ? "Aucun membre avec ce numéro de téléphone. Contactez le trésorier : "+(etat.settings.tresorier_tel||"") : "Saisissez votre numéro de téléphone ou votre matricule."), "err"); return; }
   aller(lienMembre(m));
 }
-function retrouverMatricule(){
-  const z = $("#zoneRetrouver"); if(!z) return;
-  z.innerHTML = '<div style="max-width:380px;margin:10px auto 0;display:flex;gap:8px"><input id="telRetrouver" placeholder="Votre numéro de téléphone" inputmode="tel">'
-    + '<button class="btn sec" onclick="chercherParTelephone()">Retrouver</button></div>';
-  $("#telRetrouver").focus();
-}
-async function chercherParTelephone(){
-  const tel = ($("#telRetrouver").value||"").trim();
-  if(tel.replace(/\D/g,"").length < 8){ toast("Numéro incomplet.", "err"); return; }
-  try{
-    const r = await sb("rpc/cc_retrouver_matricule", { method:"POST", body: JSON.stringify({ p_tel: tel }) });
-    if(!r.ok){ toast("Aucun membre avec ce numéro. Contactez le trésorier : "+(etat.settings.tresorier_tel||""), "err"); return; }
-    toast("Bonjour "+r.prenom+" — votre matricule est "+r.matricule, "ok");
-    const m = trouverMembre(r.matricule); if(m) aller(lienMembre(m)); else aller("#/payer?m="+encodeURIComponent(r.matricule));
-  }catch(e){ toast("Recherche impossible : "+e.message, "err"); }
-}
-
 function vuePayer(params){
-  const saisie = params.m || "";
+  const saisie = params.m || params.t || "";
   const mois = normaliserMois(params.mois || moisCourant());
   const m = trouverMembre(saisie);
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
-    + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="N° matricule (ex. CC-26-00026)" autocapitalize="characters" autocomplete="off">'
+    + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="Téléphone ou n° matricule" autocapitalize="characters" autocomplete="off">'
     + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matPayer\').value);if(m)aller(lienMembre(m));else toast(\'Matricule inconnu.\',\'err\')})()">Vérifier</button></div></div>';
   if(!m){
-    if(saisie) corps += '<div class="alerte al-err">Matricule « '+ech(saisie)+' » introuvable. Vérifiez votre carte ou contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
+    if(saisie) corps += '<div class="alerte al-err">« '+ech(saisie)+' » introuvable (téléphone ou matricule). Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
     return corps + '</main>';
   }
   const code = String(m.code).padStart(3,"0");
@@ -1470,10 +1454,11 @@ function vuePayer(params){
   return corps
     + '<div class="cartem">'+avatar(m, "xl")+'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:17px">'+ech(m.nom)+'</div>'
     + (m.titre || m.specialite ? '<div class="mut">'+ech(m.titre||m.specialite)+'</div>' : '')
-    + '<div class="mut" style="margin-top:4px">N° MATRICULE</div><div class="matricule" style="font-size:18px">'+ech(m.matricule||("code "+code))+'</div>'
+    + '<div class="mut" style="margin-top:4px">N° MATRICULE</div><div class="matricule" style="font-size:18px">'+(m.matricule ? ech(m.matricule) : '<span style="color:#f3c969">à enregistrer</span>')+'</div>'
     + (annee ? '<div class="mut">Membre depuis '+annee+'</div>' : '')
     + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
+    + (m.matricule || enAttente ? "" : bandeauMatricule(m))
     + (enAttente ? "" : sectionAnnonces(2))
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le matricule <strong>'+ech(m.matricule||code)+'</strong> (gardez-le précieusement : il figurera sur votre carte de membre). '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
@@ -1493,6 +1478,25 @@ function vuePayer(params){
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
     + '</main>';
 }
+function bandeauMatricule(m){
+  const appelCarte = etat.appels.find(a => a.ouvert && a.type === "carte");
+  return '<div class="carte" style="border:2px solid #f3c969;background:#fffbea"><h3>🪪 Votre numéro matricule</h3>'
+    + '<p>Chaque membre possède une <strong>carte de membre</strong> portant un numéro matricule (ex. CC-26-00026). Il n’est pas encore enregistré sur votre fiche.</p>'
+    + '<p><strong>Vous avez déjà votre carte ?</strong> Saisissez le numéro inscrit dessus (une seule fois — ensuite seul le trésorier peut le modifier) :</p>'
+    + '<div style="display:flex;gap:8px"><input id="matDeclare" placeholder="CC-26-00026" autocapitalize="characters" autocomplete="off"><button class="btn" onclick="declarerMatricule(\''+ech(String(m.telephone||"").replace(/\D/g,""))+'\')">Enregistrer</button></div>'
+    + '<p style="margin-top:12px"><strong>Pas encore de carte ?</strong> '+(appelCarte ? 'Commandez-la en ligne : <button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+appelCarte.id+')">Commander ma carte — '+fcfa(appelCarte.montant)+' F</button>' : 'Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+') pour la commander.')
+    + ' Vous saisirez son numéro ici dès que vous l’aurez reçue.</p></div>';
+}
+async function declarerMatricule(tel){
+  const v = ($("#matDeclare").value||"").trim();
+  if(!matriculeNormaliser(v)){ toast("Format attendu : CC-26-00026 (comme sur la carte).", "err"); return; }
+  if(!confirm("Confirmer le matricule "+matriculeNormaliser(v)+" ? Il ne pourra plus être modifié que par le trésorier.")) return;
+  try{
+    const r = await sb("rpc/cc_declarer_matricule", { method:"POST", body: JSON.stringify({ p_tel: tel, p_matricule: v }) });
+    if(!r.ok){ toast({ format:"Format invalide.", inconnu:"Fiche introuvable (téléphone manquant) : contactez le trésorier.", deja:"Un matricule est déjà enregistré ("+(r.matricule||"")+").", pris:"Ce matricule est déjà utilisé par un autre membre : vérifiez votre carte ou contactez le trésorier." }[r.motif]||"Refusé.", "err"); return; }
+    await chargerDonnees(); toast("Matricule enregistré ✅", "ok"); aller("#/payer?m=" + encodeURIComponent(r.matricule));
+  }catch(e){ toast("Enregistrement impossible : "+e.message, "err"); }
+}
 async function changerMaPhoto(identifiant){
   const m = trouverMembre(identifiant); if(!m) return;
   const tel = String(m.telephone||"").replace(/\D/g,"");
@@ -1506,7 +1510,8 @@ async function changerMaPhoto(identifiant){
   try{
     const blob = await compresserImage(f, 400);
     const url = await televerserPhoto("membres/" + m.id + ".jpg", blob);
-    const r = await sb("rpc/cc_membre_photo", { method:"POST", body: JSON.stringify({ p_matricule: m.matricule || "", p_tel4: tel4, p_url: url }) });
+    if(!m.matricule && !tel) throw new Error("fiche sans téléphone ni matricule : contactez le trésorier");
+    const r = await sb("rpc/cc_membre_photo", { method:"POST", body: JSON.stringify({ p_matricule: m.matricule || "", p_tel: tel, p_tel4: tel4, p_url: url }) });
     if(!r.ok) throw new Error(r.motif === "telephone" ? "téléphone non confirmé" : "membre inconnu");
     await chargerDonnees(); rendu(); toast("Photo enregistrée ✅", "ok");
   }catch(e){ toast("Photo non enregistrée : "+e.message+(/not found|Bucket|exécut/i.test(e.message) ? " — le trésorier doit exécuter supabase/reseau.sql" : ""), "err"); }
@@ -1825,7 +1830,7 @@ function vueTableauBord(){
   const relances = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").sort((x,y) => y.reste - x.reste);
   const enAttente = etat.membres.filter(m => !m.actif).length;
   const texteRelance = l => encodeURIComponent("Bonjour "+l.membre.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
-    +" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre matricule : "+idMembre(l.membre)+" · Votre situation : "+lienMembreAbsolu(l.membre)+" — Merci !");
+    +" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre situation : "+lienMembreAbsolu(l.membre)+" — Merci !");
   return '<main>'
     + barrePeriode("", per, "Tableau de bord")
     + '<div class="grille g4">'
@@ -1882,10 +1887,10 @@ function vueMembres(){
     + '<div class="champ"><span>Date d’adhésion (AAAA-MM-JJ)</span><input id="mDate" placeholder="'+aujourdhui()+'"></div>'
     + '</div></div>'
     + '<button class="btn" onclick="ajouterMembre()">+ Ajouter le membre</button>'
-    + '<span class="mut" style="margin-left:10px">Prochain matricule automatique : <span class="matricule">'+ech(prochainMatricule())+'</span></span></div>'
+    + (etat.settings.matricule_auto === "oui" && parseInt(etat.settings.matricule_depart||"0",10) > 0 ? '<span class="mut" style="margin-left:10px">Prochain matricule automatique : <span class="matricule">'+ech(prochainMatricule())+'</span></span>' : '<span class="mut" style="margin-left:10px">Matricule : saisi par le membre depuis sa carte (attribution automatique désactivée — voir Paramètres).</span>')+'</div>'
     + '<div class="carte"><h3>Importer une liste (CSV)</h3>'
     + '<p class="mut">Une ligne par membre : <code>matricule;nom;téléphone;ville;date d’adhésion</code> (séparateur ; ou , ou tabulation). '
-    + 'Laissez le matricule <strong>vide</strong> pour les membres qui n’ont pas encore de carte : il est attribué automatiquement à la suite. Les matricules et téléphones déjà présents sont ignorés.</p>'
+    + 'Laissez le matricule <strong>vide</strong> pour les membres qui n’ont pas encore de carte : ils le saisiront eux-mêmes à leur première visite (ou il sera attribué automatiquement si vous l’activez dans Paramètres). Les matricules et téléphones déjà présents sont ignorés.</p>'
     + '<textarea id="csvMembres" placeholder="CC-26-00026;DOREGO Mouhamed Nabil;0717579556;Abidjan;2026-06-11&#10;;KOUAME Jean;0500000000;Abidjan;2026-07-02"></textarea>'
     + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
     + '<div id="editeurMembre"></div>'
@@ -1898,7 +1903,7 @@ function vueMembres(){
     + etat.membres.map(m => '<tr data-rech="'+ech(accentMin((m.matricule||"")+" "+m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
       + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
       + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
-      + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", votre matricule "+(etat.settings.reseau||"ComptaConnect")+" est "+idMembre(m)+". Votre situation : "+lienMembreAbsolu(m))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
+      + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", voici votre lien personnel "+(etat.settings.reseau||"ComptaConnect")+" : "+lienMembreAbsolu(m)+(m.matricule ? " (matricule "+m.matricule+")" : " — vous pourrez y enregistrer le matricule de votre carte."))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
 }
 function prochainMatricule(){
@@ -2279,7 +2284,8 @@ function vueParametres(){
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("bienvenue","Message de bienvenue")
-    + champ("matricule_depart","Dernier n° de carte déjà imprimé (les nouveaux matricules continuent après)","number")
+    + '<div class="champ"><span>Attribution automatique des matricules</span><select id="s_matricule_auto"><option value="non"'+(s.matricule_auto!=="oui"?' selected':'')+'>Non — chaque membre saisit le n° de sa carte</option><option value="oui"'+(s.matricule_auto==="oui"?' selected':'')+'>Oui — la plateforme attribue le numéro suivant aux nouveaux</option></select></div>'
+    + champ("matricule_depart","Dernier n° de carte déjà imprimé (obligatoire pour l’attribution automatique)","number")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<h3>Paiement en ligne CinetPay</h3>'
@@ -2326,7 +2332,8 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto"];
+  if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
       const valeur = $("#s_"+cle).value.trim();

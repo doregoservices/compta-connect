@@ -314,3 +314,73 @@ end $$;
 drop trigger if exists trg_cc_prolonger_vitrine on cc_paiements;
 create trigger trg_cc_prolonger_vitrine after insert or update of statut, appel_id on cc_paiements
   for each row execute function cc_prolonger_vitrine();
+
+-- ------------------------------------------------------------
+-- 9) MATRICULE : saisi par le membre (carte) ; attribution automatique seulement si le trésorier l'active
+-- ------------------------------------------------------------
+insert into cc_settings (cle, valeur) values ('matricule_auto', 'non') on conflict (cle) do nothing;
+
+create or replace function cc_membres_matricule_auto() returns trigger
+language plpgsql as $$
+declare v_auto text; v_depart text;
+begin
+  if new.matricule is not null and trim(new.matricule) <> '' then
+    new.matricule := coalesce(cc_matricule_normaliser(new.matricule), upper(trim(new.matricule)));
+    return new;
+  end if;
+  new.matricule := null;
+  select valeur into v_auto from cc_settings where cle = 'matricule_auto';
+  select valeur into v_depart from cc_settings where cle = 'matricule_depart';
+  if v_auto = 'oui' and v_depart ~ '^\d+$' and v_depart::int > 0 then
+    new.matricule := cc_matricule_suivant();
+  end if;
+  return new;
+end $$;
+
+-- Les matricules provisoires attribués automatiquement lors de l'installation sont retirés :
+-- chaque membre saisira celui de sa carte.
+update cc_membres set matricule = null
+ where matricule is not null and coalesce((select valeur from cc_settings where cle='matricule_auto'),'non') <> 'oui'
+   and not exists (select 1 from cc_settings where cle = 'matricules_conserves' and valeur = 'oui');
+insert into cc_settings (cle, valeur) values ('matricules_conserves', 'oui') on conflict (cle) do nothing;
+
+-- Le membre déclare son matricule (une seule fois). Identifié par son téléphone.
+create or replace function cc_declarer_matricule(p_tel text, p_matricule text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_mat text;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  v_mat := cc_matricule_normaliser(p_matricule);
+  if v_mat is null then return json_build_object('ok', false, 'motif', 'format'); end if;
+  select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if not found then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if v_m.matricule is not null and v_m.matricule <> '' then return json_build_object('ok', false, 'motif', 'deja', 'matricule', v_m.matricule); end if;
+  if exists (select 1 from cc_membres where matricule = v_mat) then return json_build_object('ok', false, 'motif', 'pris'); end if;
+  update cc_membres set matricule = v_mat where id = v_m.id;
+  return json_build_object('ok', true, 'matricule', v_mat);
+end $$;
+revoke all on function cc_declarer_matricule(text,text) from public;
+grant execute on function cc_declarer_matricule(text,text) to anon, authenticated;
+
+-- Photo du membre : identifié par matricule OU téléphone (4 derniers chiffres confirmés)
+drop function if exists cc_membre_photo(text,text,text);
+create or replace function cc_membre_photo(p_matricule text, p_tel text, p_tel4 text, p_url text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m record; v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g');
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if cc_matricule_normaliser(p_matricule) is not null then
+    select * into v_m from cc_membres where matricule = cc_matricule_normaliser(p_matricule);
+  elsif length(v_tel) >= 8 then
+    select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  end if;
+  if v_m is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(regexp_replace(coalesce(v_m.telephone,''), '\D', '', 'g')) >= 4
+     and right(regexp_replace(v_m.telephone, '\D', '', 'g'), 4) <> regexp_replace(coalesce(p_tel4,''), '\D', '', 'g') then
+    return json_build_object('ok', false, 'motif', 'telephone');
+  end if;
+  update cc_membres set photo_url = coalesce(p_url,'') where id = v_m.id;
+  return json_build_object('ok', true);
+end $$;
+revoke all on function cc_membre_photo(text,text,text,text) from public;
+grant execute on function cc_membre_photo(text,text,text,text) to anon, authenticated;
