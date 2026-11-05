@@ -1055,12 +1055,17 @@ function rapprocherPaiement(p, membres, moisDefaut){
 
 /* Historique d'un membre depuis son adhésion : un mois par ligne, cumul dû / versé / reste. */
 function moisDebutMembre(m, paiements){
+  /* Règle du réseau : une seule date (l'adhésion) ; la cotisation est due à partir du mois SUIVANT le mois d'adhésion.
+     Un paiement enregistré pour un mois plus ancien (ex. relevé Chariow) fait démarrer l'historique à ce mois.
+     Le paramètre « debut_cotisations » (trésorier) fixe un plancher : aucun mois n'est dû avant. */
   let debut = null;
   const da = String(m.date_adhesion||"");
-  if(/^\d{4}-\d{2}/.test(da)) debut = da.slice(0,7);
+  if(/^\d{4}-\d{2}/.test(da)) debut = moisSuivant(da.slice(0,7));
   for(const p of paiements) if(String(p.membre_id) === String(m.id) && p.mois){
     const pm = normaliserMois(p.mois); if(!debut || pm < debut) debut = pm;
   }
+  const plancher = String((typeof etat !== "undefined" && etat.settings && etat.settings.debut_cotisations) || "");
+  if(/^\d{4}-\d{2}$/.test(plancher) && (!debut || debut < plancher)) debut = plancher;
   return debut || moisCourant();
 }
 function historiqueMembre(m, paiements, jusqua){
@@ -1459,6 +1464,7 @@ function vuePayer(params){
     + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
     + (m.matricule || enAttente ? "" : bandeauMatricule(m))
+    + (enAttente ? "" : carteFiche(m))
     + (enAttente ? "" : sectionAnnonces(2))
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée sous le matricule <strong>'+ech(m.matricule||code)+'</strong> (gardez-le précieusement : il figurera sur votre carte de membre). '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
@@ -1477,6 +1483,33 @@ function vuePayer(params){
     + '<div class="etape"><div class="n">3</div><div>Vous revenez ici automatiquement : votre ligne passe à <strong>« à jour »</strong> immédiatement'+(enAttente ? ', et vos accès WhatsApp et Skool s’affichent' : '')+'.</div></div>'
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
     + '</main>';
+}
+/* Informations non sensibles que le membre complète/corrige lui-même (le téléphone, le matricule, la cotisation restent au trésorier) */
+const CHAMPS_FICHE = [["nom","Nom et prénoms"],["specialite","Fonction / profession"],["employeur","Cabinet ou employeur"],["ville","Ville / commune"],["email","Adresse e-mail"]];
+function champsManquants(m){ return CHAMPS_FICHE.filter(([k]) => !String(m[k]||"").trim()); }
+function carteFiche(m){
+  const manquants = champsManquants(m);
+  const ouvert = manquants.length > 0;
+  return '<details class="carte"'+(ouvert ? ' open style="border:2px solid #f3c969;background:#fffbea"' : '')+'><summary style="cursor:pointer;font-weight:800">'
+    + (ouvert ? '📝 Complétez votre fiche — il manque : '+manquants.map(c => c[1].toLowerCase()).join(", ") : '📝 Mes informations (modifier)')+'</summary>'
+    + '<p class="mut" style="margin-top:8px">Ces informations servent à l’annuaire et aux documents du réseau. Vous pouvez les corriger à tout moment. '
+    + 'Pour changer de <strong>numéro de téléphone</strong>, contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+') : c’est votre clé d’accès.</p>'
+    + '<div class="grille g2">'+CHAMPS_FICHE.map(([k,l]) => '<div class="champ"><span>'+l+(String(m[k]||"").trim() ? '' : ' <span style="color:#b45309">(manquant)</span>')+'</span><input id="f_'+k+'" value="'+ech(m[k]||"")+'"'+(k==="email" ? ' type="email" inputmode="email"' : '')+'></div>').join("")+'</div>'
+    + '<div class="champ"><span>Téléphone (clé d’accès — modifiable par le trésorier)</span><input value="'+ech(m.telephone||"")+'" disabled></div>'
+    + '<button class="btn" onclick="enregistrerFiche(\''+ech(idMembre(m))+'\')">Enregistrer mes informations</button>'
+    + (m.fiche_maj_le ? '<p class="mut">Dernière mise à jour : '+ech(String(m.fiche_maj_le).slice(0,10))+'</p>' : '')+'</details>';
+}
+async function enregistrerFiche(identifiant){
+  const m = trouverMembre(identifiant); if(!m) return;
+  const v = k => ($("#f_"+k).value||"").trim();
+  if(v("nom").length < 3){ toast("Indiquez votre nom complet.", "err"); return; }
+  if(v("email") && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("email"))){ toast("Adresse e-mail invalide.", "err"); return; }
+  try{
+    const r = await sb("rpc/cc_maj_fiche", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_matricule: m.matricule||"",
+      p_nom: v("nom"), p_email: v("email"), p_ville: v("ville"), p_specialite: v("specialite"), p_employeur: v("employeur") }) });
+    if(!r.ok){ toast(r.motif === "nom" ? "Nom trop court." : "Fiche introuvable : contactez le trésorier.", "err"); return; }
+    await chargerDonnees(); toast("Informations enregistrées ✅", "ok"); rendu();
+  }catch(e){ toast("Enregistrement impossible : "+e.message, "err"); }
 }
 function bandeauMatricule(m){
   const appelCarte = etat.appels.find(a => a.ouvert && a.type === "carte");
@@ -1938,8 +1971,8 @@ function filtrerMembres(){
   document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; });
 }
 function exportMembresCSV(){
-  telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Ville","Spécialité","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré"],
-    etat.membres.map(m => [m.matricule||"", m.code, m.nom, m.telephone, m.ville, m.specialite, m.titre||"", m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non"]));
+  telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Ville","Fonction","Employeur","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré","Fiche complète","Fiche mise à jour le"],
+    etat.membres.map(m => [m.matricule||"", m.code, m.nom, m.telephone, m.ville, m.specialite, m.employeur||"", m.titre||"", m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non", champsManquants(m).length ? "non" : "oui", String(m.fiche_maj_le||"").slice(0,10)]));
 }
 function editerMembre(id){
   const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
@@ -1950,7 +1983,7 @@ function editerMembre(id){
     + '<div class="grille g2">'
     + champ("matricule","N° matricule (carte)",m.matricule) + champ("titre","Titre sur la carte (ex. Comptable senior)",m.titre)
     + champ("nom","Nom complet",m.nom) + champ("telephone","Téléphone",m.telephone,"tel")
-    + champ("ville","Ville",m.ville) + champ("specialite","Spécialité",m.specialite)
+    + champ("ville","Ville",m.ville) + champ("specialite","Fonction / profession",m.specialite) + champ("employeur","Cabinet ou employeur",m.employeur||"")
     + champ("email","Email",m.email,"email") + champ("cotisation","Cotisation mensuelle (FCFA)",m.cotisation,"number")
     + champ("date_adhesion","Date d’adhésion (AAAA-MM-JJ)",m.date_adhesion)
     + '<div class="champ"><span>Statut</span><select id="e_actif"><option value="true"'+(m.actif?" selected":"")+'>Actif</option><option value="false"'+(!m.actif?" selected":"")+'>Désactivé (ne doit plus rien, conservé dans l’historique)</option></select></div>'
@@ -1962,7 +1995,7 @@ function editerMembre(id){
 }
 async function enregistrerMembre(id){
   const v = k => $("#e_"+k).value.trim();
-  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), email: v("email"), titre: v("titre"),
+  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), employeur: v("employeur"), email: v("email"), titre: v("titre"),
     cotisation: parseInt(v("cotisation").replace(/\D/g,""),10) || 0, date_adhesion: v("date_adhesion"),
     actif: $("#e_actif").value === "true", exonere: $("#e_exonere").value === "true" };
   if(!corps.nom){ toast("Le nom est obligatoire.", "err"); return; }
@@ -2284,6 +2317,7 @@ function vueParametres(){
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("bienvenue","Message de bienvenue")
+    + '<div class="champ"><span>Début de comptage des cotisations (optionnel)</span><input type="month" id="s_debut_cotisations" value="'+ech(s.debut_cotisations||"")+'"><small class="mut">Règle : chaque membre doit sa cotisation à partir du mois suivant son adhésion. Si vous indiquez un mois ici, aucun mois antérieur n’est réclamé (utile pour les anciens membres).</small></div>'
     + '<div class="champ"><span>Attribution automatique des matricules</span><select id="s_matricule_auto"><option value="non"'+(s.matricule_auto!=="oui"?' selected':'')+'>Non — chaque membre saisit le n° de sa carte</option><option value="oui"'+(s.matricule_auto==="oui"?' selected':'')+'>Oui — la plateforme attribue le numéro suivant aux nouveaux</option></select></div>'
     + champ("matricule_depart","Dernier n° de carte déjà imprimé (obligatoire pour l’attribution automatique)","number")
     + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
@@ -2332,7 +2366,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
