@@ -1915,7 +1915,9 @@ function vueTableauBord(){
     + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).reduce((s,p)=>s+parseInt(p.montant,10),0))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
+    + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
     + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
+    + '<div id="relanceSerie"></div>'
     + (relances.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
       + relances.map(l => '<tr><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone||"")+'</td><td>'+l.nb_impayes+' / '+l.nb_mois+'</td>'
         + '<td><strong>'+fcfa(l.reste)+' F</strong></td><td>'+(l.membre.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(l.membre.telephone)+'?text='+texteRelance(l)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
@@ -1927,6 +1929,54 @@ function exportRelances(){
   const l = b.lignes.filter(x => x.statut === "IMPAYE" || x.statut === "PARTIEL");
   telechargerCSV("redevables_"+per.debut+"_"+per.fin+".csv", ["Code","Membre","Téléphone","Mois dus","Mois impayés","Dû","Versé","Reste"],
     l.map(x => [x.membre.code, x.membre.nom, x.membre.telephone, x.nb_mois, x.nb_impayes, x.du, x.verse, x.reste]));
+}
+/* ---------- Relance WhatsApp en série ----------
+   WhatsApp n'autorise aucun envoi automatique à une liste sans l'API Business payante : chaque message doit être
+   confirmé par un humain. Le mode « série » enchaîne les membres un par un (un clic = un WhatsApp ouvert, pré-rempli,
+   déjà adressé au bon numéro) et mémorise ceux déjà relancés sur l'appareil, pour reprendre plus tard sans doublon. */
+let _serie = null;
+function relanceSerie(action){
+  const per = periodeDepuisParams(etat.params);
+  const cle = "cc_relances_" + per.debut + "_" + per.fin;
+  const faits = new Set(JSON.parse(localStorage.getItem(cle) || "[]"));
+  if(action === "demarrer"){
+    const b = bilanPeriode(per);
+    _serie = { cle, liste: b.lignes.filter(l => (l.statut === "IMPAYE" || l.statut === "PARTIEL") && l.membre.telephone).sort((x,y) => y.reste - x.reste), i: 0 };
+    while(_serie.i < _serie.liste.length && faits.has(String(_serie.liste[_serie.i].membre.id))) _serie.i++;
+  }
+  if(!_serie) return;
+  if(action === "reinit"){ if(!confirm("Oublier les relances déjà faites sur cette période et recommencer depuis le début ?")) return; localStorage.removeItem(cle); faits.clear(); _serie.i = 0; }
+  if(action === "envoyer" || action === "passer"){
+    const l = _serie.liste[_serie.i];
+    if(l){
+      if(action === "envoyer"){
+        const texte = encodeURIComponent("Bonjour "+l.membre.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")+" vous rappelle un reste de cotisation de "+fcfa(l.reste)+" FCFA ("+l.nb_impayes+" mois). Votre situation et le paiement en ligne : "+lienMembreAbsolu(l.membre)+" — Merci !");
+        window.open("https://wa.me/"+telephoneNormalise(l.membre.telephone)+"?text="+texte, "_blank", "noopener");
+      }
+      faits.add(String(l.membre.id)); localStorage.setItem(cle, JSON.stringify([...faits]));
+      _serie.i++;
+    }
+  }
+  if(action === "arreter"){ _serie = null; $("#relanceSerie").innerHTML = ""; return; }
+  const zone = $("#relanceSerie"); if(!zone) return;
+  const total = _serie.liste.length, restants = _serie.liste.filter(l => !faits.has(String(l.membre.id))).length;
+  const l = _serie.liste[_serie.i];
+  zone.innerHTML = '<div class="carte" style="border:2px solid #25D366;background:#f0fdf4;margin-top:10px">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Relance en série — '+(total - restants)+' / '+total+' faites</h3><span style="flex:1"></span>'
+    + '<button class="btn sm sec" onclick="relanceSerie(\'reinit\')">Recommencer</button><button class="btn sm sec" onclick="relanceSerie(\'arreter\')">Fermer</button></div>'
+    + '<div style="height:8px;background:#d1fae5;border-radius:4px;margin:8px 0"><div style="height:8px;width:'+Math.round(100*(total-restants)/Math.max(1,total))+'%;background:#25D366;border-radius:4px"></div></div>'
+    + (l ? '<p style="font-size:17px;margin:6px 0"><strong>'+ech(l.membre.nom)+'</strong> · '+ech(l.membre.telephone)+' · reste <strong>'+fcfa(l.reste)+' F</strong> ('+l.nb_impayes+' mois)</p>'
+          + '<p class="mut">Cliquez : WhatsApp s’ouvre avec le message prêt pour ce numéro. Appuyez sur <strong>Envoyer</strong> dans WhatsApp, revenez ici, le suivant est déjà affiché.</p>'
+          + '<button class="btn" style="background:#25D366" onclick="relanceSerie(\'envoyer\')">📲 Ouvrir WhatsApp et passer au suivant</button> <button class="btn sec" onclick="relanceSerie(\'passer\')">Passer celui-ci</button>'
+        : '<p>✅ Tous les membres à relancer de cette période ont été traités sur cet appareil.</p>')
+    + '</div>';
+}
+function copierMessageGroupe(){
+  const per = periodeDepuisParams(etat.params); const b = bilanPeriode(per);
+  const n = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").length;
+  const site = String(etat.settings.site_public || location.href.split("#")[0]);
+  const texte = "📢 *"+(etat.settings.reseau||"ComptaConnect")+" — rappel des cotisations*\n\nChers membres, "+n+" d’entre nous ont encore des mois de cotisation (5 000 F/mois) à régulariser pour la période "+libellePeriode(per)+".\n\nPour voir votre situation et payer en ligne (Wave, Orange Money, MTN, Moov) : "+site+"\n👉 tapez simplement votre numéro de téléphone.\n\nMerci à tous ceux qui sont déjà à jour 🙏\n— Le trésorier";
+  (navigator.clipboard ? navigator.clipboard.writeText(texte) : Promise.reject()).then(() => toast("Message copié : collez-le dans le groupe WhatsApp.", "ok"), () => prompt("Copiez ce message :", texte));
 }
 function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="mut">'+s+'</div></div>'; }
 
