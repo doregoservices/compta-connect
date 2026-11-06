@@ -4,7 +4,7 @@ import os, json, re, urllib.request, uuid, sys
 T=os.environ["SUPABASE_ACCESS_TOKEN"]; R=os.environ.get("SUPABASE_REF","ewcxndlelagtrlshadlj")
 base=os.path.join(os.path.dirname(__file__),"..","supabase","functions")
 shared=open(os.path.join(base,"_shared","cc.ts")).read().replace("export ","")
-for slug in ["cinetpay-init","cinetpay-notify"]:
+for slug in ["cinetpay-init","cinetpay-notify","acces"]:
     src=open(os.path.join(base,slug,"index.ts")).read()
     src=re.sub(r'import \{[^}]*\} from "\.\./_shared/cc\.ts";\n', shared+"\n", src)
     bnd="----cc"+uuid.uuid4().hex

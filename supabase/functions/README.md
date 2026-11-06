@@ -39,3 +39,9 @@ transfert manuel avec référence continue de fonctionner.
 CinetPay fournit des clés de test (sandbox). Les coller dans *Paramètres*, payer 100 F
 sur la page d'un membre test, vérifier que la ligne apparaît dans *Paiements* avec le canal
 « CinetPay », puis remplacer par les clés de production.
+
+## Fonction `acces` (déployée le 06/11/2026, v1, verify_jwt=false)
+Gestion des comptes de l'espace trésorier depuis *Paramètres → Accès* : lister, créer (e-mail + mot de passe + rôle),
+changer un mot de passe, changer un rôle, supprimer. La fonction vérifie elle-même le jeton de l'appelant et exige le
+rôle `tresorier` (table `cc_roles`). Garde-fous : impossible de supprimer son propre compte ou de se retirer le rôle trésorier.
+Redéploiement : `SUPABASE_ACCESS_TOKEN=sbp_… python3 scripts/deployer_fonctions.py`
