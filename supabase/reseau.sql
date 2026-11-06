@@ -412,3 +412,14 @@ begin
 end $$;
 revoke all on function cc_maj_fiche(text,text,text,text,text,text,text) from public;
 grant execute on function cc_maj_fiche(text,text,text,text,text,text,text) to anon, authenticated;
+
+-- ------------------------------------------------------------
+-- 11) CAISSE DES FRAIS D'INSCRIPTION — tenue à part des cotisations
+--     caisse = 'cotisation' (défaut) | 'inscription'. Les frais d'inscription n'entrent jamais
+--     dans le calcul des cotisations ni dans le solde de caisse général.
+-- ------------------------------------------------------------
+alter table cc_paiements add column if not exists caisse text not null default 'cotisation';
+alter table cc_paiements add column if not exists reference_externe text default '';
+create index if not exists cc_paiements_caisse_idx on cc_paiements (caisse);
+create unique index if not exists cc_paiements_reference_externe_idx on cc_paiements (reference_externe) where reference_externe <> '';
+alter table cc_transactions add column if not exists caisse text not null default 'cotisation';

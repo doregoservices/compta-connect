@@ -51,11 +51,12 @@ export async function verifierTransaction(transaction_id: string) {
 }
 
 /** Enregistre le paiement (idempotent) : une transaction CinetPay acceptée = une ligne cc_paiements. */
-export async function enregistrerPaiement(t: { id: number; transaction_id: string; membre_id: number; code: string; mois: string; appel_id?: number | null; montant: number; telephone: string; nom: string }, verif: { montant: number; methode: string; operateur: string }) {
-  const deja = await db(`cc_paiements?select=id&libelle=eq.${encodeURIComponent("CinetPay " + t.transaction_id)}`) as unknown[];
+export async function enregistrerPaiement(t: { id: number; transaction_id: string; membre_id: number; code: string; mois: string; appel_id?: number | null; caisse?: string | null; montant: number; telephone: string; nom: string }, verif: { montant: number; methode: string; operateur: string }) {
+  const deja = await db(`cc_paiements?select=id&reference_externe=eq.${encodeURIComponent(t.transaction_id)}`) as unknown[];
   if (deja.length) return { deja: true };
   const montant = verif.montant || t.montant;
-  let detail = t.mois ? reference(t.mois, t.code) : "";
+  const inscription = t.caisse === "inscription" || (!t.mois && !t.appel_id);   // droit d'adhésion : caisse séparée, aucun mois de cotisation
+  let detail = inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
   if (t.appel_id) {
     const [a] = await db(`cc_appels?select=titre&id=eq.${t.appel_id}`) as { titre: string }[];
     detail = "APPEL " + (a?.titre || t.appel_id);
@@ -63,7 +64,8 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   await db("cc_paiements", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
     date: new Date().toISOString().slice(0, 10), montant, canal: "CinetPay" + (verif.methode ? " · " + verif.methode : ""),
     expediteur: t.nom, telephone: t.telephone, libelle: "CinetPay " + t.transaction_id + " · " + detail,
-    mois: t.appel_id ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id, statut: "RAPPROCHE", methode: "cinetpay",
+    mois: t.appel_id || inscription ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id, statut: "RAPPROCHE", methode: "cinetpay",
+    caisse: inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id,
   }) });
   await db(`cc_transactions?id=eq.${t.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ statut: "ACCEPTEE", maj_le: new Date().toISOString(), montant_recu: montant, operateur: verif.operateur }) });

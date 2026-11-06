@@ -27,7 +27,7 @@ Deno.serve(async (req) => {
       const montant = m.actif ? cot : Number(cfg.adhesion || cot);   // nouveau membre : droit d'adhésion
       if (montant % 5 !== 0 || montant < 100) return json({ erreur: "Montant invalide" }, 400);
       // déjà payé pour ce mois ?
-      const payes = await db(`cc_paiements?select=montant&membre_id=eq.${m.id}&mois=eq.${moisN}`) as { montant: number }[];
+      const payes = await db(`cc_paiements?select=montant&membre_id=eq.${m.id}&mois=eq.${moisN}&caisse=eq.cotisation`) as { montant: number }[];
       const verse = payes.reduce((s, p) => s + Number(p.montant), 0);
       const reste = Math.max(0, cot - verse);
       aPayer = m.actif ? (reste > 0 ? reste : 0) : montant;
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
     if (apikey === "SIMULATION") {
       // Mode démonstration : aucune transaction réelle, page de paiement simulée dans l'application
       await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-        transaction_id, membre_id: m.id, code: codeN, mois: appelId ? "" : moisN, appel_id: appelId, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: !appelId && !m.actif ? "inscription" : "cotisation", montant: aPayer, telephone: m.telephone || "", nom: m.nom,
         statut: "EN_ATTENTE", payment_token: "SIMULATION" }) });
       return json({ url: sitePublic + "#/simulation?tx=" + transaction_id + "&retour=" + encodeURIComponent(retourHash) + "&montant=" + aPayer + "&libelle=" + encodeURIComponent(libelle), transaction_id, montant: aPayer, simulation: true });
     }
@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
       apikey, site_id, transaction_id, amount: aPayer, currency: "XOF",
       description: `${cfg.reseau || "ComptaConnect"} — ${libelle} — ${appelId ? matricule : reference(moisN, codeN)}`,
       notify_url, return_url, channels: "MOBILE_MONEY", lang: "fr",
-      metadata: JSON.stringify({ code: codeN, mois: appelId ? "" : moisN, appel: appelId }),
+      metadata: JSON.stringify({ code: codeN, mois: appelId || !m.actif ? "" : moisN, appel: appelId, caisse: !appelId && !m.actif ? "inscription" : "cotisation" }),
       customer_name: nomParts[0], customer_surname: nomParts.slice(1).join(" ") || nomParts[0],
       customer_phone_number: String(m.telephone || ""), customer_email: String(m.email || "") || undefined,
       customer_address: "Abidjan", customer_city: String(m.ville || "Abidjan"), customer_country: "CI", customer_state: "CI", customer_zip_code: "00225",
@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
     if (j?.code !== "201" || !j?.data?.payment_url) return json({ erreur: "CinetPay a refusé la création : " + (j?.message || j?.description || j?.code) }, 502);
 
     await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-      transaction_id, membre_id: m.id, code: codeN, mois: appelId ? "" : moisN, appel_id: appelId, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+      transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: !appelId && !m.actif ? "inscription" : "cotisation", montant: aPayer, telephone: m.telephone || "", nom: m.nom,
       statut: "EN_ATTENTE", payment_token: j.data.payment_token || "" }) });
     return json({ url: j.data.payment_url, transaction_id, montant: aPayer });
   } catch (e) {
