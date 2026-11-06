@@ -427,7 +427,7 @@ alter table cc_transactions add column if not exists caisse text not null defaul
 -- 12) Bureau exécutif (source : ComptaConnect_Bureau_Executif.docx) — inséré le 06/11/2026 ; postes vacants affichés « Poste à pourvoir »
 insert into cc_bureau (nom, poste, telephone, ordre, actif)
 select * from (values
- ('Basile EKLOU', 'Président Fondateur', '', 1, true),
+ ('EKLOU Basil', 'Président Fondateur', '0102389926', 1, true),
  ('Jean Yves ALLASSANON', 'Secrétaire Général', '0556124488', 2, true),
  ('Kouassi Parfait DABILA', 'Responsable Formation & Événements', '0757912515', 3, true),
  ('Poste à pourvoir', 'Responsable Communication & Contenu', '', 4, true),
