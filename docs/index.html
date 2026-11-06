@@ -1511,7 +1511,7 @@ function vuePayer(params){
     + '</main>';
 }
 /* Informations non sensibles que le membre complète/corrige lui-même (le téléphone, le matricule, la cotisation restent au trésorier) */
-const CHAMPS_FICHE = [["nom","Nom et prénoms"],["specialite","Fonction / profession"],["employeur","Cabinet ou employeur"],["ville","Ville / commune"],["email","Adresse e-mail"]];
+const CHAMPS_FICHE = [["nom","Nom et prénoms"],["specialite","Fonction / profession"],["employeur","Cabinet ou employeur"],["pays","Pays"],["ville","Ville / commune"],["email","Adresse e-mail"]];
 function champsManquants(m){ return CHAMPS_FICHE.filter(([k]) => !String(m[k]||"").trim()); }
 function carteFiche(m){
   const manquants = champsManquants(m);
@@ -1532,7 +1532,7 @@ async function enregistrerFiche(identifiant){
   if(v("email") && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("email"))){ toast("Adresse e-mail invalide.", "err"); return; }
   try{
     const r = await sb("rpc/cc_maj_fiche", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_matricule: m.matricule||"",
-      p_nom: v("nom"), p_email: v("email"), p_ville: v("ville"), p_specialite: v("specialite"), p_employeur: v("employeur") }) });
+      p_nom: v("nom"), p_email: v("email"), p_ville: v("ville"), p_pays: v("pays"), p_specialite: v("specialite"), p_employeur: v("employeur") }) });
     if(!r.ok){ toast(r.motif === "nom" ? "Nom trop court." : "Fiche introuvable : contactez le trésorier.", "err"); return; }
     await chargerDonnees(); toast("Informations enregistrées ✅", "ok"); rendu();
   }catch(e){ toast("Enregistrement impossible : "+e.message, "err"); }
@@ -1986,7 +1986,7 @@ function sommeFrais(liste){ return liste.reduce((s,p) => s + (parseInt(p.frais,1
 /* Barre de recherche générique : filtre les lignes <tr data-rech> d'un tableau */
 function barreRecherche(tableId, placeholder){ return '<input placeholder="'+(placeholder||"Rechercher nom, téléphone, matricule…")+'" style="width:auto;min-width:220px" oninput="filtrerTable(\''+tableId+'\', this.value)">'; }
 function filtrerTable(tableId, q){ q = accentMin(q||""); document.querySelectorAll("#"+tableId+" tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; }); }
-function rech(m, extra){ return ' data-rech="'+ech(accentMin([m.nom, m.telephone, m.matricule, m.code, m.email, m.ville, extra].filter(Boolean).join(" ")))+'"'; }
+function rech(m, extra){ return ' data-rech="'+ech(accentMin([m.nom, m.telephone, m.matricule, m.code, m.email, m.ville, m.pays, extra].filter(Boolean).join(" ")))+'"'; }
 function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="mut">'+s+'</div></div>'; }
 
 /* --------------------------- Membres --------------------------- */
@@ -2019,13 +2019,14 @@ function vueMembres(){
     + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
     + '<div id="editeurMembre"></div>'
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
-    + '<input id="rechMembre" placeholder="Rechercher nom, matricule, téléphone…" style="width:auto;min-width:220px" oninput="filtrerMembres()">'
+    + '<input id="rechMembre" placeholder="Rechercher nom, téléphone, matricule, pays, ville…" style="width:auto;min-width:240px" oninput="filtrerMembres()"><span id="nbMembresFiltre" class="mut"></span>'
     + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button>'
     + '<button class="btn sm sec" onclick="exportCartesCSV()" title="Fichier pour l’imprimeur des cartes de membre">🪪 Export cartes</button></div>'
+    + cartePays()
     + '<div class="survol"><table id="tabMembres">'
-    + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
-    + etat.membres.map(m => '<tr data-rech="'+ech(accentMin((m.matricule||"")+" "+m.code+" "+m.nom+" "+m.telephone+" "+(m.ville||"")))+'"><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
-      + '<td>'+ech(m.ville||"")+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
+    + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Pays / ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
+    + etat.membres.map(m => '<tr'+rech(m, (m.specialite||"")+" "+(m.employeur||""))+'><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
+      + '<td>'+(m.pays && m.pays !== "Côte d’Ivoire" ? '<strong>'+ech(m.pays)+'</strong>'+(m.ville ? '<div class="mut">'+ech(m.ville)+'</div>' : '') : ech(m.ville||""))+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
       + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
       + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", voici votre lien personnel "+(etat.settings.reseau||"ComptaConnect")+" : "+lienMembreAbsolu(m)+(m.matricule ? " (matricule "+m.matricule+")" : " — vous pourrez y enregistrer le matricule de votre carte."))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
@@ -2057,13 +2058,23 @@ async function ajouterMembre(){
     await chargerDonnees(); toast("Membre ajouté.", "ok"); rendu();
   }catch(e){ toast("Ajout refusé : "+e.message, "err"); }
 }
+function cartePays(){
+  const parPays = {}; for(const m of etat.membres){ if(!m.actif) continue; const p = m.pays || "Côte d’Ivoire"; parPays[p] = (parPays[p]||0) + 1; }
+  const tot = Object.values(parPays).reduce((s,n)=>s+n,0), ci = parPays["Côte d’Ivoire"]||0;
+  const autres = Object.keys(parPays).filter(p => p !== "Côte d’Ivoire").sort((a,b) => parPays[b]-parPays[a]);
+  return '<details class="carte" style="margin-bottom:10px"><summary style="cursor:pointer;font-weight:800">🌍 Par pays — Côte d’Ivoire '+ci+' · hors Côte d’Ivoire '+(tot-ci)+' ('+autres.length+' pays)</summary>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">'
+    + ['Côte d’Ivoire', ...autres].map(p => '<button class="btn sm sec" onclick="document.querySelector(\'#rechMembre\').value=\''+ech(p)+'\';filtrerMembres()">'+ech(p)+' <strong>'+(parPays[p]||0)+'</strong></button>').join("")
+    + '</div><p class="mut" style="margin:8px 0 0">Cliquez sur un pays pour filtrer la liste. Le pays se recherche aussi dans la barre ci-dessus.</p></details>';
+}
 function filtrerMembres(){
   const q = accentMin($("#rechMembre").value);
-  document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; });
+  let n = 0; document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { const ok = !q || tr.dataset.rech.includes(q); tr.style.display = ok ? "" : "none"; if(ok) n++; });
+  const z = $("#nbMembresFiltre"); if(z) z.textContent = q ? n+" résultat"+(n>1?"s":"") : "";
 }
 function exportMembresCSV(){
-  telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Ville","Fonction","Employeur","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré","Fiche complète","Fiche mise à jour le"],
-    etat.membres.map(m => [m.matricule||"", m.code, m.nom, m.telephone, m.ville, m.specialite, m.employeur||"", m.titre||"", m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non", champsManquants(m).length ? "non" : "oui", String(m.fiche_maj_le||"").slice(0,10)]));
+  telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Pays","Ville","Fonction","Employeur","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré","Fiche complète","Fiche mise à jour le"],
+    etat.membres.map(m => [m.matricule||"", m.code, m.nom, m.telephone, m.pays||"", m.ville, m.specialite, m.employeur||"", m.titre||"", m.email, m.cotisation, m.date_adhesion, m.actif?"oui":"non", m.exonere?"oui":"non", champsManquants(m).length ? "non" : "oui", String(m.fiche_maj_le||"").slice(0,10)]));
 }
 function editerMembre(id){
   const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
@@ -2074,7 +2085,7 @@ function editerMembre(id){
     + '<div class="grille g2">'
     + champ("matricule","N° matricule (carte)",m.matricule) + champ("titre","Titre sur la carte (ex. Comptable senior)",m.titre)
     + champ("nom","Nom complet",m.nom) + champ("telephone","Téléphone",m.telephone,"tel")
-    + champ("ville","Ville",m.ville) + champ("specialite","Fonction / profession",m.specialite) + champ("employeur","Cabinet ou employeur",m.employeur||"")
+    + champ("pays","Pays",m.pays||"Côte d’Ivoire") + champ("ville","Ville",m.ville) + champ("specialite","Fonction / profession",m.specialite) + champ("employeur","Cabinet ou employeur",m.employeur||"")
     + champ("email","Email",m.email,"email") + champ("cotisation","Cotisation mensuelle (FCFA)",m.cotisation,"number")
     + champ("date_adhesion","Date d’adhésion (AAAA-MM-JJ)",m.date_adhesion)
     + '<div class="champ"><span>Statut</span><select id="e_actif"><option value="true"'+(m.actif?" selected":"")+'>Actif</option><option value="false"'+(!m.actif?" selected":"")+'>Désactivé (ne doit plus rien, conservé dans l’historique)</option></select></div>'
@@ -2086,7 +2097,7 @@ function editerMembre(id){
 }
 async function enregistrerMembre(id){
   const v = k => $("#e_"+k).value.trim();
-  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), specialite: v("specialite"), employeur: v("employeur"), email: v("email"), titre: v("titre"),
+  const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), pays: v("pays"), specialite: v("specialite"), employeur: v("employeur"), email: v("email"), titre: v("titre"),
     cotisation: parseInt(v("cotisation").replace(/\D/g,""),10) || 0, date_adhesion: v("date_adhesion"),
     actif: $("#e_actif").value === "true", exonere: $("#e_exonere").value === "true" };
   if(!corps.nom){ toast("Le nom est obligatoire.", "err"); return; }
