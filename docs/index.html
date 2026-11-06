@@ -1159,6 +1159,9 @@ function toast(texte, type){
 
 async function sb(table, options, _retente){
   options = options || {};
+  if(etat.session && etat.session.role === "fondateur" && options.method && options.method !== "GET" && !/^rpc\/cc_(mon_role|bienvenue|paiement_en_ligne_dispo|appel_acces)/.test(table)){
+    throw new Error("compte en consultation — vous pouvez tout voir, mais seul le trésorier peut modifier");
+  }
   if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
   const entetes = Object.assign({ "apikey": etat.cfg.anon, "Content-Type":"application/json",
     "Authorization": "Bearer " + (etat.session ? etat.session.token : etat.cfg.anon) }, options.headers||{});
@@ -1197,7 +1200,8 @@ async function chargerDonnees(){
   ]);
   etat.membres = membres.map(m => Object.assign({ actif:true, exonere:false }, m));
   etat.depenses = [];
-  if(etat.session){ try{ etat.depenses = await sb("cc_depenses?select=*&order=date.desc,id.desc"); }catch(e){ etat.depenses = []; } }
+  if(etat.session){ if(!etat.session.role) await chargerRole(); try{ etat.depenses = await sb("cc_depenses?select=*&order=date.desc,id.desc"); }catch(e){ etat.depenses = []; } }
+  etat.roles = etat.session ? await (async () => { try{ return await sb("cc_roles?select=*&order=cree_le.asc"); }catch(e){ return []; } })() : [];
   /* Deux caisses distinctes : les frais d'inscription (caisse='inscription') ne se mélangent jamais aux cotisations */
   etat.inscriptions = paiements.filter(p => p.caisse === "inscription");
   etat.paiements = paiements.filter(p => p.caisse !== "inscription");
@@ -1271,6 +1275,13 @@ async function connexion(email, motdepasse){
   const j = await rep.json();
   etat.session = { token: j.access_token, refresh: j.refresh_token, email, expire: Date.now() + (j.expires_in||3600)*1000 };
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
+  await chargerRole();
+}
+async function chargerRole(){
+  if(!etat.session) return;
+  try{ const r = await sb("rpc/cc_mon_role", { method:"POST", body:"{}" }); etat.session.role = (typeof r === "string" ? r : "tresorier"); }
+  catch(e){ etat.session.role = etat.session.role || "tresorier"; }
+  localStorage.setItem("cc_session", JSON.stringify(etat.session));
 }
 async function rafraichir(){ try{ await chargerDonnees(); rendu(); toast("Situation actualisée.", "ok"); }catch(e){ toast(e.message, "err"); } }
 function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); etat.depenses = []; aller("#/"); rendu(); }
@@ -1320,6 +1331,7 @@ function entete(){
   const connecte = !!etat.session;
   let nav = "";
   if(connecte){
+    if(etat.session.role === "fondateur") nav += '<span class="badge b-partiel" style="align-self:center;margin-right:6px" title="Vous consultez tout l’espace trésorier ; seules les modifications sont réservées au trésorier">👁 Consultation</span>';
     for(const [cle, titre] of PAGES){
       const actif = etat.route === cle ? " on" : "";
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
@@ -2423,7 +2435,7 @@ function vueParametres(){
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
     + ' · <a href="#/installer">Base de données (administrateur)</a></p>'
-    + '</div></main>';
+    + '</div>' + carteAcces() + '</main>';
 }
 async function enregistrerClesCinetPay(){
   const api = $("#k_api").value.trim(), site = $("#k_site").value.trim();
@@ -2582,6 +2594,39 @@ function vueReseau(){
         + '<button class="btn sm sec" onclick="ajouterPhotosRencontre('+r.id+')">📷 Ajouter des photos</button> <button class="btn sm sec" onclick="editerRencontre('+r.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerRencontre('+r.id+')">✕</button></div>'
         + '<div class="galerie" style="margin-top:8px">'+(r.photos||[]).map((u,i) => '<div style="position:relative"><img src="'+ech(u)+'" alt=""><button class="btn sm dgr" style="position:absolute;top:4px;right:4px;padding:2px 7px" onclick="retirerPhotoRencontre('+r.id+','+i+')">✕</button></div>').join("")+'</div></div>').join("")
     + '</div></main>';
+}
+/* Accès à l'espace trésorier : qui peut modifier (trésorier) et qui consulte seulement (fondateur / bureau) */
+function carteAcces(){
+  const roles = etat.roles || [];
+  const lib = { tresorier:'<span class="badge b-paye">trésorier — lecture et écriture</span>', fondateur:'<span class="badge b-partiel">consultation — voit tout, ne modifie rien</span>' };
+  return '<div class="carte"><h3>Accès à l’espace trésorier</h3>'
+    + '<p class="mut">Chaque personne se connecte avec son e-mail et son mot de passe. Le <strong>trésorier</strong> peut tout modifier ; le <strong>Président fondateur</strong> (ou un membre du bureau) consulte toutes les pages sans rien modifier. '
+    + 'Le compte (e-mail + mot de passe) est créé par l’administrateur technique dans Supabase ; indiquez ici le rôle de chaque e-mail.</p>'
+    + (roles.length ? '<div class="survol"><table><tr><th>E-mail</th><th>Nom</th><th>Rôle</th><th></th></tr>'
+        + roles.map(r => '<tr><td>'+ech(r.email)+(etat.session && etat.session.email === r.email ? ' <span class="mut">(vous)</span>' : '')+'</td><td>'+ech(r.nom||"")+'</td><td>'+(lib[r.role]||ech(r.role))+'</td>'
+          + '<td><button class="btn sm dgr" onclick="retirerAcces(\''+ech(r.email)+'\')">Retirer</button></td></tr>').join("")+'</table></div>'
+      : '<div class="alerte al-info">Aucun rôle défini : le compte actuel est trésorier. Dès qu’un premier rôle est enregistré, <strong>votre e-mail doit y figurer comme trésorier</strong> (il est pré-rempli ci-dessous).</div>')
+    + '<div class="grille g3" style="margin-top:10px"><div class="champ"><span>E-mail du compte</span><input id="ac_email" type="email" value="'+(roles.length ? "" : ech((etat.session||{}).email||""))+'"></div>'
+    + '<div class="champ"><span>Nom</span><input id="ac_nom" placeholder="Basile EKLOU"></div>'
+    + '<div class="champ"><span>Rôle</span><select id="ac_role"><option value="fondateur">Consultation (fondateur / bureau)</option><option value="tresorier"'+(roles.length ? "" : " selected")+'>Trésorier (modifie tout)</option></select></div></div>'
+    + '<button class="btn" onclick="ajouterAcces()">Enregistrer le rôle</button></div>';
+}
+async function ajouterAcces(){
+  const email = ($("#ac_email").value||"").trim().toLowerCase(), role = $("#ac_role").value, nom = ($("#ac_nom").value||"").trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ toast("E-mail invalide.", "err"); return; }
+  const roles = etat.roles || [];
+  const moi = ((etat.session||{}).email||"").toLowerCase();
+  if(!roles.length && !(email === moi && role === "tresorier") && !confirm("Attention : le premier rôle enregistré n’est pas votre propre e-mail en trésorier. Vous perdriez vos droits de modification. Continuer ?")) return;
+  if(roles.some(r => r.email === moi && r.role === "tresorier") && email === moi && role !== "tresorier" && !confirm("Vous retirez vos propres droits de trésorier. Continuer ?")) return;
+  try{
+    await sb("cc_roles?on_conflict=email", { method:"POST", headers:{ "Prefer":"return=minimal,resolution=merge-duplicates" }, body: JSON.stringify({ email, role, nom }) });
+    await chargerRole(); await chargerDonnees(); toast("Rôle enregistré.", "ok"); rendu();
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function retirerAcces(email){
+  if(!confirm("Retirer le rôle de "+email+" ? La personne ne pourra plus rien modifier (si elle était trésorier) ou ne sera plus listée.")) return;
+  try{ await sb("cc_roles?email=eq."+encodeURIComponent(email), { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerRole(); await chargerDonnees(); toast("Rôle retiré.", "ok"); rendu(); }
+  catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function enregistrerSetting(cle, valeur){
   try{ await sb("cc_settings", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });

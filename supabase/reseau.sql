@@ -435,3 +435,50 @@ select * from (values
  ('Poste à pourvoir', 'Responsable Relations Membres & Partenariats', '', 6, true),
  ('Poste à pourvoir', 'Trésorier(e)', '', 7, true)) v(nom, poste, telephone, ordre, actif)
 where not exists (select 1 from cc_bureau);
+
+-- ------------------------------------------------------------
+-- 13) RÔLES D'ACCÈS À L'ESPACE TRÉSORIER
+--     tresorier  : lecture + écriture (défaut pour un compte non listé tant que la table est vide)
+--     fondateur  : consulte tout (toutes les pages du trésorier), ne modifie rien
+--     Les comptes eux-mêmes sont créés dans Supabase Auth (Authentication → Users) ; cette table dit ce que chacun peut faire.
+-- ------------------------------------------------------------
+create table if not exists cc_roles (
+  email text primary key,
+  role text not null default 'fondateur' check (role in ('tresorier','fondateur')),
+  nom text default '',
+  cree_le timestamptz default now()
+);
+alter table cc_roles enable row level security;
+
+create or replace function cc_mon_role() returns text
+language sql stable security definer set search_path = public as $$
+  select case
+    when auth.role() <> 'authenticated' then 'public'
+    when not exists (select 1 from cc_roles) then 'tresorier'                       -- compatibilité : aucun rôle défini → compte trésorier
+    else coalesce((select r.role from cc_roles r where lower(r.email) = lower(coalesce(auth.jwt()->>'email',''))), 'fondateur')
+  end;
+$$;
+grant execute on function cc_mon_role() to anon, authenticated;
+create or replace function cc_est_tresorier() returns boolean
+language sql stable security definer set search_path = public as $$ select cc_mon_role() = 'tresorier' $$;
+grant execute on function cc_est_tresorier() to anon, authenticated;
+
+drop policy if exists "lecture connectes cc_roles" on cc_roles;
+create policy "lecture connectes cc_roles" on cc_roles for select to authenticated using (true);
+drop policy if exists "ecriture tresorier cc_roles" on cc_roles;
+create policy "ecriture tresorier cc_roles" on cc_roles for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+grant select, insert, update, delete on cc_roles to authenticated;
+
+-- Toutes les écritures réservées au rôle trésorier ; la lecture reste ouverte aux comptes connectés (fondateur inclus)
+do $$ declare t text; begin
+  foreach t in array array['cc_membres','cc_paiements','cc_settings','cc_depenses','cc_appels','cc_bureau','cc_rencontres','cc_annonces','cc_vitrines'] loop
+    execute format('drop policy if exists "ecriture tresorier %1$s" on %1$I', t);
+    execute format('create policy "ecriture tresorier %1$s" on %1$I for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier())', t);
+    execute format('drop policy if exists "lecture connectes %1$s" on %1$I', t);
+    execute format('create policy "lecture connectes %1$s" on %1$I for select to authenticated using (true)', t);
+  end loop;
+end $$;
+drop policy if exists "tresorier cc_secrets" on cc_secrets;
+create policy "tresorier cc_secrets" on cc_secrets for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+drop policy if exists "cc_photos tresorier" on storage.objects;
+create policy "cc_photos tresorier" on storage.objects for all to authenticated using (bucket_id = 'cc_photos' and cc_est_tresorier()) with check (bucket_id = 'cc_photos' and cc_est_tresorier());
