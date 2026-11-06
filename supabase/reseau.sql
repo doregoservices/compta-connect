@@ -482,3 +482,10 @@ drop policy if exists "tresorier cc_secrets" on cc_secrets;
 create policy "tresorier cc_secrets" on cc_secrets for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
 drop policy if exists "cc_photos tresorier" on storage.objects;
 create policy "cc_photos tresorier" on storage.objects for all to authenticated using (bucket_id = 'cc_photos' and cc_est_tresorier()) with check (bucket_id = 'cc_photos' and cc_est_tresorier());
+
+-- ------------------------------------------------------------
+-- 14) FRAIS DE PLATEFORME (Chariow hier, CinetPay demain)
+--     montant = ce que le membre a payé (crédité à sa cotisation) ; frais = commission retenue ; net = montant − frais = ce qui entre en caisse.
+-- ------------------------------------------------------------
+alter table cc_paiements add column if not exists frais integer not null default 0;
+insert into cc_settings (cle, valeur) values ('cinetpay_commission', '3.5') on conflict (cle) do nothing;

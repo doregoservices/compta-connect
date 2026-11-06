@@ -1888,9 +1888,10 @@ function fdateFR(d){ d = String(d||""); return d.length >= 10 ? d.slice(8,10)+"/
 function vueTableauBord(){
   const per = periodeDepuisParams(etat.params);
   const b = bilanPeriode(per);
-  const encaisseDates = etat.paiements.filter(p => dansPeriode(p.date, per)).reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const encaissesPer = etat.paiements.filter(p => dansPeriode(p.date, per));
+  const encaisseDates = sommeNet(encaissesPer), fraisPer = sommeFrais(encaissesPer);
   const depenses = (etat.depenses||[]).filter(d => dansPeriode(d.date, per)).reduce((s,d)=>s+parseInt(d.montant,10),0);
-  const recettesTot = etat.paiements.reduce((s,p)=>s+parseInt(p.montant,10),0), depensesTot = (etat.depenses||[]).reduce((s,d)=>s+parseInt(d.montant,10),0);
+  const recettesTot = sommeNet(etat.paiements), depensesTot = (etat.depenses||[]).reduce((s,d)=>s+parseInt(d.montant,10),0);
   const relances = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").sort((x,y) => y.reste - x.reste);
   const enAttente = etat.membres.filter(m => !m.actif).length;
   const texteRelance = l => encodeURIComponent("Bonjour "+l.membre.nom.split(" ")[0]+", le réseau "+(etat.settings.reseau||"ComptaConnect")
@@ -1909,17 +1910,17 @@ function vueTableauBord(){
     + kpi("Manquant", fcfa(b.manquant)+" F", "")
     + '</div>'
     + '<div class="grille g3" style="margin-top:12px">'
-    + kpi("Recettes (dates de paiement)", fcfa(encaisseDates)+" F", "")
+    + kpi("Recettes nettes (dates de paiement)", fcfa(encaisseDates)+" F", fraisPer ? "après "+fcfa(fraisPer)+" F de frais de plateforme" : "")
     + kpi("Dépenses", fcfa(depenses)+" F", '<a href="#/depenses">détail</a>')
     + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse global</div><div class="v" style="color:'+(recettesTot-depensesTot>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettesTot-depensesTot)+' F</div><div class="mut">cotisations − dépenses, depuis le début · <a href="#/solde">voir le solde</a></div></div>'
-    + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).reduce((s,p)=>s+parseInt(p.montant,10),0))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
+    + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa(sommeNet((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per))))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · net de frais · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
-    + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
+    + barreRecherche("tabRelances") + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
     + '<div id="relanceSerie"></div>'
-    + (relances.length ? '<div class="survol"><table><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
-      + relances.map(l => '<tr><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone||"")+'</td><td>'+l.nb_impayes+' / '+l.nb_mois+'</td>'
+    + (relances.length ? '<div class="survol"><table id="tabRelances"><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
+      + relances.map(l => '<tr'+rech(l.membre)+'><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone||"")+'</td><td>'+l.nb_impayes+' / '+l.nb_mois+'</td>'
         + '<td><strong>'+fcfa(l.reste)+' F</strong></td><td>'+(l.membre.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(l.membre.telephone)+'?text='+texteRelance(l)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
       + '</table></div>' : '<p class="mut">Tout le monde est à jour sur cette période. 🎉</p>')
     + '</div></main>';
@@ -1978,6 +1979,14 @@ function copierMessageGroupe(){
   const texte = "📢 *"+(etat.settings.reseau||"ComptaConnect")+" — rappel des cotisations*\n\nChers membres, "+n+" d’entre nous ont encore des mois de cotisation (5 000 F/mois) à régulariser pour la période "+libellePeriode(per)+".\n\nPour voir votre situation et payer en ligne (Wave, Orange Money, MTN, Moov) : "+site+"\n👉 tapez simplement votre numéro de téléphone.\n\nMerci à tous ceux qui sont déjà à jour 🙏\n— Le trésorier";
   (navigator.clipboard ? navigator.clipboard.writeText(texte) : Promise.reject()).then(() => toast("Message copié : collez-le dans le groupe WhatsApp.", "ok"), () => prompt("Copiez ce message :", texte));
 }
+/* Net encaissé = montant payé par le membre − commission de la plateforme de paiement (Chariow hier, CinetPay demain) */
+function netDe(p){ return parseInt(p.montant,10) - (parseInt(p.frais,10) || 0); }
+function sommeNet(liste){ return liste.reduce((s,p) => s + netDe(p), 0); }
+function sommeFrais(liste){ return liste.reduce((s,p) => s + (parseInt(p.frais,10)||0), 0); }
+/* Barre de recherche générique : filtre les lignes <tr data-rech> d'un tableau */
+function barreRecherche(tableId, placeholder){ return '<input placeholder="'+(placeholder||"Rechercher nom, téléphone, matricule…")+'" style="width:auto;min-width:220px" oninput="filtrerTable(\''+tableId+'\', this.value)">'; }
+function filtrerTable(tableId, q){ q = accentMin(q||""); document.querySelectorAll("#"+tableId+" tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; }); }
+function rech(m, extra){ return ' data-rech="'+ech(accentMin([m.nom, m.telephone, m.matricule, m.code, m.email, m.ville, extra].filter(Boolean).join(" ")))+'"'; }
 function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="mut">'+s+'</div></div>'; }
 
 /* --------------------------- Membres --------------------------- */
@@ -2146,10 +2155,10 @@ function vuePointage(params){
     + '<div class="carte" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
     + '<h3 style="margin:0">Pointage — '+libelleMois(mois)+'</h3><span style="flex:1"></span>'
     + '<input type="month" value="'+mois+'" style="width:auto" onchange="aller(\'#/pointage?mois=\'+this.value)">'
-    + '<button class="btn sec sm" onclick="exporterPointage(\''+mois+'\')">⬇ CSV</button></div>'
-    + '<div class="carte"><div class="survol"><table>'
+    + barreRecherche("tabPointage") + '<button class="btn sec sm" onclick="exporterPointage(\''+mois+'\')">⬇ CSV</button></div>'
+    + '<div class="carte"><div class="survol"><table id="tabPointage">'
     + '<tr><th>Code</th><th>Membre</th><th>Référence</th><th>Dû</th><th>Versé</th><th>Reste</th><th>Statut</th></tr>'
-    + pt.lignes.map(l => '<tr><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td>'
+    + pt.lignes.map(l => '<tr'+rech(l.membre)+'><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td>'
       + '<td style="font-family:monospace">'+l.reference+'</td><td>'+fcfa(l.du)+'</td><td>'+fcfa(l.verse)+'</td>'
       + '<td>'+fcfa(l.reliquat)+'</td><td>'+badge(l.statut)+'</td></tr>').join("")
     + '<tr style="font-weight:800;background:var(--vert-eau)"><td colspan="3">TOTAUX — taux '+pt.totaux.taux+' %</td>'
@@ -2192,12 +2201,12 @@ function vuePaiements(params){
     + '<div class="champ"><span>Expéditeur</span><input id="pExp"></div>'
     + '<div class="champ"><span>Motif (référence)</span><input id="pLib" placeholder="CC'+moisCourt(mois)+'042"></div></div>'
     + '<button class="btn" onclick="ajouterPaiement()">Enregistrer</button></div>'
-    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Paiements ('+duMois.length+') — '+fcfa(duMois.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F</h3><span style="flex:1"></span><button class="btn sm sec" onclick="exportPaiementsCSV()">Télécharger CSV</button></div><div class="survol"><table>'
-    + '<tr><th>Date</th><th>Montant</th><th>Canal</th><th>Membre</th><th>Motif</th><th>Détection</th><th></th></tr>'
-    + duMois.slice(0,60).map(p => '<tr><td>'+dateFR(p.date)+'</td><td>'+fcfa(p.montant)+' F</td><td>'+ech(p.canal)+'</td>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Paiements ('+duMois.length+') — '+fcfa(duMois.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F payés · '+fcfa(sommeNet(duMois))+' F nets</h3><span style="flex:1"></span>' + barreRecherche("tabPaiements", "Rechercher membre, téléphone, référence…") + '<button class="btn sm sec" onclick="exportPaiementsCSV()">Télécharger CSV</button></div><div class="survol"><table id="tabPaiements">'
+    + '<tr><th>Date</th><th>Payé</th><th>Net reçu</th><th>Canal</th><th>Membre</th><th>Motif</th><th>Détection</th><th></th></tr>'
+    + duMois.slice(0,500).map(p => { const mb = etat.membres.find(x => String(x.id) === String(p.membre_id)) || { nom: p.expediteur, telephone: p.telephone }; return '<tr'+rech(mb, (p.libelle||"")+" "+(p.reference_externe||"")+" "+(p.telephone||""))+'><td>'+dateFR(p.date)+'</td><td>'+fcfa(p.montant)+' F</td><td>'+fcfa(netDe(p))+' F'+(p.frais ? '<div class="mut">− '+fcfa(p.frais)+' F frais</div>' : '')+'</td><td>'+ech(p.canal)+'</td>'
       + '<td>'+(p.membre_id ? ech(nomDe(p.membre_id)) : '<span class="badge b-impaye">à pointer</span>')+'</td>'
       + '<td>'+(p.appel_id ? '<span class="badge b-avance">'+ech((etat.appels.find(a => String(a.id)===String(p.appel_id))||{}).titre||"appel")+'</span> ' : '')+ech(p.libelle)+'</td><td class="mut">'+ech(p.methode)+'</td>'
-      + '<td><button class="btn sm dgr" onclick="supprimerPaiement('+p.id+')">✕</button></td></tr>').join("")
+      + '<td><button class="btn sm dgr" onclick="supprimerPaiement('+p.id+')">✕</button></td></tr>'; }).join("")
     + '</table></div></div></main>';
 }
 async function ajouterPaiement(){
@@ -2270,7 +2279,7 @@ function vueInscriptions(params){
   const totalTout = (etat.inscriptions||[]).reduce((s,p)=>s+parseInt(p.montant,10),0);
   const q = (params.q||"").toLowerCase();
   const filtre = q ? liste.filter(p => { const m = etat.membres.find(x => String(x.id) === String(p.membre_id)); return (p.expediteur+" "+p.telephone+" "+(m ? m.nom+" "+(m.matricule||"") : "")).toLowerCase().includes(q); }) : liste;
-  const parMois = {}; for(const p of liste){ const k = String(p.date).slice(0,7); parMois[k] = parMois[k] || { n:0, t:0 }; parMois[k].n++; parMois[k].t += parseInt(p.montant,10); }
+  const parMois = {}; for(const p of liste){ const k = String(p.date).slice(0,7); parMois[k] = parMois[k] || { n:0, t:0, net:0 }; parMois[k].n++; parMois[k].t += parseInt(p.montant,10); parMois[k].net += netDe(p); }
   const sansFrais = etat.membres.filter(m => m.actif && !inscriptionDe(m).length);
   const nomDe = p => { const m = etat.membres.find(x => String(x.id) === String(p.membre_id)); return m ? '<a href="#/membres?q='+encodeURIComponent(m.telephone||m.nom)+'">'+ech(m.nom)+'</a>'+(m.matricule ? ' <span class="mut">'+ech(m.matricule)+'</span>' : '') : '<span class="mut">'+ech(p.expediteur||"—")+'</span>'; };
   const fdate = d => d ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : "";
@@ -2278,10 +2287,10 @@ function vueInscriptions(params){
     + barrePeriode("inscriptions", per, "Caisse des frais d’inscription")
     + '<div class="alerte al-info">Cette caisse est <strong>tenue à part</strong> : les frais d’inscription (droit d’adhésion payé une fois) n’entrent ni dans les cotisations, ni dans le <a href="#/solde">solde de caisse</a>, ni dans les relances.</div>'
     + '<div class="grille g4">'
-    + kpi("Frais encaissés (période)", fcfa(total)+" F", liste.length+" paiement(s)")
+    + kpi("Frais d’inscription encaissés (période)", fcfa(sommeNet(liste))+" F", liste.length+" paiement(s) · "+fcfa(total)+" F payés − "+fcfa(sommeFrais(liste))+" F de frais de plateforme")
     + kpi("Nouveaux inscrits (période)", new Set(liste.map(p => p.membre_id)).size, "membres ayant payé leur inscription")
     + kpi("Tarif actuel", fcfa(parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10))+" F", '<a href="#/parametres">modifier</a>')
-    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Total caisse inscriptions</div><div class="v" style="color:var(--vert)">'+fcfa(totalTout)+' F</div><div class="mut">depuis le début · '+(etat.inscriptions||[]).length+' paiements</div></div>'
+    + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Total caisse inscriptions (net)</div><div class="v" style="color:var(--vert)">'+fcfa(sommeNet(etat.inscriptions||[]))+' F</div><div class="mut">depuis le début · '+(etat.inscriptions||[]).length+' paiements</div></div>'
     + '</div>'
     + '<div class="carte" style="margin-top:14px"><h3>Enregistrer des frais d’inscription reçus hors ligne</h3><p class="mut">Les paiements en ligne (CinetPay) arrivent ici automatiquement. N’utilisez ce formulaire que pour un paiement reçu en espèces ou par transfert direct.</p>'
     + '<div class="grille g3">'
@@ -2289,9 +2298,9 @@ function vueInscriptions(params){
     + '<div class="champ"><span>Date</span><input id="iDate" type="date" value="'+new Date().toISOString().slice(0,10)+'"></div>'
     + '<div class="champ"><span>Montant (FCFA)</span><input id="iMontant" type="number" inputmode="numeric" value="'+parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10)+'"></div>'
     + '</div><button class="btn" onclick="ajouterInscription()">Enregistrer</button></div>'
-    + '<div class="carte"><h3>Par mois</h3><div class="survol"><table><tr><th>Mois</th><th>Inscriptions</th><th>Montant</th></tr>'
-    + Object.keys(parMois).sort().reverse().map(k => '<tr><td>'+libelleMois(k)+'</td><td>'+parMois[k].n+'</td><td>'+fcfa(parMois[k].t)+' F</td></tr>').join("")
-    + '<tr><td><strong>Total période</strong></td><td><strong>'+liste.length+'</strong></td><td><strong>'+fcfa(total)+' F</strong></td></tr></table></div></div>'
+    + '<div class="carte"><h3>Par mois</h3><div class="survol"><table><tr><th>Mois</th><th>Inscriptions</th><th>Payé</th><th>Frais</th><th>Net en caisse</th></tr>'
+    + Object.keys(parMois).sort().reverse().map(k => '<tr><td>'+libelleMois(k)+'</td><td>'+parMois[k].n+'</td><td>'+fcfa(parMois[k].t)+' F</td><td class="mut">− '+fcfa(parMois[k].t - parMois[k].net)+' F</td><td><strong>'+fcfa(parMois[k].net)+' F</strong></td></tr>').join("")
+    + '<tr><td><strong>Total période</strong></td><td><strong>'+liste.length+'</strong></td><td><strong>'+fcfa(total)+' F</strong></td><td class="mut">− '+fcfa(sommeFrais(liste))+' F</td><td><strong>'+fcfa(sommeNet(liste))+' F</strong></td></tr></table></div></div>'
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Point des inscriptions ('+filtre.length+')</h3><span style="flex:1"></span>'
     + '<input id="iq" value="'+ech(params.q||"")+'" placeholder="Rechercher un nom, un téléphone…" style="width:auto" onchange="aller(\'#/inscriptions\'+lienPeriode(etat.params)+(this.value?\'&q=\'+encodeURIComponent(this.value):\'\'))">'
     + '<button class="btn sm sec" onclick="exportInscriptionsCSV()">Télécharger CSV (Excel)</button>'
@@ -2401,15 +2410,16 @@ async function supprimerDepense(id){
 function tableauSolde(per){
   const lignes = []; let cumul = 0;
   // solde reporté = tout ce qui précède la période
-  const avantR = etat.paiements.filter(p => String(p.date||"").slice(0,7) < per.debut).reduce((s,p)=>s+parseInt(p.montant,10),0);
+  const avantR = sommeNet(etat.paiements.filter(p => String(p.date||"").slice(0,7) < per.debut));
   const avantD = (etat.depenses||[]).filter(d => String(d.date||"").slice(0,7) < per.debut).reduce((s,d)=>s+parseInt(d.montant,10),0);
   cumul = avantR - avantD;
   const report = cumul;
   for(const mois of listeMois(per)){
-    const r = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois).reduce((s,p)=>s+parseInt(p.montant,10),0);
+    const lm = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois);
+    const r = sommeNet(lm), brut = lm.reduce((s,p)=>s+parseInt(p.montant,10),0);
     const d = (etat.depenses||[]).filter(x => String(x.date||"").slice(0,7) === mois).reduce((s,x)=>s+parseInt(x.montant,10),0);
     cumul += r - d;
-    lignes.push({ mois, recettes:r, depenses:d, net:r-d, cumul });
+    lignes.push({ mois, recettes:r, brut, frais: brut - r, depenses:d, net:r-d, cumul });
   }
   const recettes = lignes.reduce((s,l)=>s+l.recettes,0), depenses = lignes.reduce((s,l)=>s+l.depenses,0);
   return { lignes, report, recettes, depenses, net: recettes-depenses, final: cumul };
@@ -2422,25 +2432,25 @@ function vueSolde(){
     + barrePeriode("solde", per, "Solde de caisse")
     + '<div class="grille g4">'
     + kpi("Solde reporté", fcfa(t.report)+" F", "avant "+libelleMois(per.debut))
-    + kpi("Recettes de la période", fcfa(t.recettes)+" F", "cotisations encaissées (hors frais d’inscription)")
+    + kpi("Recettes nettes de la période", fcfa(t.recettes)+" F", "cotisations encaissées, après "+fcfa(t.lignes.reduce((s,l)=>s+l.frais,0))+" F de frais de plateforme (hors frais d’inscription)")
     + kpi("Dépenses de la période", fcfa(t.depenses)+" F", '<a href="#/depenses'+(per.mode==="tout"?"":per.mode==="mois"?"?mois="+per.debut:"?debut="+per.debut+"&fin="+per.fin)+'">détail</a>')
     + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde en caisse</div><div class="v" '+coul(t.final)+'>'+fcfa(t.final)+' F</div><div class="mut">au '+libelleMois(per.fin)+'</div></div>'
     + '</div>'
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Évolution mois par mois</h3><span style="flex:1"></span>'
     + '<button class="btn sm sec" onclick="exportSoldeCSV()">Télécharger CSV (Excel)</button>'
     + '<button class="btn sm" onclick="imprimerSolde()">Imprimer / PDF</button></div>'
-    + '<div class="survol" style="margin-top:8px"><table><tr><th>Mois</th><th>Recettes</th><th>Dépenses</th><th>Résultat du mois</th><th>Solde cumulé</th></tr>'
+    + '<div class="survol" style="margin-top:8px"><table><tr><th>Mois</th><th>Recettes nettes</th><th>Dépenses</th><th>Résultat du mois</th><th>Solde cumulé</th></tr>'
     + '<tr><td class="mut">Report</td><td></td><td></td><td></td><td>'+fcfa(t.report)+' F</td></tr>'
-    + t.lignes.map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td>'+fcfa(l.recettes)+' F</td><td>'+fcfa(l.depenses)+' F</td><td '+coul(l.net)+'>'+(l.net<0?'− ':'')+fcfa(Math.abs(l.net))+' F</td><td><strong>'+fcfa(l.cumul)+' F</strong></td></tr>').join("")
+    + t.lignes.map(l => '<tr><td>'+libelleMois(l.mois)+'</td><td>'+fcfa(l.recettes)+' F'+(l.frais ? '<div class="mut">'+fcfa(l.brut)+' payés − '+fcfa(l.frais)+' frais</div>' : '')+'</td><td>'+fcfa(l.depenses)+' F</td><td '+coul(l.net)+'>'+(l.net<0?'− ':'')+fcfa(Math.abs(l.net))+' F</td><td><strong>'+fcfa(l.cumul)+' F</strong></td></tr>').join("")
     + '<tr><td><strong>Total période</strong></td><td><strong>'+fcfa(t.recettes)+' F</strong></td><td><strong>'+fcfa(t.depenses)+' F</strong></td><td '+coul(t.net)+'><strong>'+(t.net<0?'− ':'')+fcfa(Math.abs(t.net))+' F</strong></td><td><strong>'+fcfa(t.final)+' F</strong></td></tr>'
     + '</table></div>'
-    + '<p class="mut" style="margin-top:8px">Hors frais d’inscription (<a href="#/inscriptions">caisse séparée</a>). Recettes = paiements à leur date d’encaissement. Les cotisations dues mais non payées sont dans le <a href="#/">tableau de bord</a> (à relancer).</p>'
+    + '<p class="mut" style="margin-top:8px">Recettes = montants <strong>nets</strong> réellement reçus (montant payé − commission Chariow / CinetPay), à leur date d’encaissement. Hors frais d’inscription (<a href="#/inscriptions">caisse séparée</a>). Les cotisations dues mais non payées sont dans le <a href="#/">tableau de bord</a> (à relancer).</p>'
     + '</div></main>';
 }
 function exportSoldeCSV(){
   const per = periodeDepuisParams(etat.params); const t = tableauSolde(per);
-  telechargerCSV("solde_"+per.debut+"_"+per.fin+".csv", ["Mois","Recettes","Dépenses","Résultat","Solde cumulé"],
-    [["Report", "", "", "", t.report], ...t.lignes.map(l => [l.mois, l.recettes, l.depenses, l.net, l.cumul]), ["Total", t.recettes, t.depenses, t.net, t.final]]);
+  telechargerCSV("solde_"+per.debut+"_"+per.fin+".csv", ["Mois","Payé par les membres","Frais plateforme","Recettes nettes","Dépenses","Résultat","Solde cumulé"],
+    [["Report", "", "", "", "", "", t.report], ...t.lignes.map(l => [l.mois, l.brut, l.frais, l.recettes, l.depenses, l.net, l.cumul]), ["Total", t.lignes.reduce((x,l)=>x+l.brut,0), t.lignes.reduce((x,l)=>x+l.frais,0), t.recettes, t.depenses, t.net, t.final]]);
 }
 function imprimerSolde(){
   const per = periodeDepuisParams(etat.params); const t = tableauSolde(per);
@@ -2466,6 +2476,7 @@ function vueParametres(){
     + champ("tresorier","Trésorier") + champ("tresorier_tel","Téléphone trésorier","tel")
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
+    + '<div class="champ"><span>Commission CinetPay retenue sur chaque encaissement (%)</span><input id="s_cinetpay_commission" type="number" step="0.1" min="0" max="20" value="'+ech(s.cinetpay_commission||"3.5")+'"><small class="mut">Le membre est crédité du montant payé ; la caisse reçoit le net (montant − commission). Mettez le taux négocié avec CinetPay (3,5 % par défaut ; 0 si la commission est facturée au payeur).</small></div>'
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("charte_lien","Lien de la Charte de la communauté (PDF)") + champ("replay_lien","Lien du replay de présentation (vidéo)") + champ("fondateur","Nom du fondateur (signature des messages)")
     + champ("bienvenue","Message de bienvenue")
@@ -2518,7 +2529,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","charte_lien","replay_lien","fondateur"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","charte_lien","replay_lien","fondateur","cinetpay_commission"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){

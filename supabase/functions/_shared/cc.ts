@@ -55,6 +55,10 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   const deja = await db(`cc_paiements?select=id&reference_externe=eq.${encodeURIComponent(t.transaction_id)}`) as unknown[];
   if (deja.length) return { deja: true };
   const montant = verif.montant || t.montant;
+  // Commission CinetPay retenue sur l'encaissement (Paramètres → cinetpay_commission, en %) : le membre est crédité du montant payé, la caisse du net
+  const cfg = await settings();
+  const pct = Number(String(cfg.cinetpay_commission ?? "3.5").replace(",", ".")) || 0;
+  const frais = Math.round(montant * pct / 100);
   const inscription = t.caisse === "inscription" || (!t.mois && !t.appel_id);   // droit d'adhésion : caisse séparée, aucun mois de cotisation
   let detail = inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
   if (t.appel_id) {
@@ -65,7 +69,7 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
     date: new Date().toISOString().slice(0, 10), montant, canal: "CinetPay" + (verif.methode ? " · " + verif.methode : ""),
     expediteur: t.nom, telephone: t.telephone, libelle: "CinetPay " + t.transaction_id + " · " + detail,
     mois: t.appel_id || inscription ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id, statut: "RAPPROCHE", methode: "cinetpay",
-    caisse: inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id,
+    caisse: inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id, frais,
   }) });
   await db(`cc_transactions?id=eq.${t.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ statut: "ACCEPTEE", maj_le: new Date().toISOString(), montant_recu: montant, operateur: verif.operateur }) });
