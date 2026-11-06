@@ -423,3 +423,15 @@ alter table cc_paiements add column if not exists reference_externe text default
 create index if not exists cc_paiements_caisse_idx on cc_paiements (caisse);
 create unique index if not exists cc_paiements_reference_externe_idx on cc_paiements (reference_externe) where reference_externe <> '';
 alter table cc_transactions add column if not exists caisse text not null default 'cotisation';
+
+-- 12) Bureau exécutif (source : ComptaConnect_Bureau_Executif.docx) — inséré le 06/11/2026 ; postes vacants affichés « Poste à pourvoir »
+insert into cc_bureau (nom, poste, telephone, ordre, actif)
+select * from (values
+ ('Basile EKLOU', 'Président Fondateur', '', 1, true),
+ ('Jean Yves ALLASSANON', 'Secrétaire Général', '0556124488', 2, true),
+ ('Kouassi Parfait DABILA', 'Responsable Formation & Événements', '0757912515', 3, true),
+ ('Poste à pourvoir', 'Responsable Communication & Contenu', '', 4, true),
+ ('Poste à pourvoir', 'Responsable Emploi & Opportunités', '', 5, true),
+ ('Poste à pourvoir', 'Responsable Relations Membres & Partenariats', '', 6, true),
+ ('Poste à pourvoir', 'Trésorier(e)', '', 7, true)) v(nom, poste, telephone, ordre, actif)
+where not exists (select 1 from cc_bureau);
