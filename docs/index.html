@@ -1442,12 +1442,13 @@ function vueAccueil(){
     + '</main>';
 }
 
-/* Liens officiels du réseau (Paramètres) : charte, Skool, replay de présentation, support. Le lien WhatsApp n'est remis qu'aux membres à jour (cc_bienvenue). */
+/* Liens officiels du réseau (Paramètres). Public : la Charte (le candidat doit la lire avant d'adhérer) et le support.
+   Réservés aux membres identifiés : Skool, replay de présentation, et le groupe WhatsApp (remis par cc_bienvenue aux membres à jour). */
 function ressourcesOfficielles(membre){
   const s = etat.settings; const l = [];
   if(s.charte_lien) l.push('<a class="btn sm sec" href="'+ech(s.charte_lien)+'" target="_blank" rel="noopener">📜 Charte de la communauté (à lire en priorité)</a>');
-  if(s.skool_lien) l.push('<a class="btn sm sec" href="'+ech(s.skool_lien)+'" target="_blank" rel="noopener">📚 Plateforme Skool — formations gratuites</a>');
-  if(s.replay_lien) l.push('<a class="btn sm sec" href="'+ech(s.replay_lien)+'" target="_blank" rel="noopener">▶️ Replay : présentation de la plateforme</a>');
+  if(membre && s.skool_lien) l.push('<a class="btn sm sec" href="'+ech(s.skool_lien)+'" target="_blank" rel="noopener">📚 Plateforme Skool — formations gratuites</a>');
+  if(membre && s.replay_lien) l.push('<a class="btn sm sec" href="'+ech(s.replay_lien)+'" target="_blank" rel="noopener">▶️ Replay : présentation de la plateforme</a>');
   if(!l.length && !s.contact_email) return "";
   return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">'+l.join("")+'</div>'
     + (s.contact_email ? '<p class="mut" style="margin:8px 0 0">Une question ? <a href="mailto:'+ech(s.contact_email)+'">'+ech(s.contact_email)+'</a>'+(s.tresorier_tel ? ' · WhatsApp <a href="https://wa.me/'+ech(String(s.tresorier_tel).replace(/\D/g,""))+'" target="_blank" rel="noopener">'+ech(s.tresorier_tel)+'</a>' : '')+'</p>' : '');
@@ -1649,6 +1650,7 @@ function vueAdherer(){
   return '<main style="max-width:560px"><div class="carte"><h3>Devenir membre de '+ech(etat.settings.reseau||"ComptaConnect")+'</h3>'
     + '<p class="mut">Remplissez ce formulaire, réglez votre adhésion de <strong>'+montant+' FCFA</strong> en ligne (Wave, Orange Money, MTN, Moov), '
     + 'et recevez immédiatement le lien du groupe WhatsApp ainsi que le contact du trésorier.</p>'
+    + (etat.settings.charte_lien ? '<div class="alerte al-info">📜 Avant d’adhérer, lisez la <a href="'+ech(etat.settings.charte_lien)+'" target="_blank" rel="noopener"><strong>Charte de la communauté</strong></a> : en payant votre adhésion, vous vous engagez à la respecter.</div>' : '')
     + champ("aNom","Nom et prénoms","text","Ex. KOUASSI Aya Flaure",true)
     + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
     + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
