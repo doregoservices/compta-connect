@@ -2486,7 +2486,7 @@ function vueParametres(){
     + '<div class="grille g2">'
     + champ("reseau","Nom du réseau") + champ("slogan","Slogan")
     + champ("cotisation","Cotisation mensuelle (FCFA)","number") + champ("jour_echeance","Jour d'échéance","number")
-    + champ("tresorier","Trésorier") + champ("tresorier_tel","Téléphone trésorier","tel")
+    + champ("tresorier","Nom du trésorier (affiché aux membres : page membre, accès WhatsApp, messages)") + champ("tresorier_tel","Téléphone / WhatsApp du trésorier (affiché aux membres)","tel")
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + '<div class="champ"><span>Commission CinetPay retenue sur chaque encaissement (%)</span><input id="s_cinetpay_commission" type="number" step="0.1" min="0" max="20" value="'+ech(s.cinetpay_commission||"3.5")+'"><small class="mut">Le membre est crédité du montant payé ; la caisse reçoit le net (montant − commission). Mettez le taux négocié avec CinetPay (3,5 % par défaut ; 0 si la commission est facturée au payeur).</small></div>'
