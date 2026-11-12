@@ -1408,7 +1408,7 @@ function sectionAppelsOuverts(m){
         + (a.description ? '<div class="mut">'+ech(a.description)+'</div>' : '')
         + '<div class="mut">'+fcfa(a.montant)+' FCFA'+(a.date_limite ? ' · avant le '+dateFR(a.date_limite) : '')+'</div></div>'
         + (m ? (reste <= 0 ? '<span class="badge b-paye">payé ✓</span>'+(a.lien_apres ? ' <a class="btn sm sec" href="javascript:void(0)" onclick="ouvrirAccesAppel(\''+ech(idMembre(m))+'\','+a.id+')">Accéder</a>' : '')
-                         : '<button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+a.id+')">Payer '+fcfa(reste)+' F</button>')
+                         : horsZone(m) ? '<span class="mut">'+fcfa(reste)+' F par transfert (voir procédure)</span>' : '<button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+a.id+')">Payer '+fcfa(reste)+' F</button>')
              : '<a class="btn sm" href="#/appel?id='+a.id+'">Payer</a>')
         + '</div>'; }).join("")
     + '</div>';
@@ -1544,7 +1544,7 @@ function bandeauMatricule(m){
     + '<p>Chaque membre possède une <strong>carte de membre</strong> portant un numéro matricule (ex. CC-26-00026). Il n’est pas encore enregistré sur votre fiche.</p>'
     + '<p><strong>Vous avez déjà votre carte ?</strong> Saisissez le numéro inscrit dessus (une seule fois — ensuite seul le trésorier peut le modifier) :</p>'
     + '<div style="display:flex;gap:8px"><input id="matDeclare" placeholder="CC-26-00026" autocapitalize="characters" autocomplete="off"><button class="btn" onclick="declarerMatricule(\''+ech(String(m.telephone||"").replace(/\D/g,""))+'\')">Enregistrer</button></div>'
-    + '<p style="margin-top:12px"><strong>Pas encore de carte ?</strong> '+(appelCarte ? 'Commandez-la en ligne : <button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+appelCarte.id+')">Commander ma carte — '+fcfa(appelCarte.montant)+' F</button>' : 'Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+') pour la commander.')
+    + '<p style="margin-top:12px"><strong>Pas encore de carte ?</strong> '+(appelCarte && !horsZone(m) ? 'Commandez-la en ligne : <button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\'\','+appelCarte.id+')">Commander ma carte — '+fcfa(appelCarte.montant)+' F</button>' : appelCarte ? 'Carte : '+fcfa(appelCarte.montant)+' F, à régler par transfert à la trésorerie ('+ech(etat.settings.tresorier_tel||"")+') — voir la procédure « membre hors zone ».' : 'Contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+') pour la commander.')
     + ' Vous saisirez son numéro ici dès que vous l’aurez reçue.</p></div>';
 }
 async function declarerMatricule(tel){
@@ -1635,7 +1635,7 @@ function carteHistorique(m, mois){
     + '<div class="survol" style="margin-top:10px"><table><tr><th>Mois</th><th>Versé / dû</th><th>Statut</th></tr>'
     + h.lignes.slice().reverse().map(l => '<tr><td><strong>'+libelleMois(l.mois)+'</strong>'+(l.dates.length ? '<div class="mut">payé le '+l.dates.map(fdate).join(", ")+'</div>' : '')+'</td>'
         + '<td style="white-space:nowrap">'+fcfa(l.verse)+' / '+fcfa(l.du)+' F</td>'
-        + '<td>'+(b[l.statut]||"")+((l.statut==="IMPAYE"||l.statut==="PARTIEL") && l.mois !== mois ? '<div style="margin-top:6px"><button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\''+l.mois+'\')">Payer '+fcfa(l.du-l.verse)+' F</button></div>' : '')+'</td></tr>').join("")
+        + '<td>'+(b[l.statut]||"")+((l.statut==="IMPAYE"||l.statut==="PARTIEL") && l.mois !== mois ? (horsZone(m) ? '<div class="mut" style="margin-top:6px">par transfert (voir procédure)</div>' : '<div style="margin-top:6px"><button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\''+l.mois+'\')">Payer '+fcfa(l.du-l.verse)+' F</button></div>') : '')+'</td></tr>').join("")
     + '</table></div>'
     + (h.reste ? '<p class="mut" style="margin-top:8px">Pour régulariser un mois en retard, cliquez sur <strong>Payer</strong> en face du mois concerné.</p>' : '')
     + '</div>';
