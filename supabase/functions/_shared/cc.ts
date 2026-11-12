@@ -87,8 +87,10 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
     const [a] = await db(`cc_appels?select=titre&id=eq.${t.appel_id}`) as { titre: string }[];
     detail = "APPEL " + (a?.titre || t.appel_id);
   }
+  const sec = await secrets().catch(() => null);
+  const test = !!sec && sec.apikey.startsWith("sk_test_");
   await db("cc_paiements", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-    date: new Date().toISOString().slice(0, 10), montant, canal: "CinetPay" + (verif.methode ? " · " + verif.methode : ""),
+    date: new Date().toISOString().slice(0, 10), montant, canal: (test ? "SIMULATION CinetPay test" : "CinetPay") + (verif.methode ? " · " + verif.methode : ""),
     expediteur: t.nom, telephone: t.telephone, libelle: "CinetPay " + t.transaction_id + " · " + detail,
     mois: t.appel_id || inscription ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id, statut: "RAPPROCHE", methode: "cinetpay",
     caisse: inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id, frais,

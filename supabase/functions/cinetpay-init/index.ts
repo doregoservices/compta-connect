@@ -54,6 +54,12 @@ Deno.serve(async (req) => {
     const return_url = sitePublic + retourHash;
     const nomParts = String(m.nom || "Membre").trim().split(/\s+/);
     if (sec.v1) {
+      // Mode bac à sable (sk_test_) : réservé aux numéros de test listés dans Paramètres (cinetpay_test_tel), pour ne créditer aucun vrai membre par erreur
+      if (sec.apikey.startsWith("sk_test_")) {
+        const autorises = String(cfg.cinetpay_test_tel || "").split(/[,;\s]+/).map((x) => x.replace(/\D/g, "")).filter((x) => x.length >= 8);
+        const telN = tel.length === 13 && tel.startsWith("225") ? tel.slice(3) : tel;
+        if (!autorises.some((a) => a === telN || a === tel || "225" + a === tel || a === "225" + telN)) return json({ erreur: "Le paiement en ligne est en cours d'activation (phase de test). Réessayez dans quelques jours." }, 503);
+      }
       // Nouvelle API CinetPay v1 : OAuth puis POST /v1/payment
       const tok = await jetonV1(sec);
       const prenom = (nomParts[0] || "Membre").padEnd(2, "."), nomF = (nomParts.slice(1).join(" ") || nomParts[0] || "Membre").padEnd(2, ".");
