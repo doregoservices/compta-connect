@@ -554,3 +554,50 @@ begin
 end $$;
 revoke all on function cc_adherer(text,text,text,text,text,text) from public;
 grant execute on function cc_adherer(text,text,text,text,text,text) to anon, authenticated;
+
+-- 17) Option C : accès par téléphone ; le n° de carte (matricule) devient facultatif, saisi/modifié par le membre lui-même
+-- Suppression (une seule fois) des matricules générés automatiquement à l'import (CC-26-<code>) : ils ne correspondaient à aucune carte.
+update cc_membres set matricule = null
+ where matricule = 'CC-26-' || lpad(code, 5, '0')
+   and not exists (select 1 from cc_settings where cle = 'matricules_generes_effaces');
+insert into cc_settings (cle, valeur) values ('matricules_generes_effaces', 'oui') on conflict (cle) do nothing;
+
+-- Le membre (identifié par son téléphone) enregistre ou corrige le numéro de sa carte ; vide = effacer.
+create or replace function cc_maj_carte(p_tel text, p_carte text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_mat text;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if not found then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if trim(coalesce(p_carte,'')) = '' then
+    update cc_membres set matricule = null, fiche_maj_le = now() where id = v_m.id;
+    return json_build_object('ok', true, 'matricule', null);
+  end if;
+  v_mat := cc_matricule_normaliser(p_carte);
+  if v_mat is null then return json_build_object('ok', false, 'motif', 'format'); end if;
+  if exists (select 1 from cc_membres where matricule = v_mat and id <> v_m.id) then return json_build_object('ok', false, 'motif', 'pris'); end if;
+  update cc_membres set matricule = v_mat, fiche_maj_le = now() where id = v_m.id;
+  return json_build_object('ok', true, 'matricule', v_mat);
+end $$;
+revoke all on function cc_maj_carte(text,text) from public;
+grant execute on function cc_maj_carte(text,text) to anon, authenticated;
+
+-- Accès aux liens d'événement : par n° de carte OU téléphone
+create or replace function cc_appel_acces(p_matricule text, p_appel bigint) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m record; v_a record; v_paye int; v_tel text := regexp_replace(coalesce(p_matricule,''), '\D', '', 'g');
+begin
+  if cc_matricule_normaliser(p_matricule) is not null then
+    select * into v_m from cc_membres where matricule = cc_matricule_normaliser(p_matricule);
+  elsif length(v_tel) >= 8 then
+    if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+    select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  end if;
+  if v_m is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  select * into v_a from cc_appels where id = p_appel;
+  if not found then return json_build_object('ok', false, 'motif', 'appel'); end if;
+  select coalesce(sum(montant),0) into v_paye from cc_paiements where membre_id = v_m.id and appel_id = p_appel and statut = 'RAPPROCHE';
+  if v_paye < v_a.montant then return json_build_object('ok', false, 'motif', 'impaye', 'paye', v_paye); end if;
+  return json_build_object('ok', true, 'lien', v_a.lien_apres, 'paye', v_paye);
+end $$;
