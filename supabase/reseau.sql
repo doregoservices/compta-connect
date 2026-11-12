@@ -513,3 +513,44 @@ begin
 end $$;
 revoke all on function cc_maj_fiche(text,text,text,text,text,text,text,text) from public;
 grant execute on function cc_maj_fiche(text,text,text,text,text,text,text,text) to anon, authenticated;
+
+-- 16) Zone de couverture du paiement en ligne (CinetPay : zone XOF du compte ivoirien) + procédure hors zone
+insert into cc_settings (cle, valeur) values ('pays_couverts', 'Côte d’Ivoire, Burkina Faso, Togo') on conflict (cle) do nothing;
+insert into cc_settings (cle, valeur) values ('hors_zone_procedure',
+  'Le paiement en ligne n’est pas encore disponible dans votre pays. Envoyez le montant par transfert international mobile money (Wave, Orange Money, MTN, Moov…) au numéro de la trésorerie, puis transmettez la capture d’écran par WhatsApp avec votre nom et votre matricule : votre paiement est enregistré sous 24 h et votre situation mise à jour ici.')
+  on conflict (cle) do nothing;
+-- Pays saisi dès l'adhésion
+drop function if exists cc_adherer(text,text,text,text,text);
+create or replace function cc_adherer(p_nom text, p_tel text, p_ville text default '', p_email text default '', p_specialite text default '', p_pays text default '')
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g');
+  v_code text;
+  v_id bigint;
+  v_mat text;
+  v_existant record;
+begin
+  if length(trim(coalesce(p_nom,''))) < 3 then raise exception 'Nom trop court'; end if;
+  if length(v_tel) < 8 then raise exception 'Numéro de téléphone invalide'; end if;
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+
+  select id, code, matricule, actif into v_existant from cc_membres
+    where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if found then
+    return json_build_object('code', v_existant.code, 'matricule', v_existant.matricule, 'id', v_existant.id, 'actif', v_existant.actif, 'existant', true);
+  end if;
+
+  select lpad((coalesce(max(code::int), 0) + 1)::text, 3, '0') into v_code from cc_membres where code ~ '^\d+$';
+
+  insert into cc_membres (code, nom, telephone, ville, specialite, email, pays, cotisation, date_adhesion, actif, exonere)
+  values (v_code, trim(p_nom), v_tel, coalesce(p_ville,''), coalesce(p_specialite,''), coalesce(p_email,''),
+          coalesce(nullif(left(trim(p_pays),60),''), 'Côte d’Ivoire'),
+          coalesce((select valeur::int from cc_settings where cle='cotisation'), 5000),
+          to_char(current_date, 'YYYY-MM-DD'), false, false)
+  returning id, matricule into v_id, v_mat;
+
+  return json_build_object('code', v_code, 'matricule', v_mat, 'id', v_id, 'actif', false, 'existant', false);
+end $$;
+revoke all on function cc_adherer(text,text,text,text,text,text) from public;
+grant execute on function cc_adherer(text,text,text,text,text,text) to anon, authenticated;

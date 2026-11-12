@@ -1505,7 +1505,7 @@ function vuePayer(params){
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
     + '<div class="carte"><h3>Comment ça marche</h3>'
-    + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov.</div></div>'
+    + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov. <span class="mut">'+texteZone()+' Autres pays : procédure « membre hors zone » affichée ci-dessus.</span></div></div>'
     + '<div class="etape"><div class="n">2</div><div>Validez le paiement sur votre téléphone (code secret de votre opérateur).</div></div>'
     + '<div class="etape"><div class="n">3</div><div>Vous revenez ici automatiquement : votre ligne passe à <strong>« à jour »</strong> immédiatement'+(enAttente ? ', et vos accès WhatsApp et Skool s’affichent' : '')+'.</div></div>'
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
@@ -1643,6 +1643,7 @@ function carteHistorique(m, mois){
 
 /* --------------------------- Adhésion --------------------------- */
 
+const PAYS_LISTE = ["Côte d’Ivoire","Burkina Faso","Togo","Bénin","Mali","Sénégal","Guinée","Niger","Cameroun","Gabon","Congo","RDC","Ghana","Nigeria","Maroc","Tunisie","France","Canada","États-Unis","Autre"];
 function vueAdherer(){
   const montant = fcfa(etat.settings.adhesion||etat.settings.cotisation||5000);
   const champ = (id, label, type, ph, req) => '<div class="champ"><span>'+label+(req?' *':'')+'</span>'
@@ -1655,6 +1656,8 @@ function vueAdherer(){
     + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
     + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
     + champ("aEmail","Email","email","facultatif")
+    + '<div class="champ"><span>Pays de résidence *</span><select id="aPays">'+PAYS_LISTE.map(p => '<option'+(p==="Côte d’Ivoire"?' selected':'')+'>'+ech(p)+'</option>').join("")+'</select></div>'
+    + '<div class="alerte al-info" style="font-size:13px">🌍 '+texteZone()+' Si vous résidez ailleurs, vous pourrez tout de même adhérer : la procédure de règlement par transfert vous sera indiquée après l’inscription.</div>'
     + '<button class="btn blk" id="aBtn" onclick="soumettreAdhesion()">Continuer vers le paiement →</button>'
     + '<p class="mut" style="margin-top:10px">Déjà membre ? <a href="#/">Vérifiez votre situation avec votre matricule</a>.</p>'
     + '</div></main>';
@@ -1667,11 +1670,23 @@ async function soumettreAdhesion(){
   try{
     const r = await sb("rpc/cc_adherer", { method:"POST", body: JSON.stringify({
       p_nom: nom, p_tel: tel, p_ville: $("#aVille").value.trim(),
-      p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim() }) });
+      p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim(), p_pays: ($("#aPays")||{}).value || "" }) });
     await chargerDonnees();
     if(r.existant) toast("Ce numéro est déjà enregistré — voici votre situation.", "ok");
     aller("#/payer?m=" + encodeURIComponent(r.matricule || String(r.code).padStart(3,"0")) + "&nouveau=1");
   }catch(e){ toast("Inscription impossible : " + e.message, "err"); btn.disabled = false; btn.textContent = "Continuer vers le paiement →"; }
+}
+/* Zone de couverture du paiement en ligne (paramètre pays_couverts) */
+function paysCouverts(){ return String(etat.settings.pays_couverts||"Côte d’Ivoire").split(/[,;\n]/).map(x=>x.trim()).filter(Boolean); }
+function horsZone(m){ const p = accentMin(String((m && m.pays) || "Côte d’Ivoire").replace(/[’']/g,"")); return !paysCouverts().some(c => accentMin(c.replace(/[’']/g,"")) === p); }
+function texteZone(){ return 'Paiement en ligne disponible pour : <strong>'+paysCouverts().map(ech).join(" · ")+'</strong>.'; }
+function blocHorsZone(m){
+  const tel = etat.settings.tresorier_tel||"", wa = tel.replace(/\D/g,"");
+  const msg = encodeURIComponent("Bonjour, je suis "+m.nom+" ("+(m.matricule||("code "+m.code))+", "+(m.pays||"")+"). Je vous envoie la capture de mon transfert pour ma cotisation.");
+  return '<div class="alerte al-info" style="margin-top:12px"><strong>🌍 Membre hors zone ('+ech(m.pays||"")+')</strong><br>'+ech(etat.settings.hors_zone_procedure||"")
+    + '<div style="margin-top:8px"><strong>'+ech(etat.settings.tresorier||"Trésorerie")+'</strong> · <a href="tel:'+ech(tel)+'">'+ech(tel)+'</a>'
+    + (wa ? ' · <a class="btn sm" href="https://wa.me/'+wa+'?text='+msg+'" target="_blank" rel="noopener">💬 Envoyer ma capture sur WhatsApp</a>' : '')+'</div>'
+    + '<div class="mut" style="margin-top:6px">'+texteZone()+'</div></div>';
 }
 let _payEnLigneDispo = null;
 async function chargerPaiementEnLigne(code, mois, montant){
@@ -1679,13 +1694,16 @@ async function chargerPaiementEnLigne(code, mois, montant){
   try{
     if(_payEnLigneDispo === null) _payEnLigneDispo = await sb("rpc/cc_paiement_en_ligne_dispo", { method:"POST", body:"{}" });
     if(!(montant > 0)){ zone.innerHTML = '<div class="alerte al-ok" style="margin-top:12px">Rien à régler pour ce mois. Merci ! 🙏</div>'; return; }
+    const mz = trouverMembre(code); if(mz && horsZone(mz)){ zone.innerHTML = blocHorsZone(mz); return; }
     if(!_payEnLigneDispo){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation par le trésorier. Revenez dans quelques instants ou contactez-le : '+ech(etat.settings.tresorier_tel||"")+'</div>'; return; }
     zone.innerHTML = '<div style="margin-top:12px;text-align:center">'
       + '<button class="btn blk" id="btnPayer" onclick="payerEnLigne(\''+code+'\',\''+mois+'\')">💳 Payer '+fcfa(montant)+' FCFA en ligne (Wave · Orange · MTN · Moov)</button>'
-      + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat.</div></div>';
+      + '<div class="mut" style="margin-top:6px">Paiement sécurisé CinetPay — pointage immédiat. '+texteZone()+'</div></div>';
   }catch(e){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation. Contactez le trésorier : '+ech(etat.settings.tresorier_tel||"")+'</div>'; }
 }
 async function payerEnLigne(code, mois, appel){
+  const mz = trouverMembre(code);
+  if(mz && horsZone(mz)){ toast("Paiement en ligne indisponible dans votre pays ("+(mz.pays||"")+") : suivez la procédure « membre hors zone » affichée sur votre page.", "err"); const z = $("#payerEnLigne"); if(z){ z.innerHTML = blocHorsZone(mz); z.scrollIntoView({behavior:"smooth", block:"center"}); } return; }
   const b = $("#btnPayer"); if(b){ b.disabled = true; b.textContent = "Ouverture du paiement…"; }
   try{
     const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-init", { method:"POST",
@@ -2489,7 +2507,9 @@ function vueParametres(){
     + champ("tresorier","Nom du trésorier (affiché aux membres : page membre, accès WhatsApp, messages)") + champ("tresorier_tel","Téléphone / WhatsApp du trésorier (affiché aux membres)","tel")
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
-    + '<div class="champ"><span>Commission CinetPay retenue sur chaque encaissement (%)</span><input id="s_cinetpay_commission" type="number" step="0.1" min="0" max="20" value="'+ech(s.cinetpay_commission||"3.5")+'"><small class="mut">Le membre est crédité du montant payé ; la caisse reçoit le net (montant − commission). Mettez le taux négocié avec CinetPay (3,5 % par défaut ; 0 si la commission est facturée au payeur).</small></div>'
+    + '<div class="champ"><span>Commission CinetPay retenue sur chaque encaissement (%)</span><input id="s_cinetpay_commission" type="number" step="0.1" min="0" max="20" value="'+ech(s.cinetpay_commission||"2.5")+'"><small class="mut">Le membre est crédité du montant payé ; la caisse reçoit le net (montant − commission). Mettez le taux négocié avec CinetPay (2,5 % tarif CinetPay 2026 ; 0 si la commission est facturée au payeur).</small></div>'
+    + '<div class="champ"><span>Pays couverts par le paiement en ligne (séparés par des virgules)</span><input id="s_pays_couverts" value="'+ech(s.pays_couverts||"")+'"><small class="mut">Zone de votre compte CinetPay (compte ivoirien = zone XOF : Côte d’Ivoire, Burkina Faso, Togo). Les membres d’un autre pays voient la procédure ci-dessous au lieu du bouton de paiement.</small></div>'
+    + '<div class="champ"><span>Procédure pour les membres hors zone</span><textarea id="s_hors_zone_procedure" rows="4">'+ech(s.hors_zone_procedure||"")+'</textarea><small class="mut">Affichée avec le nom et le WhatsApp du trésorier ; le membre peut envoyer sa capture en un clic, le trésorier enregistre ensuite le paiement dans « Paiements ».</small></div>'
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("charte_lien","Lien de la Charte de la communauté (PDF)") + champ("replay_lien","Lien du replay de présentation (vidéo)") + champ("fondateur","Nom du fondateur (signature des messages)")
     + champ("bienvenue","Message de bienvenue")
@@ -2542,7 +2562,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","charte_lien","replay_lien","fondateur","cinetpay_commission"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
