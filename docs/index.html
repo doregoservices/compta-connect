@@ -1680,6 +1680,7 @@ async function soumettreAdhesion(){
 function paysCouverts(){ return String(etat.settings.pays_couverts||"Côte d’Ivoire").split(/[,;\n]/).map(x=>x.trim()).filter(Boolean); }
 function horsZone(m){ const p = accentMin(String((m && m.pays) || "Côte d’Ivoire").replace(/[’']/g,"")); return !paysCouverts().some(c => accentMin(c.replace(/[’']/g,"")) === p); }
 function texteZone(){ return 'Paiement en ligne disponible pour : <strong>'+paysCouverts().map(ech).join(" · ")+'</strong>.'; }
+function membreParCode(code){ const c = String(code||"").replace(/^0+/,""); return etat.membres.find(x => String(x.code).replace(/^0+/,"") === c) || null; }
 function blocHorsZone(m){
   const tel = etat.settings.tresorier_tel||"", wa = tel.replace(/\D/g,"");
   const msg = encodeURIComponent("Bonjour, je suis "+m.nom+" ("+(m.matricule||("code "+m.code))+", "+(m.pays||"")+"). Je vous envoie la capture de mon transfert pour ma cotisation.");
@@ -1694,7 +1695,7 @@ async function chargerPaiementEnLigne(code, mois, montant){
   try{
     if(_payEnLigneDispo === null) _payEnLigneDispo = await sb("rpc/cc_paiement_en_ligne_dispo", { method:"POST", body:"{}" });
     if(!(montant > 0)){ zone.innerHTML = '<div class="alerte al-ok" style="margin-top:12px">Rien à régler pour ce mois. Merci ! 🙏</div>'; return; }
-    const mz = trouverMembre(code); if(mz && horsZone(mz)){ zone.innerHTML = blocHorsZone(mz); return; }
+    const mz = membreParCode(code); if(mz && horsZone(mz)){ zone.innerHTML = blocHorsZone(mz); return; }
     if(!_payEnLigneDispo){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation par le trésorier. Revenez dans quelques instants ou contactez-le : '+ech(etat.settings.tresorier_tel||"")+'</div>'; return; }
     zone.innerHTML = '<div style="margin-top:12px;text-align:center">'
       + '<button class="btn blk" id="btnPayer" onclick="payerEnLigne(\''+code+'\',\''+mois+'\')">💳 Payer '+fcfa(montant)+' FCFA en ligne (Wave · Orange · MTN · Moov)</button>'
@@ -1702,7 +1703,7 @@ async function chargerPaiementEnLigne(code, mois, montant){
   }catch(e){ zone.innerHTML = '<div class="alerte al-info" style="margin-top:12px">Le paiement en ligne est en cours d’activation. Contactez le trésorier : '+ech(etat.settings.tresorier_tel||"")+'</div>'; }
 }
 async function payerEnLigne(code, mois, appel){
-  const mz = trouverMembre(code);
+  const mz = membreParCode(code);
   if(mz && horsZone(mz)){ toast("Paiement en ligne indisponible dans votre pays ("+(mz.pays||"")+") : suivez la procédure « membre hors zone » affichée sur votre page.", "err"); const z = $("#payerEnLigne"); if(z){ z.innerHTML = blocHorsZone(mz); z.scrollIntoView({behavior:"smooth", block:"center"}); } return; }
   const b = $("#btnPayer"); if(b){ b.disabled = true; b.textContent = "Ouverture du paiement…"; }
   try{
