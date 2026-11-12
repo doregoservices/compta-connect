@@ -1,5 +1,5 @@
 // POST { code, mois? } -> crée une transaction CinetPay et renvoie l'URL de paiement (Wave / Orange / MTN / Moov)
-import { CINETPAY_API, SB_URL, cors, db, json, reference, secrets, settings } from "../_shared/cc.ts";
+import { CINETPAY_API, SB_URL, cors, db, jetonV1, json, reference, secrets, settings } from "../_shared/cc.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
@@ -35,9 +35,12 @@ Deno.serve(async (req) => {
       if (aPayer <= 0) return json({ erreur: "Ce mois est déjà réglé", deja: true }, 409);
     }
     const matricule = String(m.matricule || codeN);
-    const retourHash = appelId ? `#/payer?m=${encodeURIComponent(matricule)}&retour=1&appel=${appelId}` : `#/payer?m=${encodeURIComponent(matricule)}&retour=1`;
+    const tel = String(m.telephone || "").replace(/\D/g, "");
+    const ident = tel.length >= 8 ? `t=${encodeURIComponent(tel)}` : `m=${encodeURIComponent(String(m.matricule || ""))}`;
+    const retourHash = appelId ? `#/payer?${ident}&retour=1&appel=${appelId}` : `#/payer?${ident}&retour=1`;
 
-    const { apikey, site_id } = await secrets();
+    const sec = await secrets();
+    const { apikey, site_id } = sec;
     const transaction_id = "CC" + Date.now().toString(36).toUpperCase() + codeN;
     const sitePublic = String(retour || cfg.site_public || "");
     if (apikey === "SIMULATION") {
@@ -50,6 +53,26 @@ Deno.serve(async (req) => {
     const notify_url = `${SB_URL}/functions/v1/cinetpay-notify`;
     const return_url = sitePublic + retourHash;
     const nomParts = String(m.nom || "Membre").trim().split(/\s+/);
+    if (sec.v1) {
+      // Nouvelle API CinetPay v1 : OAuth puis POST /v1/payment
+      const tok = await jetonV1(sec);
+      const prenom = (nomParts[0] || "Membre").padEnd(2, "."), nomF = (nomParts.slice(1).join(" ") || nomParts[0] || "Membre").padEnd(2, ".");
+      const corpsV1 = {
+        currency: "XOF", merchant_transaction_id: transaction_id, amount: aPayer, lang: "fr",
+        designation: `${cfg.reseau || "ComptaConnect"} - ${libelle}`.slice(0, 120),
+        client_email: String(m.email || "").includes("@") ? String(m.email) : (cfg.contact_email || "supportcomptaconnect@gmail.com"),
+        client_first_name: prenom.slice(0, 100), client_last_name: nomF.slice(0, 100),
+        client_phone_number: tel.length >= 8 ? "+" + (tel.length === 10 ? "225" + tel : tel) : undefined,
+        success_url: return_url.slice(0, 120), failed_url: (return_url + "&echec=1").slice(0, 120), notify_url, channel: "PUSH",
+      };
+      const r = await fetch(`${sec.base}/v1/payment`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify(corpsV1) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.payment_url) return json({ erreur: "CinetPay a refusé la création : " + (j?.description || j?.message || j?.status || r.status) }, 502);
+      await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
+        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: !appelId && !m.actif ? "inscription" : "cotisation", montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+        statut: "EN_ATTENTE", payment_token: String(j.payment_token || ""), notify_token: String(j.notify_token || ""), cinetpay_id: String(j.transaction_id || "") }) });
+      return json({ url: j.payment_url, transaction_id, montant: aPayer });
+    }
     const corps = {
       apikey, site_id, transaction_id, amount: aPayer, currency: "XOF",
       description: `${cfg.reseau || "ComptaConnect"} — ${libelle} — ${appelId ? matricule : reference(moisN, codeN)}`,

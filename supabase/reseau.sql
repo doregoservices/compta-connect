@@ -601,3 +601,7 @@ begin
   if v_paye < v_a.montant then return json_build_object('ok', false, 'motif', 'impaye', 'paye', v_paye); end if;
   return json_build_object('ok', true, 'lien', v_a.lien_apres, 'paye', v_paye);
 end $$;
+
+-- 18) Nouvelle API CinetPay v1 (clé sk_test_/sk_live_ + mot de passe API) : jetons de notification et identifiant CinetPay
+alter table cc_transactions add column if not exists notify_token text;
+alter table cc_transactions add column if not exists cinetpay_id text;

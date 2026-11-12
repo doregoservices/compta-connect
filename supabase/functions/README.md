@@ -45,3 +45,9 @@ Gestion des comptes de l'espace trésorier depuis *Paramètres → Accès* : lis
 changer un mot de passe, changer un rôle, supprimer. La fonction vérifie elle-même le jeton de l'appelant et exige le
 rôle `tresorier` (table `cc_roles`). Garde-fous : impossible de supprimer son propre compte ou de se retirer le rôle trésorier.
 Redéploiement : `SUPABASE_ACCESS_TOKEN=sbp_… python3 scripts/deployer_fonctions.py`
+
+## Nouvelle API CinetPay v1 (panel.cinetpay.net)
+Si la clé enregistrée dans `cc_secrets.cinetpay_api_key` commence par `sk_test_` ou `sk_live_`, les fonctions utilisent l'API v1 :
+`POST {base}/v1/oauth/login {api_key, api_password}` → jeton, puis `POST /v1/payment` (payment_url, payment_token, notify_token, transaction_id CinetPay) et `GET /v1/payment/{merchant_transaction_id}` pour vérifier (`status === "SUCCESS"`).
+Le champ `cinetpay_site_id` contient alors le **mot de passe API**. `sk_test_` → `https://api.cinetpay.net` (bac à sable), `sk_live_` → `https://api.cinetpay.co`.
+Le webhook v1 envoie `{notify_token, merchant_transaction_id, transaction_id}` ; `cinetpay-notify` retrouve la transaction par `merchant_transaction_id` (ou `cinetpay_id`), contrôle le `notify_token`, puis revérifie le statut auprès de CinetPay avant d'enregistrer.

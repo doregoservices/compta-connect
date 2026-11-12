@@ -28,7 +28,21 @@ export async function secrets() {
   const rows = await db("cc_secrets?select=cle,valeur") as { cle: string; valeur: string }[];
   const s: Record<string, string> = {}; for (const r of rows) s[r.cle] = r.valeur;
   if (!s.cinetpay_api_key || !s.cinetpay_site_id) throw new Error("Clés CinetPay non configurées");
-  return { apikey: s.cinetpay_api_key, site_id: s.cinetpay_site_id };
+  // Nouvelle API CinetPay v1 (panel.cinetpay.net) : clé sk_test_/sk_live_ + mot de passe API (saisi dans le champ « Site ID / mot de passe »)
+  const v1 = /^sk_(test|live)_/.test(s.cinetpay_api_key);
+  const base = s.cinetpay_api_key.startsWith("sk_live_") ? "https://api.cinetpay.co" : "https://api.cinetpay.net";
+  return { apikey: s.cinetpay_api_key, site_id: s.cinetpay_site_id, v1, base };
+}
+let _jeton: { base: string; token: string; exp: number } | null = null;
+/** Jeton OAuth v1 (mis en cache ~50 min dans l'instance). */
+export async function jetonV1(sec: { apikey: string; site_id: string; base: string }) {
+  if (_jeton && _jeton.base === sec.base && _jeton.exp > Date.now()) return _jeton.token;
+  const r = await fetch(`${sec.base}/v1/oauth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: sec.apikey, api_password: sec.site_id }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j?.access_token) throw new Error("Connexion CinetPay refusée (clé API ou mot de passe API incorrect)");
+  _jeton = { base: sec.base, token: String(j.access_token), exp: Date.now() + 50 * 60 * 1000 };
+  return _jeton.token;
 }
 export async function settings() {
   const rows = await db("cc_settings?select=cle,valeur") as { cle: string; valeur: string }[];
@@ -39,11 +53,19 @@ export function moisCourt(mois: string) { return mois.slice(2, 4) + mois.slice(5
 export function reference(mois: string, code: string) { return "CC" + moisCourt(mois) + code.padStart(3, "0"); }
 
 /** Vérifie une transaction auprès de CinetPay (source de vérité, jamais le simple POST de notification). */
-export async function verifierTransaction(transaction_id: string) {
-  const { apikey, site_id } = await secrets();
+export async function verifierTransaction(transaction_id: string, montantAttendu = 0) {
+  const sec = await secrets();
+  if (sec.v1) {
+    const tok = await jetonV1(sec);
+    const r = await fetch(`${sec.base}/v1/payment/${encodeURIComponent(transaction_id)}`, { headers: { Authorization: `Bearer ${tok}` } });
+    const j = await r.json().catch(() => ({}));
+    const st = String(j?.status || "");
+    return { ok: st === "SUCCESS", brut: { data: { status: st === "SUCCESS" ? "ACCEPTED" : (st === "FAILED" ? "REFUSED" : st) }, code: j?.code }, montant: montantAttendu,
+      methode: String(j?.payment_method || j?.user?.payment_method || ""), operateur: String(j?.user?.phone_number || "") };
+  }
   const r = await fetch(`${CINETPAY_API}/payment/check`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apikey, site_id, transaction_id }),
+    body: JSON.stringify({ apikey: sec.apikey, site_id: sec.site_id, transaction_id }),
   });
   const j = await r.json();
   return { ok: j?.code === "00" && j?.data?.status === "ACCEPTED", brut: j, montant: Number(j?.data?.amount || 0),
