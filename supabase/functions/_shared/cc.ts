@@ -40,7 +40,7 @@ export async function jetonV1(sec: { apikey: string; site_id: string; base: stri
   const r = await fetch(`${sec.base}/v1/oauth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ api_key: sec.apikey, api_password: sec.site_id }) });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j?.access_token) throw new Error("Connexion CinetPay refusée (clé API ou mot de passe API incorrect)");
+  if (!r.ok || !j?.access_token) throw new Error("Connexion CinetPay refusée : " + (j?.description || j?.status || r.status));
   _jeton = { base: sec.base, token: String(j.access_token), exp: Date.now() + 50 * 60 * 1000 };
   return _jeton.token;
 }
