@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
         client_phone_number: tel.length >= 8 ? "+" + (tel.length === 10 ? "225" + tel : tel) : undefined,
         success_url: return_url.slice(0, 120), failed_url: (return_url + "&echec=1").slice(0, 120), notify_url, channel: "PUSH",
       };
-      const r = await fetch(`${sec.base}/v1/payment`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` }, body: JSON.stringify(corpsV1) });
+      const r = await fetch(`${sec.base}/v1/payment`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}`, ...sec.entetes }, body: JSON.stringify(corpsV1) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.payment_url) return json({ erreur: "CinetPay a refusé la création : " + (j?.description || j?.message || j?.status || r.status) }, 502);
       await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({

@@ -30,14 +30,18 @@ export async function secrets() {
   if (!s.cinetpay_api_key || !s.cinetpay_site_id) throw new Error("Clés CinetPay non configurées");
   // Nouvelle API CinetPay v1 (panel.cinetpay.net) : clé sk_test_/sk_live_ + mot de passe API (saisi dans le champ « Site ID / mot de passe »)
   const v1 = /^sk_(test|live)_/.test(s.cinetpay_api_key);
-  const base = s.cinetpay_api_key.startsWith("sk_live_") ? "https://api.cinetpay.co" : "https://api.cinetpay.net";
-  return { apikey: s.cinetpay_api_key, site_id: s.cinetpay_site_id, v1, base };
+  const env = s.cinetpay_api_key.startsWith("sk_live_") ? "live" : "test";
+  // Relais à IP fixe (CinetPay exige une liste blanche d'IP) : si cc_secrets contient relais_url + relais_secret, tous les appels passent par lui
+  const relais = s.relais_url && s.relais_secret ? { url: s.relais_url.replace(/\/$/, ""), secret: s.relais_secret } : null;
+  const base = relais ? relais.url : (env === "live" ? "https://api.cinetpay.co" : "https://api.cinetpay.net");
+  const entetes: Record<string, string> = relais ? { "X-Relais-Secret": relais.secret, "X-Cinetpay-Env": env } : {};
+  return { apikey: s.cinetpay_api_key, site_id: s.cinetpay_site_id, v1, base, env, entetes };
 }
 let _jeton: { base: string; token: string; exp: number } | null = null;
 /** Jeton OAuth v1 (mis en cache ~50 min dans l'instance). */
-export async function jetonV1(sec: { apikey: string; site_id: string; base: string }) {
+export async function jetonV1(sec: { apikey: string; site_id: string; base: string; entetes: Record<string, string> }) {
   if (_jeton && _jeton.base === sec.base && _jeton.exp > Date.now()) return _jeton.token;
-  const r = await fetch(`${sec.base}/v1/oauth/login`, { method: "POST", headers: { "Content-Type": "application/json" },
+  const r = await fetch(`${sec.base}/v1/oauth/login`, { method: "POST", headers: { "Content-Type": "application/json", ...sec.entetes },
     body: JSON.stringify({ api_key: sec.apikey, api_password: sec.site_id }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j?.access_token) throw new Error("Connexion CinetPay refusée : " + (j?.description || j?.status || r.status));
@@ -57,7 +61,7 @@ export async function verifierTransaction(transaction_id: string, montantAttendu
   const sec = await secrets();
   if (sec.v1) {
     const tok = await jetonV1(sec);
-    const r = await fetch(`${sec.base}/v1/payment/${encodeURIComponent(transaction_id)}`, { headers: { Authorization: `Bearer ${tok}` } });
+    const r = await fetch(`${sec.base}/v1/payment/${encodeURIComponent(transaction_id)}`, { headers: { Authorization: `Bearer ${tok}`, ...sec.entetes } });
     const j = await r.json().catch(() => ({}));
     const st = String(j?.status || "");
     return { ok: st === "SUCCESS", brut: { data: { status: st === "SUCCESS" ? "ACCEPTED" : (st === "FAILED" ? "REFUSED" : st) }, code: j?.code }, montant: montantAttendu,

@@ -1,0 +1,65 @@
+#cloud-config
+# Relais CinetPay à IP fixe — ComptaConnect / Cabinet GSC
+# À coller tel quel dans le champ « Cloud config » (User data) lors de la création du serveur Hetzner (Ubuntu 24.04).
+# Tout s'installe automatiquement : Node.js, le relais, Caddy (HTTPS automatique), pare-feu, mises à jour de sécurité.
+package_update: true
+package_upgrade: true
+packages: [curl, ufw, unattended-upgrades, debian-keyring, debian-archive-keyring, apt-transport-https, gnupg]
+write_files:
+  - path: /opt/relais/relais.js
+    permissions: "0644"
+    content: |
+      // Relais CinetPay à IP fixe — ComptaConnect
+      // Rôle : transmettre les appels de la plateforme (Supabase Edge Functions) vers l'API CinetPay depuis une adresse IP fixe.
+      // Sécurité : secret partagé obligatoire (en-tête X-Relais-Secret), destinations limitées aux API CinetPay, aucune donnée conservée.
+      // Aucune dépendance : Node.js ≥ 18 (fetch natif). Écoute en local sur 127.0.0.1:8787 ; Caddy assure le HTTPS devant.
+      const http = require("http");
+      const crypto = require("crypto");
+      const SECRET = process.env.RELAIS_SECRET || "";
+      const BASES = { test: "https://api.cinetpay.net", live: "https://api.cinetpay.co", v2: "https://api-checkout.cinetpay.com" };
+      if (!SECRET || SECRET.length < 20) { console.error("RELAIS_SECRET manquant"); process.exit(1); }
+      function egal(a, b) { const x = Buffer.from(String(a)), y = Buffer.from(String(b)); return x.length === y.length && crypto.timingSafeEqual(x, y); }
+      http.createServer(async (req, res) => {
+        const repondre = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+        if (req.method === "GET" && req.url === "/sante") return repondre(200, { ok: true, service: "relais-cinetpay" });
+        if (!egal(req.headers["x-relais-secret"] || "", SECRET)) return repondre(401, { erreur: "non autorisé" });
+        const base = BASES[String(req.headers["x-cinetpay-env"] || "test")];
+        if (!base) return repondre(400, { erreur: "environnement inconnu" });
+        if (!/^\/v[12]\/[A-Za-z0-9_\-\/%.]*$/.test(req.url)) return repondre(400, { erreur: "chemin refusé" });
+        let corps = ""; for await (const c of req) { corps += c; if (corps.length > 65536) return repondre(413, { erreur: "trop long" }); }
+        const entetes = { "Content-Type": "application/json" };
+        if (req.headers.authorization) entetes.Authorization = req.headers.authorization;
+        try {
+          const r = await fetch(base + req.url, { method: req.method, headers: entetes, body: ["POST", "PUT", "PATCH"].includes(req.method) ? corps : undefined, signal: AbortSignal.timeout(25000) });
+          const txt = await r.text();
+          res.writeHead(r.status, { "Content-Type": r.headers.get("content-type") || "application/json" }); res.end(txt);
+        } catch (e) { repondre(502, { erreur: "CinetPay injoignable : " + e.message }); }
+      }).listen(8787, "127.0.0.1", () => console.log("relais CinetPay prêt sur 127.0.0.1:8787"));
+  - path: /etc/relais.env
+    permissions: "0600"
+    content: |
+      RELAIS_SECRET=0C5OMqRcS0VOuLzwHneF4kSGIshiWLCNPw-qTmghsYY
+  - path: /etc/systemd/system/relais.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Relais CinetPay ComptaConnect
+      After=network-online.target
+      [Service]
+      EnvironmentFile=/etc/relais.env
+      ExecStart=/usr/bin/node /opt/relais/relais.js
+      Restart=always
+      RestartSec=3
+      User=nobody
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+  - apt-get update && apt-get install -y caddy
+  - IP=$(curl -4 -s https://api.ipify.org); echo "${IP//./-}.sslip.io { reverse_proxy 127.0.0.1:8787 }" > /etc/caddy/Caddyfile; systemctl restart caddy
+  - systemctl daemon-reload && systemctl enable --now relais
+  - ufw default deny incoming && ufw default allow outgoing && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
+  - echo "RELAIS PRET : https://${IP//./-}.sslip.io/sante" > /root/RELAIS_PRET.txt
