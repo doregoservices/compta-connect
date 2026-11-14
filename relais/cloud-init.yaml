@@ -59,7 +59,7 @@ runcmd:
   - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   - curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
   - apt-get update && apt-get install -y caddy
-  - IP=$(curl -4 -s https://api.ipify.org); echo "${IP//./-}.sslip.io { reverse_proxy 127.0.0.1:8787 }" > /etc/caddy/Caddyfile; systemctl restart caddy
+  - IP=$(curl -4 -s https://api.ipify.org); printf '%s.sslip.io {\n\treverse_proxy 127.0.0.1:8787\n}\n' "${IP//./-}" > /etc/caddy/Caddyfile; systemctl restart caddy
   - systemctl daemon-reload && systemctl enable --now relais
   - ufw default deny incoming && ufw default allow outgoing && ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
   - echo "RELAIS PRET : https://${IP//./-}.sslip.io/sante" > /root/RELAIS_PRET.txt
