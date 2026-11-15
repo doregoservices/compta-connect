@@ -365,3 +365,10 @@ Les deux modes cohabitent : le bouton pour le confort, le motif pour le zéro fr
   `cc_prolonger_vitrine`) ou bouton « Prolonger » après paiement direct (inscrit en recette « Location
   vitrine »). La vente se fait hors plateforme : aucun argent de tiers ne transite par le réseau.
   Page publique `#/marche`.
+
+## Hébergement (depuis le 15/11/2026)
+- **Adresse publique : https://comptaconnect.org** (domaine Namecheap, renouvellement auto, expire 15/11/2027).
+- Serveur Hetzner `2.31.173.29` (Falkenstein) : Caddy (HTTPS auto) sert `docs/` depuis `/var/www/comptaconnect`, synchronisé depuis GitHub `main` toutes les 2 min (`/usr/local/bin/sync-comptaconnect`, journal `/var/log/comptaconnect-sync.log`). Un `git push` suffit pour publier.
+- Relais CinetPay : `https://2-31-173-29.sslip.io` (aussi `https://comptaconnect.org/relais/`), service `relais`, secret dans `/etc/relais.env` = `cc_secrets.relais_secret`.
+- GitHub Pages reste actif mais redirige vers le domaine (script en tête de `index.html`).
+- Base + Edge Functions : encore sur Supabase (migration vers le serveur prévue après validation CinetPay).
