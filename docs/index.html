@@ -1220,7 +1220,7 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
@@ -1229,6 +1229,8 @@ async function chargerDonnees(){
     opt("cc_formations?select=*&order=date.desc,id.desc", []),
     opt("cc_questions?select=*&order=id.desc", []),
     opt("cc_reponses?select=*&order=id.asc", []),
+    opt("cc_sondages?select=*&order=ouvert.desc,id.desc", []),
+    opt("cc_votes?select=sondage_id,membre_id,choix", []),
   ]);
 }
 
@@ -1441,6 +1443,9 @@ function vueAccueil(){
     + '<p class="mut" style="margin:8px 0 0;color:#cfe3da">Le numéro de téléphone est celui utilisé pour vos cotisations.</p>'
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
     + carteAnniversairesAccueil()
+    + carteDefi()
+    + carteHonneur()
+    + carteSondage(null)
     + sectionAnnonces(3)
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
     + (s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : '')
@@ -1522,7 +1527,10 @@ function vuePayer(params){
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
+    + (enAttente ? "" : carteDefi())
+    + (enAttente ? "" : carteSondage(m))
     + (enAttente ? "" : carteMesPoints(m))
+    + (enAttente ? "" : carteCertificats(m))
     + (enAttente ? "" : carteFormationMembre(m))
     + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau, ou répondez aux questions des autres membres : les réponses validées par les validateurs du bureau sont publiées pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
@@ -1685,7 +1693,7 @@ function carteAnniversairesTresorier(){
 const BADGES = {
   contributeur:["🧩","Contributeur","3 réponses validées"], expert:["🎓","Expert","10 réponses validées"], validateur:["✔️","Validateur","a validé des réponses"],
   curieux:["❓","Curieux","3 questions publiées"], ponctuel:["⏱️","Ponctuel","3 mois de suite payés dans le mois"], fidele:["💎","Fidèle","12 mois réglés"],
-  avance:["🚀","Prévoyant","a payé en avance"], pionnier:["🌱","Pionnier","parmi les 100 premiers membres"], profil:["🪪","Profil complet","fiche et photo à jour"] };
+  avance:["🚀","Prévoyant","a payé en avance"], parrain:["🤝","Parrain","a fait adhérer un membre"], pionnier:["🌱","Pionnier","parmi les 100 premiers membres"], profil:["🪪","Profil complet","fiche et photo à jour"] };
 function pts(cle, defaut){ const v = parseInt(etat.settings["pts_"+cle]||"",10); return isNaN(v) ? defaut : v; }
 function trimestreDe(d){ d = d || new Date(); const t = Math.floor(d.getMonth()/3); return { cle: d.getFullYear()+"-T"+(t+1), debut: d.getFullYear()+"-"+String(t*3+1).padStart(2,"0")+"-01", fin: d.getFullYear()+"-"+String(t*3+3).padStart(2,"0")+"-31", libelle: (t+1)+(t?"ᵉ":"ᵉʳ")+" trimestre "+d.getFullYear() }; }
 function trimestrePrecedent(){ const d = new Date(); d.setMonth(d.getMonth()-3); return trimestreDe(d); }
@@ -1708,8 +1716,10 @@ function scoresTous(tri){
     for(const mois of moisOK){ if(!moisAv.has(mois)) add(id, pts("paiement_mois",3), "p", mois+"-01"); }
     const tous = [...new Set([...moisOK, ...moisAv])].sort(); x.mois_ok = tous.length; let suite = 0, max = 0;
     for(let i = 0; i < tous.length; i++){ suite = (i && tous[i] === moisSuivant(tous[i-1])) ? suite+1 : 1; if(suite > max) max = suite; } x.suite = max; }
+  // parrainage : points au parrain quand le filleul est activé (adhésion payée)
+  if((etat.settings.parrainage||"oui") !== "non") for(const m of etat.membres){ if(m.parrain_id && m.actif && S[m.parrain_id]){ add(m.parrain_id, pts("parrainage",10), "c", m.date_adhesion); S[m.parrain_id].filleuls = (S[m.parrain_id].filleuls||0)+1; } }
   // fiche / badges
-  for(const x of Object.values(S)){ const m = x.m;
+  for(const x of Object.values(S)){ const m = x.m; if(x.filleuls) x.badges.push("parrain");
     if(!champsManquants(m).length && m.photo_url){ x.total += pts("fiche",2); x.badges.push("profil"); }
     if(x.rep >= 10) x.badges.push("expert"); else if(x.rep >= 3) x.badges.push("contributeur");
     if(x.valid >= 1) x.badges.push("validateur"); if(x.quest >= 3) x.badges.push("curieux");
@@ -1731,7 +1741,7 @@ function vuePalmares(params){
     + '<p><a class="btn sm sec" href="#/palmares">Trimestre en cours</a> <a class="btn sm sec" href="#/palmares?tri=precedent">Trimestre précédent</a></p></div>'
     + '<div class="grille g2">'+colonne("💰 Meilleurs payeurs", P.payeurs, "tri_paiement", x => x.mois_ok+" mois réglés à temps")+colonne("🧠 Meilleurs contributeurs", P.contributeurs, "tri_contrib", x => x.rep+" réponse"+(x.rep>1?"s":"")+" · "+x.quest+" question"+(x.quest>1?"s":""))+'</div>'
     + '<div class="carte"><h3>Classement général (points cumulés)</h3><div class="survol"><table><tr><th>#</th><th>Membre</th><th>Points</th><th>Badges</th></tr>'+P.general.map((x,i) => '<tr><td>'+(i+1)+'</td><td>'+ech(x.m.nom)+'</td><td><strong>'+x.total+'</strong></td><td>'+badgesHTML(x, true)+'</td></tr>').join("")+'</table></div>'
-    + '<p class="mut" style="margin-top:8px">Barème : réponse validée +'+pts("reponse",5)+' · question publiée +'+pts("question",2)+' · validation +'+pts("validation",1)+' · cotisation dans le mois +'+pts("paiement_mois",3)+' · en avance +'+pts("paiement_avance",4)+' · profil complet +'+pts("fiche",2)+'.</p>'
+    + '<p class="mut" style="margin-top:8px">Barème : réponse validée +'+pts("reponse",5)+' · question publiée +'+pts("question",2)+' · validation +'+pts("validation",1)+' · cotisation dans le mois +'+pts("paiement_mois",3)+' · en avance +'+pts("paiement_avance",4)+' · profil complet +'+pts("fiche",2)+((etat.settings.parrainage||"oui") !== "non" ? ' · filleul qui adhère +'+pts("parrainage",10) : '')+'.</p>'
     + '<p class="mut">Badges : '+Object.values(BADGES).map(b => b[0]+' '+b[1]+' ('+b[2]+')').join(" · ")+'</p></div></main>';
 }
 function carteMesPoints(m){
@@ -1747,6 +1757,111 @@ function cartePalmaresTresorier(){
   const texte = "🏆 Palmarès "+tri.libelle+" — "+(etat.settings.reseau||"ComptaConnect")+"\n\n💰 Meilleurs payeurs :\n"+P.payeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+nom(x)).join("\n")+"\n\n🧠 Meilleurs contributeurs :\n"+P.contributeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+nom(x)).join("\n")+(etat.settings.palmares_prime ? "\n\n🎁 Prime : "+etat.settings.palmares_prime : "")+"\n\nBravo à tous ! Détail : "+location.origin+location.pathname+"#/palmares";
   return '<div class="carte" style="margin-top:14px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">🏆 Palmarès '+tri.libelle+'</h3><span style="flex:1"></span><a class="btn sm" style="background:#25D366" href="https://wa.me/?text='+encodeURIComponent(texte)+'" target="_blank" rel="noopener">Annoncer sur WhatsApp</a><a class="btn sm sec" href="#/palmares">Voir</a></div>'
     + '<p class="mut" style="margin-top:6px">Payeurs : '+(P.payeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+ech(nom(x))).join(" · ")||"—")+'<br>Contributeurs : '+(P.contributeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+ech(nom(x))).join(" · ")||"—")+'</p></div>';
+}
+
+/* --------------------------- Animation de la communauté --------------------------- */
+/* Défi du mois : objectif collectif « X % des membres à jour avant le jour J », jauge sur l'accueil et la page membre. */
+function carteDefi(){
+  const s = etat.settings; if((s.defi||"oui") === "non") return "";
+  const objectif = Math.min(100, parseInt(s.defi_objectif||"80",10) || 80), jour = parseInt(s.defi_jour||"25",10) || 25;
+  const mois = moisCourant(), P = pointage(etat.membres, etat.paiements, mois);
+  const actifs = etat.membres.filter(m => m.actif); if(!actifs.length) return "";
+  const aJour = P.lignes.filter(l => ["PAYE","AVANCE","EXONERE"].includes(l.statut)).length;
+  const pct = Math.round(aJour * 100 / actifs.length), auj = new Date().getDate(), atteint = pct >= objectif, restants = Math.max(0, Math.ceil(actifs.length * objectif / 100) - aJour);
+  const titre = s.defi_texte ? ech(s.defi_texte) : objectif+' % des membres à jour avant le '+jour+' '+libelleMois(mois);
+  const couleur = atteint ? "var(--vert)" : (auj > jour ? "#b23b3b" : "var(--or)");
+  return '<div class="carte"><h3>🎯 Défi du mois — '+titre+'</h3>'
+    + '<div style="background:#eef2ef;border-radius:999px;height:18px;overflow:hidden;position:relative"><div style="width:'+pct+'%;height:100%;background:'+couleur+';transition:width .6s"></div><div style="position:absolute;left:'+Math.min(96,objectif)+'%;top:0;bottom:0;border-left:2px dashed #06301E" title="objectif"></div></div>'
+    + '<p style="margin:8px 0 0"><strong>'+pct+' %</strong> ('+aJour+' / '+actifs.length+' membres) · '
+    + (atteint ? '🎉 <strong>Objectif atteint !</strong> Merci à tous.' : (auj > jour ? 'Délai dépassé — il manquait '+restants+' membre'+(restants>1?'s':'')+'. On se rattrape ce mois-ci !' : 'Encore <strong>'+restants+' membre'+(restants>1?'s':'')+'</strong> pour réussir ensemble.'))+'</p></div>';
+}
+/* Membre à l'honneur : choisi par le bureau dans Paramètres (photo + portrait). */
+function carteHonneur(){
+  const s = etat.settings; if((s.honneur||"oui") === "non" || !s.honneur_membre_id) return "";
+  const m = etat.membres.find(x => String(x.id) === String(s.honneur_membre_id)); if(!m) return "";
+  return '<div class="carte" style="background:linear-gradient(135deg,#fffdf5,#fff);border-color:var(--or)"><h3>⭐ Membre à l’honneur — '+libelleMois(moisCourant())+'</h3>'
+    + '<div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">'+avatar(m,"xl")+'<div style="flex:1;min-width:200px"><div style="font-weight:800;font-size:17px">'+ech(m.nom)+'</div>'
+    + (m.titre||m.specialite ? '<div class="mut">'+ech(m.titre||m.specialite)+(m.employeur?' · '+ech(m.employeur):'')+(m.ville?' · '+ech(m.ville):'')+'</div>' : '')
+    + (s.honneur_texte ? '<p style="margin:8px 0 0">'+ech(s.honneur_texte).replace(/\n/g,"<br>")+'</p>' : '')+'</div></div></div>';
+}
+/* Sondage rapide : la question ouverte la plus récente ; vote si membre identifié, résultats en direct. */
+function resultatsSondage(sd){
+  const V = (etat.votes||[]).filter(v => v.sondage_id === sd.id), n = V.length;
+  return sd.options.map((o, i) => { const k = V.filter(v => v.choix === i).length, pct = n ? Math.round(k*100/n) : 0;
+    return '<div style="margin:6px 0"><div style="display:flex;justify-content:space-between;font-size:14px"><span>'+ech(o)+'</span><span class="mut">'+k+' · '+pct+' %</span></div><div style="background:#eef2ef;border-radius:6px;height:8px"><div style="width:'+pct+'%;height:100%;background:var(--vert);border-radius:6px"></div></div></div>'; }).join("") + '<p class="mut" style="margin:6px 0 0">'+n+' vote'+(n>1?'s':'')+'</p>';
+}
+function carteSondage(m){
+  if((etat.settings.sondages||"oui") === "non") return "";
+  const sd = (etat.sondages||[]).find(x => x.ouvert); if(!sd) return "";
+  const mon = m ? (etat.votes||[]).find(v => v.sondage_id === sd.id && v.membre_id === m.id) : null;
+  return '<div class="carte"><h3>🗳️ Sondage du bureau</h3><p style="font-weight:700;margin:0 0 8px">'+ech(sd.question)+'</p>'
+    + (m ? (mon ? '<p class="mut">Vous avez voté : <strong>'+ech(sd.options[mon.choix]||"")+'</strong> (modifiable).</p>' : '')
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">'+sd.options.map((o,i) => '<button class="btn sm '+(mon && mon.choix===i ? '' : 'sec')+'" onclick="voter(\''+ech(idMembre(m))+'\','+sd.id+','+i+')">'+ech(o)+'</button>').join("")+'</div>'
+        : '<p class="mut">Identifiez-vous avec votre téléphone (en haut de l’accueil) pour voter.</p>')
+    + resultatsSondage(sd) + '</div>';
+}
+async function voter(tel, id, choix){
+  try{ const r = await sb("rpc/cc_voter", { method:"POST", body: JSON.stringify({ p_tel: tel, p_sondage_id: id, p_choix: choix }) });
+    if(!r.ok){ toast(r.motif === "clos" ? "Ce sondage est clos." : "Vote refusé (membre inconnu ou inactif).", "err"); return; }
+    await chargerDonnees(); toast("Vote enregistré. Merci !", "ok"); rendu();
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+function carteSondagesAdmin(){
+  if((etat.settings.sondages||"oui") === "non") return "";
+  const L = etat.sondages||[];
+  return '<div class="carte" style="margin-top:14px"><h3>🗳️ Sondages rapides</h3>'
+    + '<div class="champ"><span>Question</span><input id="sdQ" placeholder="Ex. : Quel jour préférez-vous pour la prochaine rencontre ?"></div>'
+    + '<div class="champ"><span>Choix (un par ligne, 2 à 6)</span><textarea id="sdO" rows="3" placeholder="Samedi matin&#10;Samedi après-midi&#10;Dimanche"></textarea></div>'
+    + '<button class="btn sm" onclick="creerSondage()">Ouvrir le sondage</button>'
+    + (L.length ? L.slice(0,5).map(sd => '<div style="border-top:1px solid var(--ligne);margin-top:10px;padding-top:8px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong style="flex:1">'+ech(sd.question)+'</strong>'
+        + (sd.ouvert ? '<span class="badge b-paye">ouvert</span><button class="btn sm sec" onclick="clore(\'cc_sondages\','+sd.id+',{ouvert:false,clos_le:new Date().toISOString()})">Clore</button>' : '<span class="badge b-neutre">clos</span>')
+        + '<button class="btn sm sec" onclick="supprimerLigne(\'cc_sondages\','+sd.id+')">Supprimer</button>'
+        + (sd.ouvert ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent("🗳️ Sondage "+(etat.settings.reseau||"ComptaConnect")+" : "+sd.question+"\n"+sd.options.map((o,i)=>(i+1)+". "+o).join("\n")+"\n\nVotez en 10 secondes depuis votre page membre : "+(etat.settings.site_public||location.origin+location.pathname))+'">Partager</a>' : '')
+        + '</div>'+resultatsSondage(sd)+'</div>').join("") : '<p class="mut" style="margin-top:8px">Aucun sondage pour l’instant.</p>')+'</div>';
+}
+async function creerSondage(){
+  const q = $("#sdQ").value.trim(), options = $("#sdO").value.split("\n").map(x => x.trim()).filter(Boolean);
+  if(q.length < 5){ toast("Posez une question.", "err"); return; } if(options.length < 2 || options.length > 6){ toast("Indiquez de 2 à 6 choix.", "err"); return; }
+  try{ for(const sd of (etat.sondages||[]).filter(x => x.ouvert)) await sb("cc_sondages?id=eq."+sd.id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ ouvert:false, clos_le:new Date().toISOString() }) });
+    await sb("cc_sondages", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ question:q, options }) });
+    await chargerDonnees(); toast("Sondage ouvert.", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function clore(table, id, patch){ try{ await sb(table+"?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(patch) }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
+async function supprimerLigne(table, id){ if(!confirm("Supprimer définitivement ?")) return; try{ await sb(table+"?id=eq."+id, { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
+/* Certificats PDF : page imprimable (le navigateur propose « Enregistrer au format PDF »). */
+function carteCertificats(m){
+  if((etat.settings.certificats||"oui") === "non") return "";
+  const mois = moisCourant(), l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
+  const aJour = ["PAYE","AVANCE","EXONERE"].includes(l.statut);
+  const an = new Date().getFullYear(), S = scoresTous(), x = S[m.id] || { rep:0, quest:0, total:0 };
+  const contrib = (etat.reponses||[]).filter(r => r.publie && r.membre_id === m.id && String(r.cree_le).slice(0,4) === String(an)).length;
+  return '<div class="carte"><h3>📜 Mes certificats</h3><div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + (aJour ? '<button class="btn sm" onclick="certificat(\''+ech(idMembre(m))+'\',\'ajour\')">Télécharger « Membre à jour »</button>' : '<span class="mut">Le certificat « Membre à jour » sera disponible dès que votre cotisation de '+libelleMois(mois)+' sera réglée.</span>')
+    + (contrib ? '<button class="btn sm sec" onclick="certificat(\''+ech(idMembre(m))+'\',\'contrib\')">Télécharger « Contributeur '+an+' »</button>' : '')
+    + '</div></div>';
+}
+function certificat(tel, type){
+  const m = trouverMembre(tel); if(!m) return; const s = etat.settings, an = new Date().getFullYear();
+  const S = scoresTous(), x = S[m.id] || { rep:0, quest:0, total:0, badges:[] };
+  const contrib = (etat.reponses||[]).filter(r => r.publie && r.membre_id === m.id && String(r.cree_le).slice(0,4) === String(an)).length;
+  const titre = type === "contrib" ? "Contributeur de l’année "+an : "Membre à jour";
+  const texte = type === "contrib"
+    ? "a contribué à la base de connaissances du réseau en "+an+" avec <strong>"+contrib+" réponse"+(contrib>1?"s":"")+" validée"+(contrib>1?"s":"")+"</strong>"+(x.quest ? " et "+x.quest+" question"+(x.quest>1?"s":"")+" publiée"+(x.quest>1?"s":"") : "")+", totalisant <strong>"+x.total+" points</strong>."
+    : "est membre actif de "+ech(s.reseau||"ComptaConnect")+(anneeAdhesion(m) ? " depuis "+anneeAdhesion(m) : "")+" et est <strong>à jour de ses cotisations</strong> au "+dateFR(new Date().toISOString().slice(0,10))+".";
+  const w = window.open("", "_blank"); if(!w){ toast("Autorisez les fenêtres pop-up pour télécharger le certificat.", "err"); return; }
+  w.document.write('<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>'+titre+' — '+ech(m.nom)+'</title><style>'
+    + '@page{size:A4 landscape;margin:0}body{margin:0;font-family:Georgia,serif;color:#06301E;background:#fff}.c{width:297mm;height:210mm;box-sizing:border-box;padding:18mm;border:14px double #B08A38;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}'
+    + 'h1{font-size:34px;letter-spacing:4px;margin:0 0 4px;text-transform:uppercase}h1 b{color:#B08A38}.t{font-size:26px;color:#B08A38;margin:18px 0 6px;font-style:italic}.n{font-size:36px;font-weight:bold;margin:10px 0}.p{font-size:17px;max-width:200mm;line-height:1.5}.f{margin-top:26px;display:flex;gap:60px;font-size:14px}.f div{border-top:1px solid #06301E;padding-top:6px;min-width:150px}.s{font-size:12px;color:#777;margin-top:16px}'
+    + '@media screen{body{background:#eee}.c{margin:20px auto;background:#fff;box-shadow:0 4px 30px rgba(0,0,0,.2)}.b{position:fixed;top:10px;right:10px;padding:10px 16px;background:#0B5A38;color:#fff;border:0;border-radius:8px;font-size:15px;cursor:pointer}}@media print{.b{display:none}}</style></head><body>'
+    + '<button class="b" onclick="print()">🖨️ Enregistrer en PDF / Imprimer</button><div class="c">'
+    + '<h1>'+ech((s.reseau||"COMPTA CONNECT").replace(/connect/i,""))+'<b>'+(/connect/i.test(s.reseau||"ComptaConnect")?"CONNECT":"")+'</b></h1><div style="font-size:13px;letter-spacing:2px">'+ech(s.slogan||"")+'</div>'
+    + '<div class="t">Certificat — '+titre+'</div><div style="font-size:15px">Le bureau du réseau atteste que</div><div class="n">'+ech(m.nom)+'</div>'
+    + (m.matricule ? '<div style="font-size:13px;color:#555">Carte de membre n° '+ech(m.matricule)+'</div>' : '')
+    + '<div class="p">'+texte+'</div>'
+    + (type === "contrib" && x.badges && x.badges.length ? '<div style="font-size:15px;margin-top:6px">Badges : '+x.badges.map(b => BADGES[b] ? BADGES[b][0]+" "+BADGES[b][1] : b).join(" · ")+'</div>' : '')
+    + '<div class="f"><div>'+ech(s.fondateur||"Le Président")+'<br><span style="color:#777">Président</span></div><div>'+ech(s.tresorier||"Le Trésorier")+'<br><span style="color:#777">Trésorier</span></div></div>'
+    + '<div class="s">Délivré le '+dateFR(new Date().toISOString().slice(0,10))+' · '+ech(s.site_public||"comptaconnect.org")+' · vérifiable avec le téléphone du membre</div></div></body></html>');
+  w.document.close();
 }
 
 /* --------------------------- Questions / Réponses (contributions des membres) --------------------------- */
@@ -1957,6 +2072,7 @@ function vueAdherer(){
     + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
     + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
     + champ("aEmail","Email","email","facultatif")
+    + ((etat.settings.parrainage||"oui") !== "non" ? champ("aParrain","Parrainé par (téléphone du membre qui vous a invité)","tel","facultatif") : "")
     + '<div class="champ"><span>Pays de résidence *</span><select id="aPays">'+PAYS_LISTE.map(p => '<option'+(p==="Côte d’Ivoire"?' selected':'')+'>'+ech(p)+'</option>').join("")+'</select></div>'
     + '<div class="alerte al-info" style="font-size:13px">🌍 '+texteZone()+' Si vous résidez ailleurs, vous pourrez tout de même adhérer : la procédure de règlement par transfert vous sera indiquée après l’inscription.</div>'
     + '<button class="btn blk" id="aBtn" onclick="soumettreAdhesion()">Continuer vers le paiement →</button>'
@@ -1971,7 +2087,7 @@ async function soumettreAdhesion(){
   try{
     const r = await sb("rpc/cc_adherer", { method:"POST", body: JSON.stringify({
       p_nom: nom, p_tel: tel, p_ville: $("#aVille").value.trim(),
-      p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim(), p_pays: ($("#aPays")||{}).value || "" }) });
+      p_email: $("#aEmail").value.trim(), p_specialite: $("#aSpec").value.trim(), p_pays: ($("#aPays")||{}).value || "", p_parrain_tel: ($("#aParrain")||{}).value || "" }) });
     await chargerDonnees();
     if(r.existant) toast("Ce numéro est déjà enregistré — voici votre situation.", "ok");
     aller("#/payer?t=" + encodeURIComponent(tel.replace(/\D/g,"")) + "&nouveau=1");
@@ -2241,6 +2357,8 @@ function vueTableauBord(){
     + '</div>'
     + carteAnniversairesTresorier()
     + cartePalmaresTresorier()
+    + carteDefi()
+    + carteSondagesAdmin()
     + carteRelancesJour()
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
@@ -2832,6 +2950,7 @@ function imprimerSolde(){
 
 
 function vueParametres(){
+  const sel = (k, label, defaut) => { const v = etat.settings[k] || defaut || "oui"; return '<div class="champ"><span>'+label+'</span><select id="s_'+k+'"><option value="oui"'+(v!=="non"?" selected":"")+'>oui</option><option value="non"'+(v==="non"?" selected":"")+'>non</option></select></div>'; };
   const s = etat.settings;
   const champ = (cle, label, type) => '<div class="champ"><span>'+label+'</span>'
     + '<input id="s_'+cle+'" type="'+(type||"text")+'" value="'+ech(s[cle]||"")+'"></div>';
@@ -2853,12 +2972,25 @@ function vueParametres(){
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
-    + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Au moins deux membres de confiance. Ils valident depuis la page Questions après identification.</small></div>'
+    + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
     + '<div class="champ"><span>Palmarès trimestriel, points et badges</span><select id="s_palmares"><option value="oui"'+((s.palmares||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.palmares||"oui")==="non"?" selected":"")+'>non</option></select></div>'
-    + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"></div>'
+    + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"><small class="mut">Affichée sur la page Palmarès, dans « Mes points » et dans l’annonce WhatsApp du palmarès.</small></div>'
     + '<div class="champ"><span>Barème des points : réponse, question, validation, paiement dans le mois, en avance, profil complet</span><div style="display:flex;gap:6px;flex-wrap:wrap">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:70px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'" title="'+k+'">').join("")+'</div></div>'
     + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '</div>'
+    + '<h3>Animation de la communauté</h3>'
+    + '<div class="grille g2">'
+    + sel("defi","Défi du mois (jauge collective sur l’accueil)")
+    + '<div class="champ"><span>Objectif du défi : % de membres à jour avant le jour</span><div style="display:flex;gap:6px"><input id="s_defi_objectif" type="number" min="10" max="100" style="width:90px" value="'+ech(s.defi_objectif||"80")+'"> %<input id="s_defi_jour" type="number" min="1" max="31" style="width:80px" value="'+ech(s.defi_jour||"25")+'"></div></div>'
+    + '<div class="champ"><span>Texte libre du défi (facultatif, remplace le texte automatique)</span><input id="s_defi_texte" value="'+ech(s.defi_texte||"")+'" placeholder="Ex. : Tous à jour avant la rencontre du 28 !"></div>'
+    + sel("honneur","Membre à l’honneur (portrait du mois sur l’accueil)")
+    + '<div class="champ"><span>Membre à l’honneur ce mois-ci</span><select id="s_honneur_membre_id"><option value="">— aucun —</option>'+etat.membres.filter(m => m.actif).slice().sort((a,b) => a.nom.localeCompare(b.nom)).map(m => '<option value="'+m.id+'"'+(String(s.honneur_membre_id||"")===String(m.id)?' selected':'')+'>'+ech(m.nom)+(m.ville?' — '+ech(m.ville):'')+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Portrait (3 lignes rédigées par le bureau)</span><textarea id="s_honneur_texte" rows="3" placeholder="Parcours, engagement dans le réseau, mot du bureau…">'+ech(s.honneur_texte||"")+'</textarea></div>'
+    + sel("sondages","Sondages rapides du bureau (création depuis le tableau de bord)")
+    + sel("certificats","Certificats PDF téléchargeables par les membres (« Membre à jour », « Contributeur de l’année »)")
+    + sel("parrainage","Parrainage (champ « parrainé par » à l’adhésion)")
+    + '<div class="champ"><span>Points au parrain quand le filleul adhère</span><input id="s_pts_parrainage" type="number" min="0" max="100" value="'+ech(s.pts_parrainage||"10")+'"></div>'
     + '</div>'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
     + '<div class="champ"><span>Début de comptage des cotisations (optionnel)</span><input type="month" id="s_debut_cotisations" value="'+ech(s.debut_cotisations||"")+'"><small class="mut">Règle : chaque membre doit sa cotisation à partir du mois suivant son adhésion. Si vous indiquez un mois ici, aucun mois antérieur n’est réclamé (utile pour les anciens membres).</small></div>'
@@ -2928,7 +3060,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){

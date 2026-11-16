@@ -838,3 +838,98 @@ end $$;
 drop function if exists cc_poser_question(text, text, boolean, text, text);
 revoke all on function cc_poser_question(text,text,boolean,text,text,boolean) from public;
 grant execute on function cc_poser_question(text,text,boolean,text,text,boolean) to anon, authenticated;
+
+-- ====================================================================================
+-- Animation de la communauté : parrainage, sondages, défi du mois, membre à l'honneur, certificats
+-- (toutes ces fonctions sont paramétrables depuis Paramètres → « Animation de la communauté »)
+-- ====================================================================================
+alter table cc_membres add column if not exists parrain_id bigint references cc_membres(id) on delete set null;
+
+insert into cc_settings (cle, valeur) values
+  ('defi','oui'), ('defi_objectif','80'), ('defi_jour','25'), ('defi_texte',''),
+  ('honneur','oui'), ('honneur_membre_id',''), ('honneur_texte',''),
+  ('sondages','oui'), ('certificats','oui'), ('parrainage','oui'), ('pts_parrainage','10')
+on conflict (cle) do nothing;
+
+-- Adhésion avec parrain (téléphone d'un membre actif ; ignoré s'il est inconnu ou s'il s'agit du nouveau membre lui-même)
+drop function if exists cc_adherer(text,text,text,text,text,text);
+create or replace function cc_adherer(p_nom text, p_tel text, p_ville text default '', p_email text default '', p_specialite text default '', p_pays text default '', p_parrain_tel text default '')
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g');
+  v_ptel text := regexp_replace(coalesce(p_parrain_tel,''), '\D', '', 'g');
+  v_code text; v_id bigint; v_mat text; v_parrain bigint; v_existant record;
+begin
+  if length(trim(coalesce(p_nom,''))) < 3 then raise exception 'Nom trop court'; end if;
+  if length(v_tel) < 8 then raise exception 'Numéro de téléphone invalide'; end if;
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if length(v_ptel) = 13 and v_ptel like '225%' then v_ptel := substr(v_ptel, 4); end if;
+
+  select id, code, matricule, actif into v_existant from cc_membres
+    where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if found then
+    return json_build_object('code', v_existant.code, 'matricule', v_existant.matricule, 'id', v_existant.id, 'actif', v_existant.actif, 'existant', true);
+  end if;
+  if length(v_ptel) >= 8 and v_ptel <> v_tel and coalesce((select valeur from cc_settings where cle='parrainage'),'oui') <> 'non' then
+    select id into v_parrain from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_ptel, '225' || v_ptel) limit 1;
+  end if;
+
+  select lpad((coalesce(max(code::int), 0) + 1)::text, 3, '0') into v_code from cc_membres where code ~ '^\d+$';
+  insert into cc_membres (code, nom, telephone, ville, specialite, email, pays, cotisation, date_adhesion, actif, exonere, parrain_id)
+  values (v_code, trim(p_nom), v_tel, coalesce(p_ville,''), coalesce(p_specialite,''), coalesce(p_email,''),
+          coalesce(nullif(left(trim(p_pays),60),''), 'Côte d’Ivoire'),
+          coalesce((select valeur::int from cc_settings where cle='cotisation'), 5000),
+          to_char(current_date, 'YYYY-MM-DD'), false, false, v_parrain)
+  returning id, matricule into v_id, v_mat;
+  return json_build_object('code', v_code, 'matricule', v_mat, 'id', v_id, 'actif', false, 'existant', false, 'parrain', v_parrain is not null);
+end $$;
+revoke all on function cc_adherer(text,text,text,text,text,text,text) from public;
+grant execute on function cc_adherer(text,text,text,text,text,text,text) to anon, authenticated;
+
+-- Sondages rapides du bureau : une question, 2 à 6 choix, un vote par membre (identifié par téléphone)
+create table if not exists cc_sondages (
+  id bigserial primary key,
+  question text not null,
+  options text[] not null,
+  ouvert boolean not null default true,
+  cree_le timestamptz not null default now(),
+  clos_le timestamptz
+);
+create table if not exists cc_votes (
+  id bigserial primary key,
+  sondage_id bigint not null references cc_sondages(id) on delete cascade,
+  membre_id bigint not null references cc_membres(id) on delete cascade,
+  choix int not null,
+  date timestamptz not null default now(),
+  unique (sondage_id, membre_id)
+);
+alter table cc_sondages enable row level security; alter table cc_votes enable row level security;
+drop policy if exists "lecture publique cc_sondages" on cc_sondages;
+create policy "lecture publique cc_sondages" on cc_sondages for select using (true);
+drop policy if exists "ecriture tresorier cc_sondages" on cc_sondages;
+create policy "ecriture tresorier cc_sondages" on cc_sondages for all to authenticated using (true) with check (true);
+drop policy if exists "lecture publique cc_votes" on cc_votes;
+create policy "lecture publique cc_votes" on cc_votes for select using (true);
+grant select on cc_sondages, cc_votes to anon, authenticated;
+grant insert, update, delete on cc_sondages to authenticated;
+grant delete on cc_votes to authenticated;
+grant usage, select on sequence cc_sondages_id_seq, cc_votes_id_seq to authenticated;
+grant all on cc_sondages, cc_votes to service_role;
+
+create or replace function cc_voter(p_tel text, p_sondage_id bigint, p_choix int) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_s record;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  select id into v_m from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if not found then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  select * into v_s from cc_sondages where id = p_sondage_id;
+  if not found or not v_s.ouvert then return json_build_object('ok', false, 'motif', 'clos'); end if;
+  if p_choix < 0 or p_choix >= array_length(v_s.options, 1) then return json_build_object('ok', false, 'motif', 'choix'); end if;
+  insert into cc_votes (sondage_id, membre_id, choix) values (p_sondage_id, v_m.id, p_choix)
+    on conflict (sondage_id, membre_id) do update set choix = excluded.choix, date = now();
+  return json_build_object('ok', true);
+end $$;
+revoke all on function cc_voter(text,bigint,int) from public;
+grant execute on function cc_voter(text,bigint,int) to anon, authenticated;
