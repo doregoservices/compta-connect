@@ -1968,6 +1968,7 @@ function vueTableauBord(){
     + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse global</div><div class="v" style="color:'+(recettesTot-depensesTot>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettesTot-depensesTot)+' F</div><div class="mut">cotisations − dépenses, depuis le début · <a href="#/solde">voir le solde</a></div></div>'
     + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa(sommeNet((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per))))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · net de frais · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
+    + carteRelancesJour()
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
     + barreRecherche("tabRelances") + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
@@ -1988,6 +1989,17 @@ function exportRelances(){
    WhatsApp n'autorise aucun envoi automatique à une liste sans l'API Business payante : chaque message doit être
    confirmé par un humain. Le mode « série » enchaîne les membres un par un (un clic = un WhatsApp ouvert, pré-rempli,
    déjà adressé au bon numéro) et mémorise ceux déjà relancés sur l'appareil, pour reprendre plus tard sans doublon. */
+/* Encart « relances automatiques » : calendrier + journal du jour (table cc_relances, chargée à la demande). */
+function carteRelancesJour(){
+  const j = (etat.settings.relance_jours||"1,25,30,10").split(",").map(x=>x.trim());
+  const auj = new Date().getDate(), typeAuj = auj==+j[0] ? "appel" : auj==+j[1] ? "rappel" : auj==+j[2] ? "dernier rappel" : auj==+j[3] ? "retard" : null;
+  if(!etat._relancesJour && !etat._relancesChargement){ etat._relancesChargement = true;
+    sb("cc_relances?select=type,canal,statut,membre_id,reste&date=eq."+new Date().toISOString().slice(0,10)).then(r => { etat._relancesJour = r; etat._relancesChargement = false; if(location.hash.startsWith("#/tableau")||location.hash==="#/"||location.hash==="") rendu(); }).catch(()=>{ etat._relancesJour = []; etat._relancesChargement = false; }); }
+  const r = etat._relancesJour || [];
+  const env = r.filter(x=>x.statut==="envoye").length, sans = r.filter(x=>x.canal==="aucun").length, err = r.filter(x=>x.statut==="erreur").length;
+  return '<div class="carte" style="margin-top:14px;background:#f7faf8"><strong>Relances automatiques</strong> <span class="mut">— le '+j[0]+' appel du mois · le '+j[1]+' rappel · le '+j[2]+' dernier rappel · le '+j[3]+' retards (e-mail à 8 h, réglable dans Paramètres)</span>'
+    + '<div style="margin-top:6px">'+(typeAuj ? 'Aujourd’hui : <strong>'+typeAuj+'</strong> — '+(r.length ? env+' e-mail(s) envoyé(s)'+(err?' · '+err+' erreur(s)':'')+(sans?' · <strong>'+sans+' membre(s) sans e-mail</strong> → utilisez la série WhatsApp ci-dessous':'') : (etat._relancesChargement ? '…' : 'pas encore exécutée (8 h) ou aucun membre concerné')) : 'aucune relance programmée aujourd’hui')+'</div></div>';
+}
 let _serie = null;
 function relanceSerie(action){
   const per = periodeDepuisParams(etat.params);
@@ -2560,6 +2572,13 @@ function vueParametres(){
     + '<div class="champ"><span>Numéros autorisés à payer pendant la phase de test (clé sk_test_), séparés par des virgules</span><input id="s_cinetpay_test_tel" value="'+ech(s.cinetpay_test_tel||"")+'" placeholder="0502657392, 0102389926"><small class="mut">Tant que la clé est une clé de test, les autres membres voient « paiement en ligne en cours d’activation ». Les paiements test sont marqués SIMULATION et se purgent d’un clic ci-dessous.</small></div>'
     + '<div id="k_etat" class="mut"></div>'
     + '<button class="btn" onclick="enregistrerClesCinetPay()">Enregistrer les clés</button>'
+    + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
+    + '<h3>Relances automatiques</h3>'
+    + '<div class="champ"><span>Jours de relance : appel, rappel, dernier rappel, retard</span><input id="s_relance_jours" value="'+ech(s.relance_jours||"1,25,30,10")+'" placeholder="1,25,30,10"><small class="mut">Chaque matin à 8 h, le serveur regarde la date : le 1er il annonce la cotisation du mois, le 25 il rappelle, le 30 il envoie le dernier rappel, le 10 il signale les mois en retard. Les membres sans e-mail apparaissent dans la série WhatsApp du tableau de bord.</small></div>'
+    + '<div class="champ"><span>Envoyer les relances par e-mail</span><select id="s_relance_email"><option value="oui"'+((s.relance_email||"oui")!=="non"?" selected":"")+'>oui (via Brevo)</option><option value="non"'+((s.relance_email||"oui")==="non"?" selected":"")+'>non — seulement la liste WhatsApp</option></select></div>'
+    + '<div class="champ"><span>Clé API Brevo (gratuit jusqu’à 300 e-mails/jour)</span><input id="k_brevo" type="password" placeholder="xkeysib-…" autocomplete="off"><small class="mut">Compte à créer sur brevo.com avec l’adresse du réseau ; l’expéditeur doit y être validé.</small></div>'
+    + '<div class="champ"><span>Adresse expéditeur validée dans Brevo</span><input id="k_brevo_exp" value="" placeholder="supportcomptaconnect@gmail.com"></div>'
+    + '<button class="btn sec" onclick="enregistrerBrevo()">Enregistrer Brevo</button>'
     + '<p class="mut" style="margin-top:10px">🧪 <strong>Tester sans compte CinetPay</strong> : saisissez <code>SIMULATION</code> comme API Key (Site ID : <code>0</code>). Le bouton « Payer en ligne » apparaît et ouvre une page de paiement simulée — aucun argent ne circule. Les paiements créés portent le canal « SIMULATION » ; supprimez-les ensuite d’un clic : '
     + '<a href="javascript:void(0)" onclick="purgerSimulation()">purger les paiements de simulation</a>.</p>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
@@ -2575,6 +2594,15 @@ async function enregistrerClesCinetPay(){
       await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
     toast("Clés CinetPay enregistrées (table privée).", "ok"); $("#k_api").value = ""; etatCles();
   }catch(e){ toast("Refusé : "+e.message+(/cc_secrets/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+}
+async function enregistrerBrevo(){
+  const k = $("#k_brevo").value.trim(), e = $("#k_brevo_exp").value.trim();
+  if(!k && !e){ toast("Saisissez la clé Brevo et/ou l’expéditeur.", "err"); return; }
+  try{
+    if(k) await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle:"brevo_api_key", valeur:k }) });
+    if(e) await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle:"brevo_expediteur", valeur:e }) });
+    toast("Paramètres Brevo enregistrés.", "ok"); $("#k_brevo").value = "";
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function purgerSimulation(){
   const sim = etat.paiements.filter(p => /SIMULATION/.test(p.canal||""));
@@ -2598,7 +2626,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){

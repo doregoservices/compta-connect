@@ -605,3 +605,23 @@ end $$;
 -- 18) Nouvelle API CinetPay v1 (clé sk_test_/sk_live_ + mot de passe API) : jetons de notification et identifiant CinetPay
 alter table cc_transactions add column if not exists notify_token text;
 alter table cc_transactions add column if not exists cinetpay_id text;
+
+-- Journal des relances automatiques (serveur) — lecture trésorier, écriture service uniquement.
+create table if not exists cc_relances (
+  id bigserial primary key,
+  date date not null default current_date,
+  type text not null,                      -- appel | rappel | dernier | retard
+  membre_id bigint references cc_membres(id) on delete cascade,
+  canal text default 'aucun',              -- email | whatsapp | aucun
+  statut text default 'a_faire',           -- envoye | erreur | a_faire | fait
+  detail text default '',
+  reste integer default 0,
+  nb_mois integer default 1,
+  cree_le timestamptz default now()
+);
+alter table cc_relances enable row level security;
+drop policy if exists "lecture tresorier cc_relances" on cc_relances;
+create policy "lecture tresorier cc_relances" on cc_relances for select to authenticated using (cc_est_tresorier());
+drop policy if exists "maj tresorier cc_relances" on cc_relances;
+create policy "maj tresorier cc_relances" on cc_relances for update to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+create index if not exists cc_relances_date on cc_relances(date, type);
