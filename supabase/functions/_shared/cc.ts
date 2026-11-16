@@ -101,5 +101,50 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   }) });
   await db(`cc_transactions?id=eq.${t.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ statut: "ACCEPTEE", maj_le: new Date().toISOString(), montant_recu: montant, operateur: verif.operateur }) });
+  // Reçu automatique par e-mail (si le membre a une adresse et que Brevo est configuré) — jamais bloquant
+  try {
+    const [mb] = await db(`cc_membres?select=nom,email,telephone,matricule&id=eq.${t.membre_id}`) as { nom: string; email: string; telephone: string; matricule: string }[];
+    if (mb && /@/.test(mb.email || "") && (cfg.recu_email || "oui") !== "non") {
+      const objet = inscription ? "Droit d'adhésion" : t.appel_id ? detail.replace(/^APPEL /, "") : "Cotisation " + moisLibelle(t.mois);
+      const tel = String(mb.telephone || "").replace(/\D/g, "");
+      const lien = String(cfg.site_public || "https://comptaconnect.org/") + "#/payer?t=" + encodeURIComponent(tel);
+      const prenom = String(mb.nom || "").trim().split(/\s+/).pop() || "cher membre";
+      const html = `<p>Bonjour ${prenom},</p><p>Nous accusons réception de votre paiement. Merci pour votre engagement !</p>` +
+        `<table style="border-collapse:collapse;width:100%;font-size:14px">` +
+        `<tr><td style="padding:6px 0;color:#5c6b76">Objet</td><td style="padding:6px 0;text-align:right"><b>${objet}</b></td></tr>` +
+        `<tr><td style="padding:6px 0;color:#5c6b76">Montant</td><td style="padding:6px 0;text-align:right"><b>${fcfa(montant)} F CFA</b></td></tr>` +
+        `<tr><td style="padding:6px 0;color:#5c6b76">Moyen</td><td style="padding:6px 0;text-align:right">${verif.methode || "mobile money"}${verif.operateur ? " · " + verif.operateur : ""}</td></tr>` +
+        `<tr><td style="padding:6px 0;color:#5c6b76">Date</td><td style="padding:6px 0;text-align:right">${new Date().toLocaleDateString("fr-FR")}</td></tr>` +
+        `<tr><td style="padding:6px 0;color:#5c6b76">Référence</td><td style="padding:6px 0;text-align:right;font-family:monospace">${t.transaction_id}</td></tr></table>` +
+        `<p style="margin-top:16px"><a href="${lien}" style="background:#0B5A38;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;display:inline-block">Voir ma situation et télécharger le reçu</a></p>` +
+        `<p style="color:#5c6b76;font-size:13px">Ce reçu est généré automatiquement dès la confirmation de l'opérateur ; il fait foi pour la trésorerie du réseau.</p>`;
+      await envoyerEmail({ email: mb.email, nom: mb.nom }, `Reçu de paiement — ${objet} — ${fcfa(montant)} F`, html);
+    }
+  } catch { /* le reçu n'empêche jamais l'enregistrement */ }
   return { deja: false };
 }
+
+/* ------------------------------ E-mails (Brevo) ------------------------------ */
+/** Envoie un e-mail transactionnel via Brevo (secrets brevo_api_key / brevo_expediteur). Ne lève jamais : renvoie true/false. */
+export async function envoyerEmail(dest: { email: string; nom?: string }, sujet: string, html: string) {
+  try {
+    if (!/@/.test(dest.email || "")) return false;
+    const rows = await db("cc_secrets?select=cle,valeur&cle=in.(brevo_api_key,brevo_expediteur)") as { cle: string; valeur: string }[];
+    const s: Record<string, string> = {}; for (const r of rows) s[r.cle] = r.valeur;
+    if (!s.brevo_api_key) return false;
+    const cfg = await settings();
+    const reseau = cfg.reseau || "ComptaConnect", reponse = cfg.reponse_email || cfg.contact_email || "supportcomptaconnect@gmail.com";
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": s.brevo_api_key, "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: { name: reseau, email: s.brevo_expediteur || reponse }, replyTo: { email: reponse, name: reseau }, to: [{ email: dest.email, name: dest.nom || undefined }], subject: sujet, htmlContent: gabarit(reseau, html, cfg.site_public || "https://comptaconnect.org/") }) });
+    return r.ok;
+  } catch { return false; }
+}
+/** Habillage commun des e-mails (couleurs du réseau, pied de page). */
+export function gabarit(reseau: string, corps: string, site: string) {
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:auto;color:#1d2b25"><div style="background:#06301E;color:#fff;padding:14px 18px;border-radius:10px 10px 0 0"><b style="font-size:18px;letter-spacing:.5px">${reseau.toUpperCase().replace("CONNECT", '<span style="color:#B08A38">CONNECT</span>')}</b></div>` +
+    `<div style="border:1px solid #e3e8e6;border-top:0;padding:18px;border-radius:0 0 10px 10px;line-height:1.5">${corps}` +
+    `<p style="color:#5c6b76;font-size:12px;margin-top:22px;border-top:1px solid #eef2f0;padding-top:10px">Message automatique du réseau ${reseau} · <a href="${site}" style="color:#0B5A38">${site.replace(/^https?:\/\//, "").replace(/\/$/, "")}</a></p></div></div>`;
+}
+export const fcfa = (n: number) => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+const MOIS_FR = ["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
+export const moisLibelle = (m: string) => /^\d{4}-\d{2}/.test(m) ? MOIS_FR[parseInt(m.slice(5, 7), 10) - 1] + " " + m.slice(0, 4) : m;

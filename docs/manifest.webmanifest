@@ -1,0 +1,22 @@
+{
+  "name": "ComptaConnect — le réseau des professionnels de la comptabilité",
+  "short_name": "ComptaConnect",
+  "description": "Cotisations, carte de membre, questions-réponses, agenda et annuaire du réseau.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A1C2D",
+  "theme_color": "#0A1C2D",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ma carte de membre", "url": "./#/carte", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] },
+    { "name": "Questions & réponses", "url": "./#/questions" },
+    { "name": "Agenda", "url": "./#/agenda" }
+  ]
+}

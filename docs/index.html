@@ -2621,7 +2621,30 @@ function vueConnexion(){
     + '<div class="champ"><span>Email</span><input id="em" type="email" autocomplete="username"></div>'
     + '<div class="champ"><span>Mot de passe</span><input id="mdp" type="password" autocomplete="current-password"></div>'
     + '<button class="btn blk" onclick="faireConnexion()">Se connecter</button>'
-    + '<p class="mut">Le compte se crée dans Supabase → Authentication → Users → Add user.</p></div></main>';
+    + '<details style="margin-top:12px"><summary class="mut" style="cursor:pointer">Mot de passe oublié ? Recevoir un <strong>code à usage unique</strong> par e-mail</summary>'
+    + '<div id="otp_zone" style="margin-top:8px"><button class="btn sec" onclick="demanderCode()">Envoyer le code sur mon e-mail</button>'
+    + '<div class="champ" style="margin-top:8px"><span>Code reçu (6 chiffres)</span><input id="otp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••"></div>'
+    + '<button class="btn" onclick="verifierCode()">Me connecter avec le code</button><small class="mut">Valable 10 minutes, une seule fois. La session ainsi ouverte dure 12 h.</small></div></details>'
+    + '<p class="mut" style="margin-top:10px">Accès réservé au bureau : les comptes sont créés par l’administrateur.</p></div></main>';
+}
+async function demanderCode(){
+  const email = $("#em").value.trim(); if(!/@/.test(email)){ toast("Saisissez d’abord votre e-mail.", "err"); return; }
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/otp", { method:"POST", headers:{ "apikey": etat.cfg.anon, "Content-Type":"application/json" }, body: JSON.stringify({ action:"demander", email }) });
+    const j = await rep.json().catch(() => ({})); if(!rep.ok) throw new Error(j.erreur || "Envoi impossible");
+    toast(j.message || "Code envoyé.", "ok"); const c = $("#otp_code"); if(c) c.focus();
+  }catch(e){ toast(e.message, "err"); }
+}
+async function verifierCode(){
+  const email = $("#em").value.trim(), code = ($("#otp_code").value||"").replace(/\D/g,"");
+  if(code.length !== 6){ toast("Le code comporte 6 chiffres.", "err"); return; }
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/otp", { method:"POST", headers:{ "apikey": etat.cfg.anon, "Content-Type":"application/json" }, body: JSON.stringify({ action:"verifier", email, code }) });
+    const j = await rep.json().catch(() => ({})); if(!rep.ok || !j.access_token) throw new Error(j.erreur || "Code refusé");
+    etat.session = { token: j.access_token, refresh: null, email: j.email || email, expire: Date.now() + (j.expires_in||43200)*1000 };
+    localStorage.setItem("cc_session", JSON.stringify(etat.session));
+    await chargerRole(); await chargerDonnees(); toast("Bienvenue !", "ok"); aller("#/");
+  }catch(e){ toast(e.message, "err"); }
 }
 async function faireConnexion(){
   try{
@@ -3453,6 +3476,11 @@ function vueParametres(){
     + '<div class="champ"><span>Clé API Brevo (gratuit jusqu’à 300 e-mails/jour)</span><input id="k_brevo" type="password" placeholder="xkeysib-…" autocomplete="off"><small class="mut">Compte à créer sur brevo.com avec l’adresse du réseau ; l’expéditeur doit y être validé.</small></div>'
     + '<div class="champ"><span>Adresse expéditeur validée dans Brevo</span><input id="k_brevo_exp" value="" placeholder="supportcomptaconnect@gmail.com"></div>'
     + '<button class="btn sec" onclick="enregistrerBrevo()">Enregistrer Brevo</button>'
+    + '<div class="grille g2" style="margin-top:10px"><div class="champ"><span>Adresse de réponse (où arrivent les réponses des membres)</span><input id="s_reponse_email" value="'+ech(s.reponse_email||"")+'" placeholder="'+ech(s.contact_email||"supportcomptaconnect@gmail.com")+'"></div>'
+    + '<div class="champ"><span>Reçu automatique par e-mail après chaque paiement en ligne</span><select id="s_recu_email"><option value="oui"'+((s.recu_email||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.recu_email||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Rapport financier mensuel envoyé au bureau (le 1er du mois)</span><select id="s_rapport_email"><option value="oui"'+((s.rapport_email||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.rapport_email||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>E-mails de la révision annuelle aux auteurs (janvier)</span><select id="s_revision_email"><option value="oui"'+((s.revision_email||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.revision_email||"oui")==="non"?" selected":"")+'>non</option></select></div></div>'
+    + '<small class="mut">Les rappels d’agenda (veille à 8 h) et les relances suivent le réglage « Envoyer les relances par e-mail ». Ces réglages s’enregistrent avec le bouton « Enregistrer les paramètres ».</small>'
     + '<p class="mut" style="margin-top:10px">🧪 <strong>Tester sans compte CinetPay</strong> : saisissez <code>SIMULATION</code> comme API Key (Site ID : <code>0</code>). Le bouton « Payer en ligne » apparaît et ouvre une page de paiement simulée — aucun argent ne circule. Les paiements créés portent le canal « SIMULATION » ; supprimez-les ensuite d’un clic : '
     + '<a href="javascript:void(0)" onclick="purgerSimulation()">purger les paiements de simulation</a>.</p>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
@@ -3500,7 +3528,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){

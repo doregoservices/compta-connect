@@ -6,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "";
 const handlers = {};
 // Shim minimal de l'API Deno utilisée par les fonctions
 global.Deno = { env: { get: (k) => process.env[k] }, serve: (h) => { handlers[global.__fn] = h; } };
-for (const nom of ["cinetpay-init", "cinetpay-notify", "acces"]) {
+for (const nom of ["cinetpay-init", "cinetpay-notify", "acces", "otp"]) {
   global.__fn = nom; require(path.join(__dirname, "fonctions", nom + ".js"));
 }
 function jwtValide(tok) {

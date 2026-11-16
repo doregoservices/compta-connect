@@ -1182,3 +1182,25 @@ begin
 end $$;
 revoke all on function cc_inscrire_evenement(text,bigint,boolean) from public;
 grant execute on function cc_inscrire_evenement(text,bigint,boolean) to anon, authenticated;
+
+-- ============================================================
+-- Vague communication (Brevo) : codes de connexion à usage unique
+-- ============================================================
+create table if not exists cc_otp (
+  id bigserial primary key,
+  email text not null,
+  hache text not null,
+  essais int not null default 0,
+  utilise boolean not null default false,
+  expire_le timestamptz not null,
+  cree_le timestamptz not null default now()
+);
+alter table cc_otp enable row level security;   -- aucune politique : seul le service (serveur) y accède
+create index if not exists cc_otp_email_idx on cc_otp(email, cree_le desc);
+-- Retrouve un compte de connexion par e-mail (réservé au service)
+create or replace function cc_compte_par_email(p_email text)
+returns table(id uuid, email text) language sql security definer set search_path = public, auth as $$
+  select u.id, u.email::text from auth.users u where lower(u.email) = lower(p_email) and coalesce(u.banned_until, now() - interval '1 second') < now() limit 1
+$$;
+revoke all on function cc_compte_par_email(text) from public, anon, authenticated;
+grant execute on function cc_compte_par_email(text) to service_role;
