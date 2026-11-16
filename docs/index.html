@@ -1666,6 +1666,7 @@ function vuePayer(params){
     + (enAttente ? "" : carteRecus(m))
     + '</div><div class="col-aside">'
     + (enAttente ? "" : '<p style="margin:0 0 12px"><a class="btn sm sec" href="#/carte?t='+encodeURIComponent(idMembre(m))+'">🪪 Ma carte de membre (QR, hors ligne)</a> '+((etat.settings.agenda||"oui") !== "non" ? '<a class="btn sm sec" href="#/agenda?t='+encodeURIComponent(idMembre(m))+'">📅 Agenda</a>' : '')+'</p>')
+    + (enAttente ? "" : carteNotifications(m))
     + (enAttente ? "" : carteFiche(m))
     + (enAttente ? "" : sectionAnnonces(2))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
@@ -1683,6 +1684,59 @@ function vuePayer(params){
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
     + '</div></div>'
     + '</main>';
+}
+/* Notifications push : activation en un clic (clé publique VAPID dans Paramètres, abonnement enregistré par cc_push_abonner) */
+function pushDisponible(){ return !!(etat.settings.vapid_public && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window && /^https:/.test(location.protocol)); }
+function carteNotifications(m){
+  if(!etat.settings.vapid_public) return "";
+  const ios = /iphone|ipad/i.test(navigator.userAgent) && !window.matchMedia("(display-mode: standalone)").matches;
+  const etatN = !("Notification" in window) ? "indisponible" : Notification.permission;
+  if(etatN === "denied") return '<div class="carte"><h3>🔔 Notifications</h3><p class="mut">Vous avez bloqué les notifications pour ce site. Pour les réactiver : réglages du navigateur → Notifications → autoriser comptaconnect.org.</p></div>';
+  if(!pushDisponible() || ios) return '<div class="carte"><h3>🔔 Notifications</h3><p class="mut">'+(ios ? 'Sur iPhone, installez d’abord l’application (Partager → « Sur l’écran d’accueil »), puis revenez ici pour activer les rappels.' : 'Votre navigateur ne prend pas en charge les notifications ; l’e-mail reste actif.')+'</p></div>';
+  const actif = localStorage.getItem("cc_push_ok") === String(m.id);
+  return '<div class="carte" id="carteNotif"><h3>🔔 Notifications</h3>'
+    + (actif ? '<p class="mut">Rappels de cotisation, agenda et annonces arrivent directement sur cet appareil. ✅</p><button class="btn sm sec" onclick="desactiverPush(\''+ech(idMembre(m))+'\')">Désactiver sur cet appareil</button>'
+             : '<p class="mut">Recevez les rappels de cotisation, les événements et les annonces du bureau sur votre téléphone, sans WhatsApp ni e-mail.</p><button class="btn sm" onclick="activerPush(\''+ech(idMembre(m))+'\')">Activer les notifications</button>')
+    + '</div>';
+}
+function b64ToU8(b){ const p = "=".repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); }
+async function activerPush(identifiant){
+  const m = trouverMembre(identifiant); if(!m) return;
+  try{
+    const perm = await Notification.requestPermission(); if(perm !== "granted"){ toast("Notifications refusées par le navigateur.", "err"); rendu(); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(etat.settings.vapid_public) });
+    const r = await sb("rpc/cc_push_abonner", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_sub: sub.toJSON(), p_nav: navigator.userAgent.slice(0,120) }) });
+    if(!r || !r.ok) throw new Error(r && r.motif === "inconnu" ? "fiche sans téléphone : contactez le trésorier" : "enregistrement refusé");
+    localStorage.setItem("cc_push_ok", String(m.id)); toast("Notifications activées ✅", "ok"); rendu();
+  }catch(e){ toast("Activation impossible : "+e.message, "err"); }
+}
+async function desactiverPush(identifiant){
+  try{ const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription();
+    if(sub){ await sb("rpc/cc_push_desabonner", { method:"POST", body: JSON.stringify({ p_endpoint: sub.endpoint }) }).catch(()=>null); await sub.unsubscribe(); }
+    localStorage.removeItem("cc_push_ok"); toast("Notifications désactivées sur cet appareil.", "ok"); rendu();
+  }catch(e){ toast(e.message, "err"); }
+}
+/* Trésorier : envoi d'une notification à tous les appareils abonnés (ou aux membres ciblés) */
+function carteNotifAdmin(){
+  if(!etat.settings.vapid_public) return '<div class="carte"><h3>🔔 Notifications push</h3><p class="mut">Pas encore activées sur le serveur (clés VAPID absentes).</p></div>';
+  setTimeout(async () => { try{ const r = await sb("rpc/cc_push_stats", { method:"POST", body:"{}" }); const z = $("#pushStats"); if(z && r) z.textContent = r.appareils+" appareil"+(r.appareils>1?"s":"")+" · "+r.membres+" membre"+(r.membres>1?"s":"")+" abonné"+(r.membres>1?"s":""); }catch(e){} }, 0);
+  return '<div class="carte"><h3>🔔 Notification à tous les membres</h3><p class="mut" id="pushStats">…</p>'
+    + '<div class="champ"><span>Titre</span><input id="pushTitre" placeholder="Ex. : Formation samedi à 10 h" maxlength="80"></div>'
+    + '<div class="champ"><span>Message (300 caractères max)</span><textarea id="pushCorps" rows="2" maxlength="300" placeholder="Ex. : Inscrivez-vous depuis l’agenda, places limitées."></textarea></div>'
+    + '<div class="champ"><span>Page ouverte au clic (facultatif)</span><select id="pushUrl"><option value="/#/">Page du membre / accueil</option><option value="/#/agenda">Agenda</option><option value="/#/questions">Questions & réponses</option><option value="/#/formation">Formation</option><option value="/#/annonces">Annonces</option></select></div>'
+    + '<button class="btn sm" onclick="envoyerPushAdmin()">Envoyer la notification</button> <span class="mut">Arrive sur les téléphones même application fermée ; les membres sans abonnement ne la voient pas (e-mail/WhatsApp restent les canaux de secours).</span></div>';
+}
+async function envoyerPushAdmin(){
+  const titre = $("#pushTitre").value.trim(), corps = $("#pushCorps").value.trim(), url = $("#pushUrl").value;
+  if(!corps){ toast("Écrivez le message.", "err"); return; }
+  if(!confirm("Envoyer cette notification à tous les appareils abonnés ?")) return;
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/push", { method:"POST", headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.session.token, "Content-Type":"application/json" }, body: JSON.stringify({ titre, corps, url }) });
+    const j = await rep.json().catch(() => ({})); if(!rep.ok) throw new Error(j.erreur || "envoi refusé");
+    toast("Notification envoyée : "+j.envoyes+" appareil(s)"+(j.desactives ? ", "+j.desactives+" désabonné(s) nettoyé(s)" : ""), "ok"); $("#pushTitre").value = ""; $("#pushCorps").value = "";
+  }catch(e){ toast(e.message, "err"); }
 }
 /* Informations non sensibles que le membre complète/corrige lui-même (le téléphone, le matricule, la cotisation restent au trésorier) */
 const CHAMPS_FICHE = [["nom","Nom et prénoms"],["specialite","Fonction / profession"],["employeur","Cabinet ou employeur"],["pays","Pays"],["ville","Ville / commune"],["email","Adresse e-mail"]];
@@ -2838,6 +2892,7 @@ function vueTableauBord(){
     + carteNatureTresorier()
     + carteRevisionTresorier()
     + '</div><div class="col-aside">'
+    + carteNotifAdmin()
     + carteDefi()
     + cartePalmaresTresorier()
     + carteAnniversairesTresorier()

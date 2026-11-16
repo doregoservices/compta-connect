@@ -18,7 +18,9 @@ const lib = m => MOIS[parseInt(m.slice(5), 10) - 1] + " " + m.slice(0, 4);
 const fcfa = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/); return x ? x[1] + "-" + x[2].padStart(2, "0") : null; };
 
-let S = {}, SEC = {};                                                 // paramètres publics / secrets (chargés au démarrage)
+let S = {}, SEC = {};
+let push = null; try { push = require("./push.js"); } catch (e) { console.warn("push indisponible :", e.message); }
+const notifier = async (ids, msg) => { try { return push ? await push.envoyer(ids, msg) : null; } catch (e) { console.warn("push :", e.message); return null; } };                                                 // paramètres publics / secrets (chargés au démarrage)
 /* Envoi d'un e-mail via Brevo : habillage commun, « Répondre à » = adresse du réseau. Renvoie true/false, ne lève jamais. */
 async function mail(dest, sujet, corps){
   try {
@@ -107,7 +109,8 @@ async function rappelsAgenda(emailActif, exp, reseau, auj){
       for (const m of ms) { if (!/@/.test(m.email || "")) continue;
         const html = `<p>Bonjour ${m.nom.split(" ")[0]},</p><p>Petit rappel : <strong>${e.titre}</strong> a lieu <strong>demain ${demain.slice(8,10)}/${demain.slice(5,7)}</strong>${e.heure ? " à " + e.heure : ""}${e.lieu ? " — " + e.lieu : ""}.</p>${e.description ? "<p>" + e.description.replace(/\n/g, "<br>") + "</p>" : ""}${e.lien ? `<p>Lien : <a href="${e.lien}">${e.lien}</a></p>` : ""}<p>À demain !<br>Le bureau du réseau ${reseau}</p>`;
         if (await mail(m, `Rappel : ${e.titre} — demain`, html)) n++; }
-      console.log(`agenda : « ${e.titre} » demain — ${n} rappel(s) e-mail envoyé(s)`);
+      const pr = await notifier(ids, { title: "Rappel : " + e.titre, body: "Demain" + (e.heure ? " à " + e.heure : "") + (e.lieu ? " — " + e.lieu : ""), url: "/#/agenda" });
+      console.log(`agenda : « ${e.titre} » demain — ${n} rappel(s) e-mail envoyé(s)` + (pr ? `, ${pr.envoyes} notification(s) push` : ""));
     }
   } catch (e) { console.warn("agenda : rappels impossibles —", e.message); }
 }
@@ -176,5 +179,8 @@ async function rappelsAgenda(emailActif, exp, reseau, auj){
     } else sans++;
     await db("cc_relances", { method: "POST", body: JSON.stringify({ date: auj.toISOString().slice(0, 10), type, membre_id: c.m.id, canal, statut, detail, reste: c.reste, nb_mois: type === "retard" ? c.retard.length : 1 }) });
   }
+  const titres = { appel: "Cotisation du mois à régler", rappel: "Rappel : cotisation du mois", dernier: "Dernier rappel avant retard", retard: "Cotisation en retard" };
+  const pr = await notifier(aujourdhui.map(c => c.m.id), { title: titres[type] || "ComptaConnect", body: "Payez en un clic depuis votre page membre (Wave, Orange, MTN, Moov).", url: "/#/" });
+  if (pr) console.log(`relance « ${type} » : ${pr.envoyes} notification(s) push, ${pr.appareils} appareil(s)`);
   console.log(new Date().toISOString(), `relance « ${type} » : ${aujourdhui.length} membre(s) traités — e-mails envoyés ${ok}, erreurs ${err}, sans e-mail (WhatsApp trésorier) ${sans}` + (reportes ? `, ${reportes} reportés à demain (plafond ${MAX}/jour)` : ""));
 })().catch(e => { console.error("relances : échec —", e.message); process.exit(1); });

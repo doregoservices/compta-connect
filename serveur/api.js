@@ -4,6 +4,13 @@ const http = require("http"), fs = require("fs"), path = require("path"), crypto
 const PORT = 8788, PHOTOS = process.env.PHOTOS_DIR || "/var/lib/comptaconnect/photos";
 const JWT_SECRET = process.env.JWT_SECRET || "";
 const handlers = {};
+let push = null; try { push = require(path.join(__dirname, "push.js")); } catch (e) { console.warn("push indisponible :", e.message); }
+const SB = process.env.SUPABASE_URL || "http://127.0.0.1:3000", SBREST = SB.startsWith("http://127") ? SB : SB + "/rest/v1", ANON = process.env.SUPABASE_ANON_KEY || "";
+/* Le porteur du jeton est-il trésorier/fondateur ? (vérifié par la base, jamais par le client) */
+async function estTresorier(tok) {
+  try { const r = await fetch(SBREST + "/rpc/cc_mon_role", { method: "POST", headers: { apikey: ANON || tok, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: "{}" });
+    if (!r.ok) return false; const role = JSON.parse(await r.text()); return ["tresorier", "fondateur", "lecture"].includes(String(role)) && String(role) !== "lecture"; } catch { return false; }
+}
 // Shim minimal de l'API Deno utilisée par les fonctions
 global.Deno = { env: { get: (k) => process.env[k] }, serve: (h) => { handlers[global.__fn] = h; } };
 for (const nom of ["cinetpay-init", "cinetpay-notify", "acces", "otp"]) {
@@ -20,6 +27,17 @@ http.createServer(async (req, res) => {
   const fin = (code, obj) => { res.writeHead(code, { ...cors, "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
   try {
     let m;
+    // Notification push envoyée par le bureau : POST /functions/v1/push { titre, corps, url, membres?: [ids] }
+    if (url.pathname === "/functions/v1/push" && req.method === "POST") {
+      const tok = (req.headers.authorization || "").replace(/^Bearer\s+/i, ""); if (!jwtValide(tok) || !(await estTresorier(tok))) return fin(401, { erreur: "réservé au bureau" });
+      if (!push) return fin(503, { erreur: "module push absent sur le serveur" });
+      let b = {}; try { b = JSON.parse(corps.toString() || "{}"); } catch { return fin(400, { erreur: "JSON invalide" }); }
+      const titre = String(b.titre || "").trim().slice(0, 80), texte = String(b.corps || "").trim().slice(0, 300);
+      if (!texte) return fin(400, { erreur: "message vide" });
+      const ids = Array.isArray(b.membres) && b.membres.length ? b.membres.map(Number).filter(Boolean) : null;
+      const r = await push.envoyer(ids, { title: titre || undefined, body: texte, url: String(b.url || "/").slice(0, 300) });
+      return fin(200, r);
+    }
     if ((m = url.pathname.match(/^\/functions\/v1\/([a-z0-9-]+)\/?$/))) {
       const h = handlers[m[1]]; if (!h) return fin(404, { erreur: "fonction inconnue" });
       const rq = new Request("https://comptaconnect.org" + req.url, { method: req.method, headers: req.headers, body: ["GET", "HEAD"].includes(req.method) ? undefined : corps });
@@ -33,7 +51,7 @@ http.createServer(async (req, res) => {
       const dest = path.join(PHOTOS, rel); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, corps);
       return fin(200, { Key: "cc_photos/" + rel });
     }
-    if (url.pathname === "/sante") return fin(200, { ok: true, fonctions: Object.keys(handlers) });
+    if (url.pathname === "/sante") return fin(200, { ok: true, fonctions: Object.keys(handlers), push: !!push });
     fin(404, { erreur: "introuvable" });
   } catch (e) { fin(500, { erreur: String(e && e.message || e) }); }
 }).listen(PORT, "127.0.0.1", () => console.log("API ComptaConnect prête sur 127.0.0.1:" + PORT, Object.keys(handlers)));

@@ -1204,3 +1204,45 @@ returns table(id uuid, email text) language sql security definer set search_path
 $$;
 revoke all on function cc_compte_par_email(text) from public, anon, authenticated;
 grant execute on function cc_compte_par_email(text) to service_role;
+
+-- ============================================================
+-- Notifications push (Web Push / VAPID)
+-- ============================================================
+create table if not exists cc_push (
+  id bigserial primary key,
+  membre_id bigint references cc_membres(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  navigateur text default '',
+  actif boolean not null default true,
+  cree_le timestamptz not null default now(),
+  dernier_envoi timestamptz
+);
+alter table cc_push enable row level security;   -- aucune politique : accès uniquement via les fonctions ci-dessous et le service
+-- Le membre (identifié par son téléphone) enregistre l'abonnement de son appareil
+create or replace function cc_push_abonner(p_tel text, p_sub json, p_nav text default '') returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_end text := p_sub->>'endpoint';
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if v_end is null or length(v_end) < 20 or p_sub->'keys'->>'p256dh' is null or p_sub->'keys'->>'auth' is null then return json_build_object('ok', false, 'motif', 'abonnement'); end if;
+  select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if not found then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  insert into cc_push (membre_id, endpoint, p256dh, auth, navigateur)
+    values (v_m.id, v_end, p_sub->'keys'->>'p256dh', p_sub->'keys'->>'auth', left(coalesce(p_nav,''), 120))
+    on conflict (endpoint) do update set membre_id = excluded.membre_id, p256dh = excluded.p256dh, auth = excluded.auth, actif = true, navigateur = excluded.navigateur;
+  return json_build_object('ok', true);
+end $$;
+create or replace function cc_push_desabonner(p_endpoint text) returns json
+language sql security definer set search_path = public as $$
+  update cc_push set actif = false where endpoint = p_endpoint returning json_build_object('ok', true)
+$$;
+revoke all on function cc_push_abonner(text,json,text) from public; grant execute on function cc_push_abonner(text,json,text) to anon, authenticated;
+revoke all on function cc_push_desabonner(text) from public; grant execute on function cc_push_desabonner(text) to anon, authenticated;
+-- Vue trésorier : nombre d'appareils abonnés
+create or replace function cc_push_stats() returns json language sql security definer set search_path = public as $$
+  select json_build_object('appareils', count(*) filter (where actif), 'membres', count(distinct membre_id) filter (where actif)) from cc_push
+$$;
+grant execute on function cc_push_stats() to authenticated;
+grant all on cc_push to service_role; grant usage, select on sequence cc_push_id_seq to service_role;
