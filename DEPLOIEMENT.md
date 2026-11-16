@@ -388,5 +388,5 @@ Sur le serveur Hetzner (`2.31.173.29`), tout tourne en local derrière Caddy (`h
 - Rôles PostgreSQL : `anon`, `authenticated`, `service_role` (BYPASSRLS), `authenticator`, `supabase_auth_admin` ; fonctions `auth.uid()/role()/jwt()/email()` recréées → les politiques RLS d'origine s'appliquent sans modification.
 - Mise à jour du code : `git push` → `sync-comptaconnect` (cron 2 min) met à jour le site ; pour les fonctions : `bash /opt/comptaconnect/construire_fonctions.sh && systemctl restart cc-api`.
 - SQL : `sudo -u postgres psql -d comptaconnect`.
-- Sauvegarde : `serveur/sauvegarde.sh` (cron 03:00) → `/var/backups/comptaconnect` (30 jours). Copie hors serveur (Drive du réseau) : à brancher avec rclone.
+- Sauvegarde : `serveur/sauvegarde.sh` (cron 03:00) → `/var/backups/comptaconnect` (30 jours), puis `serveur/envoyer_drive.py` (cron 03:10) → dossier « Sauvegardes ComptaConnect » du Google Drive de doregoservices@gmail.com (60 jours ; OAuth portée `drive.file`, projet Google `comptaconnect-514914`, identifiants dans `/etc/comptaconnect/gdrive_oauth.json`). Journal : `/var/log/comptaconnect-sauvegarde.log`. Restauration : `pg_restore -d comptaconnect -c fichier.dump`.
 - Ancien projet Supabase `ewcxndlelagtrlshadlj` : conservé gelé comme copie de secours (données au 16/11/2026).
