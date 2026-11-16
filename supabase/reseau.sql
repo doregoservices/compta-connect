@@ -781,3 +781,25 @@ $$;
 revoke all on function cc_repondre(text,bigint,text), cc_valider_reponse(text,bigint,text), cc_reponses_a_valider(text), cc_mes_reponses(text) from public;
 grant execute on function cc_repondre(text,bigint,text), cc_valider_reponse(text,bigint,text), cc_reponses_a_valider(text), cc_mes_reponses(text) to anon, authenticated;
 revoke all on function cc_membre_par_tel(text), cc_est_validateur_qr(cc_membres) from public;
+
+-- Q/R v3 : base de connaissances + animation. Question et réponse postées ensemble possibles ; mots-clés ; 1 validation par défaut.
+alter table cc_questions add column if not exists tags text default '';
+update cc_settings set valeur = '1' where cle = 'qr_validations_min' and valeur = '2';
+insert into cc_settings (cle, valeur) values ('palmares', 'oui'), ('palmares_prime', ''),
+  ('pts_reponse', '5'), ('pts_question', '2'), ('pts_validation', '1'), ('pts_paiement_mois', '3'), ('pts_paiement_avance', '4'), ('pts_fiche', '2')
+  on conflict (cle) do nothing;
+create or replace function cc_poser_question(p_tel text, p_question text, p_anonyme boolean default false, p_reponse text default null, p_tags text default null) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_id bigint;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_question,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if (select count(*) from cc_questions where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 5 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  insert into cc_questions (membre_id, question, anonyme, tags) values (v_m.id, left(trim(p_question), 1000), coalesce(p_anonyme, false), left(lower(trim(coalesce(p_tags,''))), 200)) returning id into v_id;
+  if length(trim(coalesce(p_reponse,''))) >= 10 then insert into cc_reponses (question_id, membre_id, texte) values (v_id, v_m.id, left(trim(p_reponse), 3000)); end if;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+drop function if exists cc_poser_question(text, text, boolean);
+revoke all on function cc_poser_question(text,text,boolean,text,text) from public;
+grant execute on function cc_poser_question(text,text,boolean,text,text) to anon, authenticated;

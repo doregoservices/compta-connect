@@ -1351,7 +1351,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1375,6 +1375,7 @@ function rendu(){
     else if(route === "rencontres") corps = vueRencontres(params);
     else if(route === "formation") corps = vueFormation(params);
     else if(route === "questions") corps = vueQuestions(params);
+    else if(route === "palmares") corps = vuePalmares(params);
     else if(route === "appel") corps = vueAppelPublic(params);
     else if(route === "annonces") corps = vueAnnonces(params);
     else if(route === "marche" && !etat.session) corps = vueMarche(params);
@@ -1521,6 +1522,7 @@ function vuePayer(params){
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
+    + (enAttente ? "" : carteMesPoints(m))
     + (enAttente ? "" : carteFormationMembre(m))
     + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau, ou répondez aux questions des autres membres : les réponses validées par les validateurs du bureau sont publiées pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
@@ -1679,6 +1681,74 @@ function carteAnniversairesTresorier(){
     + '</div>';
 }
 
+/* --------------------------- Points, badges, palmarès --------------------------- */
+const BADGES = {
+  contributeur:["🧩","Contributeur","3 réponses validées"], expert:["🎓","Expert","10 réponses validées"], validateur:["✔️","Validateur","a validé des réponses"],
+  curieux:["❓","Curieux","3 questions publiées"], ponctuel:["⏱️","Ponctuel","3 mois de suite payés dans le mois"], fidele:["💎","Fidèle","12 mois réglés"],
+  avance:["🚀","Prévoyant","a payé en avance"], pionnier:["🌱","Pionnier","parmi les 100 premiers membres"], profil:["🪪","Profil complet","fiche et photo à jour"] };
+function pts(cle, defaut){ const v = parseInt(etat.settings["pts_"+cle]||"",10); return isNaN(v) ? defaut : v; }
+function trimestreDe(d){ d = d || new Date(); const t = Math.floor(d.getMonth()/3); return { cle: d.getFullYear()+"-T"+(t+1), debut: d.getFullYear()+"-"+String(t*3+1).padStart(2,"0")+"-01", fin: d.getFullYear()+"-"+String(t*3+3).padStart(2,"0")+"-31", libelle: (t+1)+(t?"ᵉ":"ᵉʳ")+" trimestre "+d.getFullYear() }; }
+function trimestrePrecedent(){ const d = new Date(); d.setMonth(d.getMonth()-3); return trimestreDe(d); }
+/* Score de tous les membres : points cumulés + points du trimestre (paiement / contribution séparés) + badges. */
+function scoresTous(tri){
+  tri = tri || trimestreDe(); const S = {}; const tol = jourTolerance();
+  const dansTri = d => d && String(d).slice(0,10) >= tri.debut && String(d).slice(0,10) <= tri.fin;
+  for(const m of etat.membres){ S[m.id] = { m, total:0, tri_paiement:0, tri_contrib:0, rep:0, quest:0, valid:0, badges:[], suite:0, mois_ok:0, avance:false }; }
+  const add = (id, n, type, date) => { const x = S[id]; if(!x) return; x.total += n; if(dansTri(date)) x[type === "p" ? "tri_paiement" : "tri_contrib"] += n; };
+  // contributions
+  for(const r of (etat.reponses||[])){ if(!r.publie) continue; add(r.membre_id, pts("reponse",5), "c", r.cree_le); if(S[r.membre_id]) S[r.membre_id].rep++;
+    for(const v of (r.validations||[])){ add(v.membre_id, pts("validation",1), "c", v.date); if(S[v.membre_id]) S[v.membre_id].valid++; } }
+  for(const q of (etat.questions||[])){ if((etat.reponses||[]).some(r => r.question_id === q.id && r.publie)){ add(q.membre_id, pts("question",2), "c", q.cree_le); if(S[q.membre_id]) S[q.membre_id].quest++; } }
+  // paiements : dans le mois (+3) / en avance (+4) ; suite de mois ponctuels
+  const parMembre = {}; for(const p of etat.paiements){ if(!p.mois || !p.date) continue; (parMembre[p.membre_id] = parMembre[p.membre_id] || []).push(p); }
+  for(const [id, L] of Object.entries(parMembre)){ const x = S[id]; if(!x) continue; const moisOK = new Set(), moisAv = new Set();
+    for(const p of L){ const mois = normaliserMois(p.mois), d = String(p.date).slice(0,10), moisPaie = d.slice(0,7);
+      if(moisPaie < mois){ moisAv.add(mois); } else if(moisPaie === mois || (moisPaie === moisSuivant(mois) && parseInt(d.slice(8,10),10) <= tol)){ moisOK.add(mois); } }
+    for(const mois of moisAv){ add(id, pts("paiement_avance",4), "p", mois+"-01"); x.avance = true; }
+    for(const mois of moisOK){ if(!moisAv.has(mois)) add(id, pts("paiement_mois",3), "p", mois+"-01"); }
+    const tous = [...new Set([...moisOK, ...moisAv])].sort(); x.mois_ok = tous.length; let suite = 0, max = 0;
+    for(let i = 0; i < tous.length; i++){ suite = (i && tous[i] === moisSuivant(tous[i-1])) ? suite+1 : 1; if(suite > max) max = suite; } x.suite = max; }
+  // fiche / badges
+  for(const x of Object.values(S)){ const m = x.m;
+    if(!champsManquants(m).length && m.photo_url){ x.total += pts("fiche",2); x.badges.push("profil"); }
+    if(x.rep >= 10) x.badges.push("expert"); else if(x.rep >= 3) x.badges.push("contributeur");
+    if(x.valid >= 1) x.badges.push("validateur"); if(x.quest >= 3) x.badges.push("curieux");
+    if(x.suite >= 3) x.badges.push("ponctuel"); if(x.mois_ok >= 12) x.badges.push("fidele"); if(x.avance) x.badges.push("avance");
+    if(parseInt(m.id,10) <= 100 || (m.code && parseInt(String(m.code).replace(/\D/g,""),10) <= 100)) x.badges.push("pionnier"); }
+  return S;
+}
+function badgesHTML(sc, compact){ if(!sc || !sc.badges.length) return compact ? "" : '<span class="mut">pas encore de badge</span>'; return sc.badges.map(b => '<span class="badge b-neutre" title="'+BADGES[b][1]+' — '+BADGES[b][2]+'">'+BADGES[b][0]+(compact ? '' : ' '+BADGES[b][1])+'</span>').join(" "); }
+function palmares(tri){ const S = scoresTous(tri); const L = Object.values(S).filter(x => x.m.actif);
+  return { payeurs: L.filter(x => x.tri_paiement > 0).sort((a,b) => b.tri_paiement - a.tri_paiement || b.total - a.total || a.m.nom.localeCompare(b.m.nom)).slice(0,3),
+    contributeurs: L.filter(x => x.tri_contrib > 0).sort((a,b) => b.tri_contrib - a.tri_contrib || b.total - a.total || a.m.nom.localeCompare(b.m.nom)).slice(0,3),
+    general: L.sort((a,b) => b.total - a.total).slice(0,10), S }; }
+function vuePalmares(params){
+  const tri = params.tri === "precedent" ? trimestrePrecedent() : trimestreDe(), P = palmares(tri), prime = etat.settings.palmares_prime || "";
+  const medaille = i => ["🥇","🥈","🥉"][i] || "";
+  const colonne = (titre, L, cle, unite) => '<div class="carte"><h3>'+titre+'</h3>'+(L.length ? L.map((x,i) => '<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #f0f0f0"><span style="font-size:22px">'+medaille(i)+'</span>'+avatar(x.m,"sm")+'<div style="flex:1"><strong>'+ech(x.m.nom)+'</strong><div class="mut">'+x[cle]+' pt'+(x[cle]>1?'s':'')+' · '+unite(x)+'</div><div>'+badgesHTML(x, true)+'</div></div></div>').join("") : '<p class="mut">Pas encore de points ce trimestre.</p>')+'</div>';
+  return '<main><div class="carte"><h3>🏆 Palmarès — '+tri.libelle+'</h3>'
+    + '<p class="mut">Chaque trimestre, le réseau met à l’honneur ses <strong>3 meilleurs payeurs</strong> (cotisations réglées dans le mois ou en avance) et ses <strong>3 meilleurs contributeurs</strong> (questions, réponses validées, validations). Un membre peut cumuler plusieurs badges.'+(prime ? ' <strong>Prime du trimestre : '+ech(prime)+'</strong>' : '')+'</p>'
+    + '<p><a class="btn sm sec" href="#/palmares">Trimestre en cours</a> <a class="btn sm sec" href="#/palmares?tri=precedent">Trimestre précédent</a></p></div>'
+    + '<div class="grille g2">'+colonne("💰 Meilleurs payeurs", P.payeurs, "tri_paiement", x => x.mois_ok+" mois réglés à temps")+colonne("🧠 Meilleurs contributeurs", P.contributeurs, "tri_contrib", x => x.rep+" réponse"+(x.rep>1?"s":"")+" · "+x.quest+" question"+(x.quest>1?"s":""))+'</div>'
+    + '<div class="carte"><h3>Classement général (points cumulés)</h3><div class="survol"><table><tr><th>#</th><th>Membre</th><th>Points</th><th>Badges</th></tr>'+P.general.map((x,i) => '<tr><td>'+(i+1)+'</td><td>'+ech(x.m.nom)+'</td><td><strong>'+x.total+'</strong></td><td>'+badgesHTML(x, true)+'</td></tr>').join("")+'</table></div>'
+    + '<p class="mut" style="margin-top:8px">Barème : réponse validée +'+pts("reponse",5)+' · question publiée +'+pts("question",2)+' · validation +'+pts("validation",1)+' · cotisation dans le mois +'+pts("paiement_mois",3)+' · en avance +'+pts("paiement_avance",4)+' · profil complet +'+pts("fiche",2)+'.</p>'
+    + '<p class="mut">Badges : '+Object.values(BADGES).map(b => b[0]+' '+b[1]+' ('+b[2]+')').join(" · ")+'</p></div></main>';
+}
+function carteMesPoints(m){
+  if((etat.settings.palmares||"oui") === "non") return "";
+  const S = scoresTous(), x = S[m.id]; if(!x) return "";
+  const rang = Object.values(S).filter(y => y.m.actif && y.total > x.total).length + 1;
+  return '<div class="carte"><h3>🏅 Mes points &amp; badges</h3><p><strong>'+x.total+' points</strong> · '+rang+'ᵉ du réseau · ce trimestre : '+x.tri_paiement+' pts paiement, '+x.tri_contrib+' pts contribution</p><p>'+badgesHTML(x)+'</p>'
+    + '<p class="mut">Gagnez des points en payant dans le mois ou en avance, en complétant votre fiche, et en contribuant aux <a href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">questions &amp; réponses</a>. <a href="#/palmares">Voir le palmarès</a></p></div>';
+}
+function cartePalmaresTresorier(){
+  if((etat.settings.palmares||"oui") === "non") return "";
+  const tri = trimestreDe(), P = palmares(tri), nom = x => x.m.nom;
+  const texte = "🏆 Palmarès "+tri.libelle+" — "+(etat.settings.reseau||"ComptaConnect")+"\n\n💰 Meilleurs payeurs :\n"+P.payeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+nom(x)).join("\n")+"\n\n🧠 Meilleurs contributeurs :\n"+P.contributeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+nom(x)).join("\n")+(etat.settings.palmares_prime ? "\n\n🎁 Prime : "+etat.settings.palmares_prime : "")+"\n\nBravo à tous ! Détail : "+location.origin+location.pathname+"#/palmares";
+  return '<div class="carte" style="margin-top:14px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">🏆 Palmarès '+tri.libelle+'</h3><span style="flex:1"></span><a class="btn sm" style="background:#25D366" href="https://wa.me/?text='+encodeURIComponent(texte)+'" target="_blank" rel="noopener">Annoncer sur WhatsApp</a><a class="btn sm sec" href="#/palmares">Voir</a></div>'
+    + '<p class="mut" style="margin-top:6px">Payeurs : '+(P.payeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+ech(nom(x))).join(" · ")||"—")+'<br>Contributeurs : '+(P.contributeurs.map((x,i) => ["🥇","🥈","🥉"][i]+" "+ech(nom(x))).join(" · ")||"—")+'</p></div>';
+}
+
 /* --------------------------- Questions / Réponses (contributions des membres) --------------------------- */
 function estValidateurQR(m){ const tels = (etat.settings.qr_validateurs||"").replace(/\D/g,",").split(",").filter(Boolean); const t = String(m && m.telephone||"").replace(/\D/g,""); return !!t && tels.some(x => x === t || x === "225"+t || "225"+x === t); }
 function vueQuestions(params){
@@ -1690,23 +1760,31 @@ function vueQuestions(params){
     Promise.all([ valid ? sb("rpc/cc_reponses_a_valider", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) : [], sb("rpc/cc_mes_reponses", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) ])
       .then(([a, b]) => { etat._qrAttente = a||[]; etat._qrMiennes = b||[]; if(etat.route === "questions") rendu(); }).catch(()=>{}); }
   const attente = m ? (etat._qrAttente||[]) : [], miennes = m ? (etat._qrMiennes||[]) : [];
-  const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+ech(nomDe(r.membre_id))+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
+  const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+auteur(r.membre_id)+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
     + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+'</div></div>';
   const blocAttente = r => { const q = qs.find(x => x.id === r.question_id); const deja = (r.validations||[]).some(v => v.membre_id === m.id);
     return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'
       + '<div class="mut">'+(r.validations||[]).length+' / '+minV+' validation'+(minV>1?'s':'')+(r.validations.length ? ' — '+r.validations.map(v => ech(v.nom)).join(", ") : '')+'</div>'
       + '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'+(r.membre_id === m.id ? '<span class="mut">votre propre réponse</span>' : deja ? '<span class="badge b-paye">vous avez validé</span>' : '<button class="btn sm" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'valider\')">✔ Valider</button>')
       + '<button class="btn sm dgr" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'refuser\')">Refuser (supprimer)</button></div></div>'; };
+  const q0 = accentMin(params.q||""), scores = scoresTous();
+  const auteur = id => { const x = etat.membres.find(y => y.id === id); return x ? ech(x.nom)+' '+badgesHTML(scores[x.id], true) : "Un membre"; };
+  const visibles = qs.filter(q => !q0 || accentMin(q.question+" "+(q.tags||"")+" "+reps.filter(r => r.question_id === q.id && r.publie).map(r => r.texte).join(" ")).includes(q0));
   return '<main><div class="carte"><h3>❓ Questions &amp; réponses du réseau</h3>'
-    + '<p class="mut">Les membres posent leurs questions (fiscalité, comptabilité, vie professionnelle…) et <strong>les membres y répondent</strong>. Une réponse devient publique après validation par <strong>'+minV+' validateurs</strong> désignés par le bureau (nom et date de chaque validation affichés).</p>'
-    + (m ? '<p>Vous êtes <strong>'+ech(m.nom)+'</strong>'+(valid ? ' <span class="badge b-avance">validateur</span>' : '')+'</p><div class="champ"><textarea id="qTexte" style="min-height:70px" placeholder="Votre question…"></textarea></div>'
-          + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Envoyer ma question</button>'
+    + '<p class="mut">Base de connaissances du réseau : les membres posent des questions (fiscalité, comptabilité, vie professionnelle…) et <strong>y répondent</strong>. Vous connaissez la réponse ? Postez la question et sa réponse ensemble. Une réponse devient publique après validation par '+(minV>1 ? minV+' validateurs' : 'un validateur')+' du bureau (nom et date affichés). Chaque contribution rapporte des <a href="#/palmares">points et badges</a>.</p>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="qRecherche" value="'+ech(params.q||"")+'" placeholder="Rechercher par mots-clés : TVA, DSF, CNPS, bail…" style="width:auto;min-width:260px;flex:1" onkeydown="if(event.key===\'Enter\')aller(\'#/questions?q=\'+encodeURIComponent(this.value)+(\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\'))"><button class="btn sec" onclick="aller(\'#/questions?q=\'+encodeURIComponent(document.querySelector(\'#qRecherche\').value)+\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\')">Rechercher</button></div>'
+    + (q0 ? '<p class="mut" style="margin-top:6px">'+visibles.length+' résultat'+(visibles.length>1?'s':'')+' pour « '+ech(params.q)+' » · <a href="#/questions'+(m?'?t='+encodeURIComponent(m.telephone):'')+'">tout afficher</a></p>' : '')
+    + (m ? '<details style="margin-top:12px"'+(params.poser?' open':'')+'><summary><strong>➕ Poser une question (et sa réponse si vous la connaissez)</strong></summary><p class="mut">Vous êtes <strong>'+ech(m.nom)+'</strong>'+(valid ? ' <span class="badge b-avance">validateur</span>' : '')+' · '+badgesHTML(scores[m.id])+'</p>'
+          + '<div class="champ"><span>Question</span><textarea id="qTexte" style="min-height:60px" placeholder="Ex. : quelle est la date limite de dépôt des états financiers ?"></textarea></div>'
+          + '<div class="champ"><span>Réponse (facultatif — si vous la connaissez)</span><textarea id="qReponse" style="min-height:80px" placeholder="Votre réponse, avec les références (articles du CGI, SYSCOHADA…)"></textarea></div>'
+          + '<div class="champ"><span>Mots-clés (séparés par des virgules)</span><input id="qTags" placeholder="tva, déclaration, dgi"></div>'
+          + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Publier</button></details>'
          : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour participer</button></div>')
     + '</div>'
     + (valid && attente.length ? '<div class="carte"><h3>À valider ('+attente.length+')</h3>'+attente.map(blocAttente).join("")+'</div>' : '')
     + (miennes.length ? '<div class="carte"><h3>Mes réponses en attente de validation ('+miennes.length+')</h3>'+miennes.map(r => '<p class="mut">'+ech((qs.find(x=>x.id===r.question_id)||{}).question||"")+' → '+ech(r.texte).slice(0,120)+' ('+(r.validations||[]).length+'/'+minV+')</p>').join("")+'</div>' : '')
-    + (qs.length ? qs.map(q => { const rq = reps.filter(r => r.question_id === q.id && r.publie);
-        return '<div class="carte"><div class="mut">'+ech(nomDe(q.membre_id, q.anonyme))+' · '+dateFR(String(q.cree_le).slice(0,10))+(rq.length ? '' : ' · <span class="badge b-partiel">en attente de réponse</span>')+'</div><p><strong>'+ech(q.question)+'</strong></p>'
+    + (visibles.length ? visibles.map(q => { const rq = reps.filter(r => r.question_id === q.id && r.publie);
+        return '<div class="carte"><div class="mut">'+(q.anonyme ? "Un membre" : auteur(q.membre_id))+' · '+dateFR(String(q.cree_le).slice(0,10))+(rq.length ? '' : ' · <span class="badge b-partiel">en attente de réponse</span>')+(q.tags ? ' · '+q.tags.split(",").map(t => t.trim()).filter(Boolean).map(t => '<a class="badge b-neutre" href="#/questions?q='+encodeURIComponent(t)+(m?'&t='+encodeURIComponent(m.telephone):'')+'">#'+ech(t)+'</a>').join(" ") : '')+'</div><p><strong>'+ech(q.question)+'</strong></p>'
           + rq.map(r => blocReponse(r, q)).join("")
           + (m ? '<details style="margin-top:8px"><summary class="mut">Répondre à cette question</summary><div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse (sources, références…)"></textarea></div><button class="btn sm" onclick="repondreQuestion(\''+ech(m.telephone)+'\','+q.id+')">Envoyer ma réponse</button></details>' : '')
           + '</div>'; }).join("")
@@ -1714,10 +1792,11 @@ function vueQuestions(params){
     + '</main>';
 }
 async function poserQuestion(tel){
-  const q = ($("#qTexte").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
-  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked }) });
-    if(!r.ok){ toast({ courte:"Question trop courte.", limite:"Maximum 3 questions par jour.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
-    await chargerDonnees(); rendu(); toast("Question publiée ✅ Les membres peuvent y répondre.", "ok");
+  const q = ($("#qTexte").value||"").trim(), rep = ($("#qReponse").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
+  if(rep && rep.length < 10){ toast("Réponse trop courte (ou laissez vide).", "err"); return; }
+  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked, p_reponse: rep || null, p_tags: ($("#qTags").value||"").trim() }) });
+    if(!r.ok){ toast({ courte:"Question trop courte.", limite:"Maximum 5 questions par jour.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
+    etat._qrTel = null; await chargerDonnees(); rendu(); toast(rep ? "Merci ! Question publiée ; votre réponse sera visible après validation." : "Question publiée ✅ Les membres peuvent y répondre.", "ok");
   }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function repondreQuestion(tel, qid){
@@ -2146,6 +2225,7 @@ function vueTableauBord(){
     + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa(sommeNet((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per))))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · net de frais · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
     + carteAnniversairesTresorier()
+    + cartePalmaresTresorier()
     + carteRelancesJour()
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
@@ -2759,6 +2839,9 @@ function vueParametres(){
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Au moins deux membres de confiance. Ils valident depuis la page Questions après identification.</small></div>'
+    + '<div class="champ"><span>Palmarès trimestriel, points et badges</span><select id="s_palmares"><option value="oui"'+((s.palmares||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.palmares||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"></div>'
+    + '<div class="champ"><span>Barème des points : réponse, question, validation, paiement dans le mois, en avance, profil complet</span><div style="display:flex;gap:6px;flex-wrap:wrap">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:70px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'" title="'+k+'">').join("")+'</div></div>'
     + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div>'
@@ -2830,7 +2913,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
