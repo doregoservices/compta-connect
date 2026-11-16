@@ -709,3 +709,75 @@ begin
 end $$;
 revoke all on function cc_poser_question(text,text,boolean) from public;
 grant execute on function cc_poser_question(text,text,boolean) to anon, authenticated;
+
+-- Q/R v2 : contributions des membres. Une question (membre identifié) reçoit des réponses d'autres membres ;
+-- une réponse est publiée quand au moins N validateurs (Paramètres « qr_validateurs » = téléphones, « qr_validations_min » = 2) l'ont approuvée, chacun avec nom + date.
+alter table cc_questions drop column if exists reponse, drop column if exists repondu_par, drop column if exists repondu_le;
+alter table cc_questions alter column publie set default true;
+update cc_questions set publie = true;
+create table if not exists cc_reponses (
+  id bigserial primary key,
+  question_id bigint not null references cc_questions(id) on delete cascade,
+  membre_id bigint references cc_membres(id) on delete set null,
+  texte text not null,
+  validations jsonb not null default '[]'::jsonb,     -- [{"membre_id":..,"nom":"..","date":".."}]
+  publie boolean default false,
+  cree_le timestamptz default now()
+);
+alter table cc_reponses enable row level security;
+drop policy if exists "lecture cc_reponses" on cc_reponses;
+create policy "lecture cc_reponses" on cc_reponses for select using (publie = true or cc_est_tresorier());
+drop policy if exists "ecriture tresorier cc_reponses" on cc_reponses;
+create policy "ecriture tresorier cc_reponses" on cc_reponses for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+grant select on cc_reponses to anon, authenticated;
+grant insert, update, delete on cc_reponses to authenticated;
+grant usage, select on sequence cc_reponses_id_seq to authenticated;
+insert into cc_settings (cle, valeur) values ('qr_validations_min', '2') on conflict (cle) do nothing;
+insert into cc_settings (cle, valeur) values ('qr_validateurs', '') on conflict (cle) do nothing;
+
+create or replace function cc_membre_par_tel(p_tel text) returns cc_membres language sql stable security definer set search_path = public as $$
+  select * from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (regexp_replace(coalesce(p_tel,''), '\D', '', 'g'),
+    case when length(regexp_replace(coalesce(p_tel,''), '\D', '', 'g')) = 13 then substr(regexp_replace(p_tel, '\D', '', 'g'), 4) else '225' || regexp_replace(coalesce(p_tel,''), '\D', '', 'g') end) limit 1;
+$$;
+create or replace function cc_est_validateur_qr(p_membre cc_membres) returns boolean language sql stable security definer set search_path = public as $$
+  select position(regexp_replace(coalesce(p_membre.telephone,''), '\D', '', 'g') in regexp_replace(coalesce((select valeur from cc_settings where cle = 'qr_validateurs'), ''), '\D', ',', 'g')) > 0
+     and length(regexp_replace(coalesce(p_membre.telephone,''), '\D', '', 'g')) >= 8;
+$$;
+create or replace function cc_repondre(p_tel text, p_question_id bigint, p_texte text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_texte,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if not exists (select 1 from cc_questions where id = p_question_id) then return json_build_object('ok', false, 'motif', 'question'); end if;
+  if (select count(*) from cc_reponses where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 10 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  insert into cc_reponses (question_id, membre_id, texte) values (p_question_id, v_m.id, left(trim(p_texte), 3000));
+  return json_build_object('ok', true);
+end $$;
+create or replace function cc_valider_reponse(p_tel text, p_reponse_id bigint, p_decision text default 'valider') returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_r cc_reponses; v_min int := coalesce(nullif((select valeur from cc_settings where cle = 'qr_validations_min'), '')::int, 2); v_val jsonb;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null or not cc_est_validateur_qr(v_m) then return json_build_object('ok', false, 'motif', 'non_validateur'); end if;
+  select * into v_r from cc_reponses where id = p_reponse_id;
+  if v_r.id is null then return json_build_object('ok', false, 'motif', 'reponse'); end if;
+  if p_decision = 'refuser' then delete from cc_reponses where id = p_reponse_id; return json_build_object('ok', true, 'supprimee', true); end if;
+  if v_r.membre_id = v_m.id then return json_build_object('ok', false, 'motif', 'propre_reponse'); end if;
+  if exists (select 1 from jsonb_array_elements(v_r.validations) e where (e->>'membre_id')::bigint = v_m.id) then return json_build_object('ok', false, 'motif', 'deja'); end if;
+  v_val := v_r.validations || jsonb_build_object('membre_id', v_m.id, 'nom', v_m.nom, 'date', to_char(now(), 'YYYY-MM-DD'));
+  update cc_reponses set validations = v_val, publie = (jsonb_array_length(v_val) >= v_min) where id = p_reponse_id;
+  return json_build_object('ok', true, 'nb', jsonb_array_length(v_val), 'publiee', jsonb_array_length(v_val) >= v_min);
+end $$;
+create or replace function cc_reponses_a_valider(p_tel text) returns setof cc_reponses
+language sql stable security definer set search_path = public as $$
+  select r.* from cc_reponses r where not r.publie and cc_est_validateur_qr(cc_membre_par_tel(p_tel)) order by r.id;
+$$;
+create or replace function cc_mes_reponses(p_tel text) returns setof cc_reponses
+language sql stable security definer set search_path = public as $$
+  select r.* from cc_reponses r where not r.publie and r.membre_id = (cc_membre_par_tel(p_tel)).id order by r.id;
+$$;
+revoke all on function cc_repondre(text,bigint,text), cc_valider_reponse(text,bigint,text), cc_reponses_a_valider(text), cc_mes_reponses(text) from public;
+grant execute on function cc_repondre(text,bigint,text), cc_valider_reponse(text,bigint,text), cc_reponses_a_valider(text), cc_mes_reponses(text) to anon, authenticated;
+revoke all on function cc_membre_par_tel(text), cc_est_validateur_qr(cc_membres) from public;

@@ -1220,7 +1220,7 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
@@ -1228,6 +1228,7 @@ async function chargerDonnees(){
     opt("cc_vitrines?select=*&order=en_avant.desc,id.desc", []),
     opt("cc_formations?select=*&order=date.desc,id.desc", []),
     opt("cc_questions?select=*&order=id.desc", []),
+    opt("cc_reponses?select=*&order=id.asc", []),
   ]);
 }
 
@@ -1521,7 +1522,7 @@ function vuePayer(params){
     + (enAttente ? "" : carteHistorique(m, mois))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
     + (enAttente ? "" : carteFormationMembre(m))
-    + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau : la réponse validée par '+ech(etat.settings.questions_validateur||"le bureau")+' sera publiée pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
+    + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau, ou répondez aux questions des autres membres : les réponses validées par les validateurs du bureau sont publiées pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
     + '<div class="carte"><h3>Comment ça marche</h3>'
     + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov. <span class="mut">'+texteZone()+' Autres pays : procédure « membre hors zone » affichée ci-dessus.</span></div></div>'
@@ -1678,54 +1679,71 @@ function carteAnniversairesTresorier(){
     + '</div>';
 }
 
-/* --------------------------- Questions / Réponses --------------------------- */
+/* --------------------------- Questions / Réponses (contributions des membres) --------------------------- */
+function estValidateurQR(m){ const tels = (etat.settings.qr_validateurs||"").replace(/\D/g,",").split(",").filter(Boolean); const t = String(m && m.telephone||"").replace(/\D/g,""); return !!t && tels.some(x => x === t || x === "225"+t || "225"+x === t); }
 function vueQuestions(params){
-  const m = params.t ? trouverMembre(params.t) : null;
-  const publiees = (etat.questions||[]).filter(q => q.publie);
-  const nomDe = q => { if(q.anonyme) return "Un membre"; const x = etat.membres.find(y => y.id === q.membre_id); return x ? x.nom : "Un membre"; };
-  const validateur = etat.settings.questions_validateur || "le bureau";
-  return '<main><div class="carte"><h3>❓ Questions au réseau</h3>'
-    + '<p class="mut">Posez votre question (fiscalité, comptabilité, vie du réseau…). Chaque réponse est validée par <strong>'+ech(validateur)+'</strong> avant publication, avec son nom et la date.</p>'
-    + (m ? '<p>Vous êtes <strong>'+ech(m.nom)+'</strong>.</p><div class="champ"><textarea id="qTexte" style="min-height:80px" placeholder="Votre question…"></textarea></div>'
-          + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label>'
-          + '<button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Envoyer ma question</button>'
-         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour poser une question</button></div>')
+  const m = params.t ? trouverMembre(params.t) : null, minV = parseInt(etat.settings.qr_validations_min||"2",10) || 2;
+  const qs = etat.questions||[], reps = etat.reponses||[];
+  const nomDe = (id, anonyme) => { if(anonyme) return "Un membre"; const x = etat.membres.find(y => y.id === id); return x ? x.nom : "Un membre"; };
+  const valid = m && estValidateurQR(m);
+  if(m && (valid || true) && etat._qrTel !== m.telephone){ etat._qrTel = m.telephone; etat._qrAttente = []; etat._qrMiennes = [];
+    Promise.all([ valid ? sb("rpc/cc_reponses_a_valider", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) : [], sb("rpc/cc_mes_reponses", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) ])
+      .then(([a, b]) => { etat._qrAttente = a||[]; etat._qrMiennes = b||[]; if(etat.route === "questions") rendu(); }).catch(()=>{}); }
+  const attente = m ? (etat._qrAttente||[]) : [], miennes = m ? (etat._qrMiennes||[]) : [];
+  const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+ech(nomDe(r.membre_id))+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
+    + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+'</div></div>';
+  const blocAttente = r => { const q = qs.find(x => x.id === r.question_id); const deja = (r.validations||[]).some(v => v.membre_id === m.id);
+    return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'
+      + '<div class="mut">'+(r.validations||[]).length+' / '+minV+' validation'+(minV>1?'s':'')+(r.validations.length ? ' — '+r.validations.map(v => ech(v.nom)).join(", ") : '')+'</div>'
+      + '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'+(r.membre_id === m.id ? '<span class="mut">votre propre réponse</span>' : deja ? '<span class="badge b-paye">vous avez validé</span>' : '<button class="btn sm" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'valider\')">✔ Valider</button>')
+      + '<button class="btn sm dgr" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'refuser\')">Refuser (supprimer)</button></div></div>'; };
+  return '<main><div class="carte"><h3>❓ Questions &amp; réponses du réseau</h3>'
+    + '<p class="mut">Les membres posent leurs questions (fiscalité, comptabilité, vie professionnelle…) et <strong>les membres y répondent</strong>. Une réponse devient publique après validation par <strong>'+minV+' validateurs</strong> désignés par le bureau (nom et date de chaque validation affichés).</p>'
+    + (m ? '<p>Vous êtes <strong>'+ech(m.nom)+'</strong>'+(valid ? ' <span class="badge b-avance">validateur</span>' : '')+'</p><div class="champ"><textarea id="qTexte" style="min-height:70px" placeholder="Votre question…"></textarea></div>'
+          + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Envoyer ma question</button>'
+         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour participer</button></div>')
     + '</div>'
-    + (publiees.length ? publiees.map(q => '<div class="carte"><div class="mut">'+ech(nomDe(q))+' · '+dateFR(String(q.cree_le).slice(0,10))+'</div><p><strong>'+ech(q.question)+'</strong></p>'
-        + '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px">'+ech(q.reponse).replace(/\n/g,"<br>")+'<div class="mut" style="margin-top:6px">✔ Réponse validée par '+ech(q.repondu_par||validateur)+(q.repondu_le ? ' le '+dateFR(String(q.repondu_le).slice(0,10)) : '')+'</div></div></div>').join("")
-       : '<div class="carte"><p class="mut">Aucune question publiée pour l’instant.</p></div>')
+    + (valid && attente.length ? '<div class="carte"><h3>À valider ('+attente.length+')</h3>'+attente.map(blocAttente).join("")+'</div>' : '')
+    + (miennes.length ? '<div class="carte"><h3>Mes réponses en attente de validation ('+miennes.length+')</h3>'+miennes.map(r => '<p class="mut">'+ech((qs.find(x=>x.id===r.question_id)||{}).question||"")+' → '+ech(r.texte).slice(0,120)+' ('+(r.validations||[]).length+'/'+minV+')</p>').join("")+'</div>' : '')
+    + (qs.length ? qs.map(q => { const rq = reps.filter(r => r.question_id === q.id && r.publie);
+        return '<div class="carte"><div class="mut">'+ech(nomDe(q.membre_id, q.anonyme))+' · '+dateFR(String(q.cree_le).slice(0,10))+(rq.length ? '' : ' · <span class="badge b-partiel">en attente de réponse</span>')+'</div><p><strong>'+ech(q.question)+'</strong></p>'
+          + rq.map(r => blocReponse(r, q)).join("")
+          + (m ? '<details style="margin-top:8px"><summary class="mut">Répondre à cette question</summary><div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse (sources, références…)"></textarea></div><button class="btn sm" onclick="repondreQuestion(\''+ech(m.telephone)+'\','+q.id+')">Envoyer ma réponse</button></details>' : '')
+          + '</div>'; }).join("")
+       : '<div class="carte"><p class="mut">Aucune question pour l’instant.</p></div>')
     + '</main>';
 }
 async function poserQuestion(tel){
   const q = ($("#qTexte").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
   try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked }) });
     if(!r.ok){ toast({ courte:"Question trop courte.", limite:"Maximum 3 questions par jour.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
-    $("#qTexte").value = ""; toast("Question envoyée ✅ Elle sera publiée avec sa réponse après validation.", "ok");
+    await chargerDonnees(); rendu(); toast("Question publiée ✅ Les membres peuvent y répondre.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function repondreQuestion(tel, qid){
+  const t = ($("#rep_"+qid).value||"").trim(); if(t.length < 10){ toast("Réponse trop courte.", "err"); return; }
+  try{ const r = await sb("rpc/cc_repondre", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question_id: qid, p_texte: t }) });
+    if(!r.ok){ toast({ courte:"Réponse trop courte.", limite:"Trop de réponses aujourd’hui.", inconnu:"Numéro inconnu.", question:"Question introuvable." }[r.motif]||"Refusé.", "err"); return; }
+    etat._qrTel = null; await chargerDonnees(); rendu(); toast("Merci ! Votre réponse sera publiée après validation.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function validerReponse(tel, rid, decision){
+  if(decision === "refuser" && !confirm("Supprimer cette réponse ?")) return;
+  try{ const r = await sb("rpc/cc_valider_reponse", { method:"POST", body: JSON.stringify({ p_tel: tel, p_reponse_id: rid, p_decision: decision }) });
+    if(!r.ok){ toast({ non_validateur:"Vous n’êtes pas validateur.", deja:"Vous avez déjà validé cette réponse.", propre_reponse:"On ne valide pas sa propre réponse.", reponse:"Réponse introuvable." }[r.motif]||"Refusé.", "err"); return; }
+    etat._qrTel = null; await chargerDonnees(); rendu(); toast(r.supprimee ? "Réponse supprimée." : r.publiee ? "Réponse publiée ✅" : "Validation enregistrée ("+r.nb+").", "ok");
   }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 function sectionQuestionsAdmin(){
-  const qs = etat.questions||[], attente = qs.filter(q => !q.publie);
-  const nomDe = q => { const x = etat.membres.find(y => y.id === q.membre_id); return x ? x.nom+(q.anonyme ? " (souhaite rester anonyme)" : "") : "—"; };
-  const ligne = q => '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:8px 0"><div class="mut">'+ech(nomDe(q))+' · '+dateFR(String(q.cree_le).slice(0,10))+(q.publie ? ' · <span class="badge b-paye">publiée</span> validée par '+ech(q.repondu_par)+' le '+dateFR(String(q.repondu_le||"").slice(0,10)) : ' · <span class="badge b-partiel">en attente</span>')+'</div>'
-    + '<p style="margin:6px 0"><strong>'+ech(q.question)+'</strong></p>'
-    + '<div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse…">'+ech(q.reponse||"")+'</textarea></div>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" onclick="validerQuestion('+q.id+', true)">'+(q.publie ? 'Mettre à jour' : 'Valider et publier')+'</button>'
-    + (q.publie ? '<button class="btn sm sec" onclick="validerQuestion('+q.id+', false)">Dépublier</button>' : '')+'<button class="btn sm dgr" onclick="supprimerQuestion('+q.id+')">Supprimer</button></div></div>';
-  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">❓ Questions des membres</h3><span class="mut">'+attente.length+' en attente · validateur : '+ech(etat.settings.questions_validateur||"(à définir dans Paramètres)")+'</span></div>'
-    + '<p class="mut">La réponse est publiée avec le nom du validateur et la date. Page publique : <a href="#/questions">#/questions</a>.</p>'
-    + (qs.length ? attente.map(ligne).join("") + (qs.length > attente.length ? '<details style="margin-top:8px"><summary class="mut">Questions déjà publiées ('+(qs.length-attente.length)+')</summary>'+qs.filter(q=>q.publie).map(ligne).join("")+'</details>' : '') : '<p class="mut">Aucune question pour l’instant.</p>')
+  const qs = etat.questions||[], reps = etat.reponses||[], attente = reps.filter(r => !r.publie);
+  const vals = (etat.settings.qr_validateurs||"").split(",").map(x => x.trim()).filter(Boolean).map(t => { const m = trouverMembre(t); return m ? m.nom : t+" (inconnu)"; });
+  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">❓ Questions &amp; réponses</h3><span class="mut">'+qs.length+' question'+(qs.length>1?'s':'')+' · '+attente.length+' réponse'+(attente.length>1?'s':'')+' en attente · '+(etat.settings.qr_validations_min||2)+' validations requises</span></div>'
+    + '<p class="mut">Validateurs : '+(vals.length ? vals.map(ech).join(", ") : '<strong style="color:#b45309">aucun — à désigner dans Paramètres (téléphones)</strong>')+'. Les validateurs valident depuis la page <a href="#/questions">Questions</a> après identification par leur téléphone.</p>'
+    + (qs.length ? '<div class="survol"><table><tr><th>Date</th><th>Question</th><th>Réponses</th><th></th></tr>'+qs.map(q => '<tr><td>'+dateFR(String(q.cree_le).slice(0,10))+'</td><td>'+ech(q.question).slice(0,140)+'</td><td>'+reps.filter(r=>r.question_id===q.id&&r.publie).length+' publiée(s) · '+reps.filter(r=>r.question_id===q.id&&!r.publie).length+' en attente</td><td><button class="btn sm dgr" onclick="supprimerQuestion('+q.id+')">Supprimer</button></td></tr>').join("")+'</table></div>' : '')
     + '</div>';
 }
-async function validerQuestion(id, publier){
-  const rep = ($("#rep_"+id).value||"").trim();
-  if(publier && rep.length < 2){ toast("Écrivez la réponse avant de publier.", "err"); return; }
-  const qui = etat.settings.questions_validateur || (etat.session && etat.session.email) || "le bureau";
-  try{ await sb("cc_questions?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(publier ? { reponse: rep, repondu_par: qui, repondu_le: new Date().toISOString(), publie: true } : { publie: false }) });
-    await chargerDonnees(); rendu(); toast(publier ? "Réponse publiée." : "Question dépubliée.", "ok");
-  }catch(e){ toast("Refusé : "+e.message, "err"); }
-}
 async function supprimerQuestion(id){
-  if(!confirm("Supprimer cette question ?")) return;
+  if(!confirm("Supprimer cette question et ses réponses ?")) return;
   try{ await sb("cc_questions?id=eq."+id, { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 
@@ -2740,7 +2758,8 @@ function vueParametres(){
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
-    + '<div class="champ"><span>Nom du validateur unique des réponses</span><input id="s_questions_validateur" value="'+ech(s.questions_validateur||"")+'" placeholder="EKLOU Basil, Président"></div>'
+    + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Au moins deux membres de confiance. Ils valident depuis la page Questions après identification.</small></div>'
+    + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div>'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
@@ -2811,7 +2830,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","questions_validateur","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
