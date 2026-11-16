@@ -62,6 +62,7 @@ main{max-width:1060px;margin:0 auto;padding:16px}
 .deux{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}.deux>div{min-width:0}
 @media(max-width:900px){.deux{grid-template-columns:1fr}}
 details.carte>summary{list-style:none}details.carte>summary::before{content:"▸ ";color:var(--vert)}details.carte[open]>summary::before{content:"▾ "}details.carte>summary::-webkit-details-marker{display:none}
+.vide{text-align:center;padding:34px 18px}.vide .ic{font-size:40px;line-height:1;margin-bottom:8px;filter:grayscale(.2)}.vide h3{margin:0 0 4px}.vide p{max-width:420px;margin:0 auto 10px}
 .pag-btn{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.pag-btn:empty{display:none}
 .col-aside .carte{padding:14px}.col-aside .carte h3{font-size:15px}
 .carte[data-col]{margin-bottom:0}
@@ -124,7 +125,7 @@ tr:hover td{background:#f4faf7}
 .avatar{width:44px;height:44px;border-radius:99px;object-fit:cover;background:var(--vert-eau);color:var(--vert-fonce);
   display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
 .avatar.xl{width:84px;height:84px;font-size:28px}.avatar.sm{width:30px;height:30px;font-size:11px}
-.bureau{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.bureau{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px}
 .bureau .p{text-align:center;background:var(--carte);border:1px solid var(--ligne);border-radius:var(--r);padding:14px 8px}
 .bureau .p .nm{font-weight:800;font-size:13.5px;margin-top:8px}.bureau .p .ps{font-size:12px;color:var(--or);font-weight:700;text-transform:uppercase;letter-spacing:.3px}
 .galerie{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
@@ -1456,10 +1457,14 @@ function avecPhotoMembre(x){ const t = String(x.telephone||"").replace(/\D/g,"")
 function sectionBureau(){
   const b = etat.bureau.filter(x => x.actif !== false);
   if(!b.length) return "";
+  const vacant = x => /poste\s+(à|a)\s+pourvoir|^vacant$|^—?$/i.test(String(x.nom||"").trim()) || !String(x.nom||"").trim();
+  const pourvus = b.filter(x => !vacant(x)), libres = b.filter(vacant);
   return '<div class="carte"><h3>Le bureau</h3><div class="bureau">'
-    + b.map(x => '<div class="p">'+avatar(avecPhotoMembre(x), "xl")+'<div class="nm">'+ech(x.nom)+'</div><div class="ps">'+ech(x.poste)+'</div>'
+    + pourvus.map(x => '<div class="p">'+avatar(avecPhotoMembre(x), "xl")+'<div class="nm">'+ech(x.nom)+'</div><div class="ps">'+ech(x.poste)+'</div>'
       + (x.telephone ? '<div class="mut" style="margin-top:4px"><a href="https://wa.me/'+ech(String(x.telephone).replace(/\D/g,""))+'" target="_blank" rel="noopener">WhatsApp</a></div>' : '')+'</div>').join("")
-    + '</div></div>';
+    + '</div>'
+    + (libres.length ? '<p class="mut" style="margin:12px 0 0"><strong>Postes à pourvoir :</strong> '+libres.map(x => ech(x.poste)).join(" · ")+(etat.settings.contact_email ? ' — <a href="mailto:'+ech(etat.settings.contact_email)+'?subject='+encodeURIComponent("Candidature au bureau")+'">proposer ma candidature</a>' : '')+'</p>' : '')
+    + '</div>';
 }
 function sectionAppelsOuverts(m){
   const ouverts = etat.appels.filter(a => a.ouvert);
@@ -1481,6 +1486,21 @@ function sectionAppelsOuverts(m){
 }
 /* Dispose des cartes sur deux colonnes (une seule sur mobile) ; les cartes vides sont ignorées. */
 function colonnes(cartes){ const L = cartes.filter(Boolean); if(!L.length) return ""; if(L.length === 1) return L[0]; return '<div class="grille g2" style="align-items:start;margin-bottom:14px">'+L.map(c => '<div style="display:grid;gap:12px">'+c.replace(/class="carte"/g,'class="carte" data-col="1"')+'</div>').join("")+'</div>'; }
+/* Présentation du réseau : photo de groupe, 3 lignes, « lire la suite » pour le reste. */
+function carteLeReseau(){
+  const s = etat.settings; if(!(s.presentation || s.charte_lien || s.skool_lien || s.photo_groupe_url)) return "";
+  const txt = String(s.presentation||"").trim(); let court = txt, reste = "";
+  if(txt.length > 240){ const i = txt.indexOf(". ", 180); const cut = i > 0 && i < 320 ? i + 1 : 240; court = txt.slice(0, cut); reste = txt.slice(cut).trim(); }
+  const html = t => ech(t).replace(/\n/g,"<br>");
+  return '<div class="carte"'+(s.photo_groupe_url ? ' style="padding-top:0;overflow:hidden"' : '')+'>'
+    + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau" style="margin:0 -16px 12px;width:calc(100% + 32px);max-width:none;border-radius:var(--r) var(--r) 0 0">' : '')
+    + '<h3>Le réseau</h3>'+(court ? '<p>'+html(court)+(reste ? '<details style="display:inline"><summary style="display:inline;cursor:pointer;color:var(--vert);font-weight:700"> Lire la suite</summary><span> '+html(reste)+'</span></details>' : '')+'</p>' : '')
+    + ressourcesOfficielles(false)+'</div>';
+}
+/* État vide élégant : icône, titre, explication, action éventuelle */
+function etatVide(icone, titre, texte, action){
+  return '<div class="carte vide"><div class="ic">'+icone+'</div><h3>'+titre+'</h3><p class="mut">'+texte+'</p>'+(action||'')+'</div>';
+}
 function vueAccueil(){
   const s = etat.settings;
   return '<main><div class="hero"><img src="logo.jpg" alt="logo">'
@@ -1494,9 +1514,8 @@ function vueAccueil(){
     + chiffresCles() + '</div>'
     + carteAnniversairesAccueil()
     + sectionAnnonces(3)
-    + colonnes([carteDefi(), carteAgendaAccueil(), carteHonneur(), carteSondage(null), carteAnnuaireAccueil(), carteTemoignages()])
-    + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
-    + colonnes([(s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : ''), sectionBureau()])
+    + colonnes([carteLeReseau(), carteDefi(), carteAgendaAccueil(), carteAnnuaireAccueil(), carteHonneur(), carteSondage(null), carteTemoignages()])
+    + sectionBureau()
     + sectionAppelsOuverts(null)
     + sectionVitrines()
     + (etat.rencontres.filter(r => r.publie !== false).length ? '<div class="carte"><h3>Nos rencontres</h3>'
@@ -1634,16 +1653,16 @@ function vuePayer(params){
     + '<div id="bienvenue"></div>'
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée avec votre numéro de téléphone <strong>'+ech(m.telephone||"")+'</strong> : c’est lui qui vous servira à revenir sur cette page. '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
-    + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
-    + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "votre adhésion" : "ma situation")+'</h3><span style="flex:1"></span>'
+    + (enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</div>'
+    + '<p class="mut" style="margin:4px 0 10px">'+(enAttente ? "Réglez votre droit d’adhésion pour activer votre compte." : "Cotisation de "+libelleMois(mois)+(l.statut==="PARTIEL" ? ' — il reste <strong>'+fcfa(l.reliquat)+' F</strong> à régler ce mois' : ""))+'</p>'
     + '<div class="grille g2 k2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(enAttente ? adhesion : l.du)+' F</div></div>'
-    + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
-    + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
+    + '<div class="kpi"><div class="t">Déjà réglé ce mois</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + '<div id="payerEnLigne"><div class="mut" style="text-align:center;margin-top:10px">Chargement du paiement…</div></div>'
+    + (enAttente ? "" : carteHistorique(m, mois))
     + '</div>'
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (!enAttente && m.cotisation_nature ? carteNature(m) : "")
-    + (enAttente ? "" : carteHistorique(m, mois))
     + (enAttente ? "" : carteRecus(m))
     + '</div><div class="col-aside">'
     + (enAttente ? "" : '<p style="margin:0 0 12px"><a class="btn sm sec" href="#/carte?t='+encodeURIComponent(idMembre(m))+'">🪪 Ma carte de membre (QR, hors ligne)</a> '+((etat.settings.agenda||"oui") !== "non" ? '<a class="btn sm sec" href="#/agenda?t='+encodeURIComponent(idMembre(m))+'">📅 Agenda</a>' : '')+'</p>')
@@ -2093,7 +2112,7 @@ function vueAgenda(params){
       + '</div></div></div>'; };
   return '<main><div class="carte"><h3>📅 Agenda du réseau</h3><p class="mut">Rencontres, formations, assemblées : inscrivez-vous en un clic, recevez un rappel la veille, et retrouvez les comptes rendus après coup.</p>'
     + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>.</p>' : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telAg" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telAg\').value);if(x)aller(\'#/agenda?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">M’identifier</button></div>')+'</div>'
-    + (avenir.length ? avenir.map(e => carteEvt(e, false)).join("") : '<div class="carte"><p class="mut">Aucun événement programmé pour le moment.</p></div>')
+    + (avenir.length ? avenir.map(e => carteEvt(e, false)).join("") : etatVide("📅", "Aucun événement programmé", "Le bureau publie ici les prochaines rencontres, formations et assemblées. Vous recevrez un rappel la veille si vous êtes inscrit.", (etat.settings.whatsapp_lien ? '<a class="btn sm sec" href="#/" >Retour à l’accueil</a>' : '')))
     + (passes.length ? '<h3 style="margin:18px 0 10px">Événements passés &amp; comptes rendus</h3>'+passes.map(e => carteEvt(e, true)).join("") : '')+'</main>';
 }
 function icsLien(e){ const d = e.date.replace(/-/g,""), h = (e.heure||"").match(/(\d{1,2})\s*[h:]\s*(\d{0,2})/); const deb = h ? d+"T"+String(h[1]).padStart(2,"0")+(h[2]||"00").padStart(2,"0")+"00" : d;
@@ -2316,7 +2335,7 @@ function vueQuestions(params){
           + rq.map(r => blocReponse(r, q)).join("")
           + (m ? '<details style="margin-top:8px"><summary class="mut">Répondre à cette question</summary><div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse (sources, références…)"></textarea></div><button class="btn sm" onclick="repondreQuestion(\''+ech(m.telephone)+'\','+q.id+')">Envoyer ma réponse</button></details>' : '')
           + '</div>'; }).join("")
-       : '<div class="carte"><p class="mut">Aucune question pour l’instant.</p></div>')
+       : etatVide("💬", "Soyez le premier à poser une question", "Fiscalité, OHADA, DGI, paie, logiciels… Les réponses des membres sont validées par le bureau puis publiées pour tous.", '<a class="btn sm" href="javascript:void(0)" onclick="const z=document.querySelector(\'#qTexte\');if(z){z.scrollIntoView({behavior:\'smooth\'});z.focus();}else toast(\'Identifiez-vous avec votre numéro de téléphone pour poser une question.\',\'ok\')">Poser une question</a>'))
     + '</main>';
 }
 let _simT = null;
@@ -2402,7 +2421,7 @@ function vueFormation(params){
     + '</div>'
     + (liste.length ? liste.map(f => '<div class="carte"><div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1"><div class="mut">'+(TYPES_FORMATION[f.type]||f.type)+' · '+dateFR(f.date)+'</div><h3 style="margin:4px 0">'+ech(f.titre)+'</h3>'+(f.description ? '<p>'+ech(f.description).replace(/\n/g,"<br>")+'</p>' : '')+'</div>'
         + '<div>'+(f.lien ? (peut(f) ? '<a class="btn" href="'+ech(f.lien)+'" target="_blank" rel="noopener">Ouvrir</a>' : '<span class="badge b-neutre">'+(f.acces === "a_jour" ? "réservé aux membres à jour" : "réservé aux membres")+'</span>') : '')+'</div></div></div>').join("")
-       : '<div class="carte"><p class="mut">Aucune ressource publiée pour l’instant.</p></div>')
+       : etatVide("🎓", "Les ressources arrivent", "Vidéos, documents, replays et parcours Skool seront publiés ici par le bureau. En attendant, la bibliothèque Skool est accessible depuis votre page membre.", '<a class="btn sm sec" href="#/">Retour à l’accueil</a>'))
     + '</main>';
 }
 function carteFormationMembre(m){
@@ -2469,18 +2488,18 @@ function carteHistorique(m, mois){
   const dejaAvance = new Set(etat.paiements.filter(p => String(p.membre_id) === String(m.id) && p.mois && normaliserMois(p.mois) > normaliserMois(mois)).map(p => normaliserMois(p.mois)));
   const premierDu = h.lignes.find(l => l.statut !== "PAYE" && l.statut !== "EXONERE" && l.statut !== "NATURE");
   const insc = inscriptionDe(m);
-  return '<div class="carte"><h3>Ma situation depuis mon adhésion</h3>'
+  return '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--ligne)"><h3 style="font-size:15px;margin:0 0 8px">Depuis mon adhésion</h3>'
     + '<p class="mut">Adhésion le '+ech(fdate(String(m.date_adhesion||"").slice(0,10)) || "—")+' · Frais d’inscription : '+(insc.length ? '<strong>'+fcfa(insc.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F</strong> payés le '+fdate(String(insc[0].date)) : 'aucun enregistré')+' · La cotisation d’un mois se règle dans le mois ; elle est en retard après le '+jourTolerance()+' du mois suivant.</p>'
     + '<div class="grille g3"><div class="kpi"><div class="t">Total dû</div><div class="v">'+fcfa(h.du)+' F</div><div class="mut">'+h.lignes.length+' mois</div></div>'
     + '<div class="kpi"><div class="t">Total versé</div><div class="v">'+fcfa(h.verse + h.avance)+' F</div>'+(h.avance ? '<div class="mut">dont '+fcfa(h.avance)+' F d’avance</div>' : '')+'</div>'
     + '<div class="kpi"><div class="t">Reste à payer</div><div class="v" style="color:'+(h.reste ? '#b3261e' : 'var(--vert)')+'">'+fcfa(h.reste)+' F</div>'
     + '<div class="mut">'+(h.reste ? ((h.nb_impayes ? h.nb_impayes+' mois en retard' : '')+(h.nb_a_payer ? (h.nb_impayes?' · ':'')+h.nb_a_payer+' mois à payer' : '')+(h.nb_partiels?' · '+h.nb_partiels+' partiel'+(h.nb_partiels>1?'s':''):'')) : 'à jour ✅')+'</div></div></div>'
-    + '<div class="survol" style="margin-top:10px"><table><tr><th>Mois</th><th>Versé / dû</th><th>Statut</th></tr>'
+    + '<details'+(h.reste ? ' open' : '')+' style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">📅 Détail mois par mois ('+h.lignes.length+' mois)'+(h.reste ? ' — <span style="color:#b3261e">régulariser un mois : bouton Payer en face</span>' : '')+'</summary>'
+    + '<div class="survol" style="margin-top:8px"><table><tr><th>Mois</th><th>Versé / dû</th><th>Statut</th></tr>'
     + h.lignes.slice().reverse().map(l => '<tr><td><strong>'+libelleMois(l.mois)+'</strong>'+(l.dates.length ? '<div class="mut">payé le '+l.dates.map(fdate).join(", ")+'</div>' : '')+'</td>'
         + '<td style="white-space:nowrap">'+fcfa(l.verse)+' / '+fcfa(l.du)+' F</td>'
         + '<td>'+(b[l.statut]||"")+((l.statut==="IMPAYE"||l.statut==="PARTIEL"||l.statut==="A_PAYER") && l.mois !== mois ? (horsZone(m) ? '<div class="mut" style="margin-top:6px">par transfert (voir procédure)</div>' : '<div style="margin-top:6px"><button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\''+l.mois+'\')">Payer '+fcfa(l.du-l.verse)+' F</button></div>') : '')+'</td></tr>').join("")
-    + '</table></div>'
-    + (h.reste ? '<p class="mut" style="margin-top:8px">Pour régulariser un mois, cliquez sur <strong>Payer</strong> en face du mois concerné.</p>' : '')
+    + '</table></div></details>'
     + (cotM && !horsZone(m) && (etat.settings.paiement_avance||"oui") !== "non" ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee"><strong>Payer en avance</strong> <span class="mut">— choisissez un mois à venir</span>'
       + '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><select id="moisAvance">'+moisAvance.filter(x => !dejaAvance.has(x)).map(x => '<option value="'+x+'">'+libelleMois(x)+'</option>').join("")+'</select>'
       + '<button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',document.querySelector(\'#moisAvance\').value)">Payer '+fcfa(cotM)+' F</button></div>'
@@ -3862,7 +3881,7 @@ function vueAnnonces(params){
   const l = annoncesVisibles();
   if(params.id){ const a = l.find(x => String(x.id) === String(params.id)); if(!a) return '<main><div class="alerte al-err">Annonce introuvable.</div></main>';
     return '<main style="max-width:680px"><p><a href="#/annonces">← Toutes les annonces</a></p><div class="carte">'+carteAnnonce(a, true)+'</div></main>'; }
-  return '<main style="max-width:680px"><div class="carte"><h3>📣 Annonces du bureau</h3>'+(l.length ? l.map(a => carteAnnonce(a, true)).join("") : '<p class="mut">Aucune annonce pour le moment.</p>')+'</div></main>';
+  return '<main style="max-width:680px"><div class="carte"><h3>📣 Annonces du bureau</h3>'+(l.length ? l.map(a => carteAnnonce(a, true)).join("") : '<p class="mut" style="text-align:center;padding:20px 0">📣 Aucune annonce pour le moment.</p>')+'</div></main>';
 }
 function sectionAnnoncesAdmin(){
   return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">📣 Annonces du bureau</h3><span style="flex:1"></span><button class="btn sm" onclick="editerAnnonce(0)">+ Nouvelle annonce</button></div>'
