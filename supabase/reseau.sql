@@ -933,3 +933,27 @@ begin
 end $$;
 revoke all on function cc_voter(text,bigint,int) from public;
 grant execute on function cc_voter(text,bigint,int) to anon, authenticated;
+
+-- Fusion de doublons (trésorier) : les réponses du doublon sont rattachées à la question d'origine,
+-- le texte du doublon est conservé en « variante » (pour la recherche), son auteur en co-auteur (garde ses points), puis le doublon est supprimé.
+alter table cc_questions add column if not exists variantes text[] not null default '{}';
+alter table cc_questions add column if not exists co_auteurs bigint[] not null default '{}';
+create or replace function cc_fusionner_questions(p_doublon bigint, p_cible bigint) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_d record; v_c record;
+begin
+  if not cc_est_tresorier() then raise exception 'Réservé au trésorier'; end if;
+  if p_doublon = p_cible then return json_build_object('ok', false, 'motif', 'identique'); end if;
+  select * into v_d from cc_questions where id = p_doublon; if not found then return json_build_object('ok', false, 'motif', 'doublon_inconnu'); end if;
+  select * into v_c from cc_questions where id = p_cible;   if not found then return json_build_object('ok', false, 'motif', 'cible_inconnue'); end if;
+  update cc_reponses set question_id = p_cible where question_id = p_doublon;
+  update cc_questions set
+    variantes = array_cat(variantes, array[v_d.question] || v_d.variantes),
+    co_auteurs = (select array_agg(distinct x) from unnest(co_auteurs || v_d.co_auteurs || array[v_d.membre_id]) x where x is not null and x <> coalesce(membre_id, -1)),
+    tags = trim(both ', ' from coalesce(tags,'') || case when coalesce(v_d.tags,'') <> '' then ', ' || v_d.tags else '' end)
+    where id = p_cible;
+  delete from cc_questions where id = p_doublon;
+  return json_build_object('ok', true, 'cible', p_cible, 'reponses_deplacees', (select count(*) from cc_reponses where question_id = p_cible));
+end $$;
+revoke all on function cc_fusionner_questions(bigint,bigint) from public;
+grant execute on function cc_fusionner_questions(bigint,bigint) to authenticated;

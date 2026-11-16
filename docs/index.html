@@ -1706,7 +1706,7 @@ function scoresTous(tri){
   // contributions
   for(const r of (etat.reponses||[])){ if(!r.publie) continue; add(r.membre_id, pts("reponse",5), "c", r.cree_le); if(S[r.membre_id]) S[r.membre_id].rep++;
     for(const v of (r.validations||[])){ add(v.membre_id, pts("validation",1), "c", v.date); if(S[v.membre_id]) S[v.membre_id].valid++; } }
-  for(const q of (etat.questions||[])){ if((etat.reponses||[]).some(r => r.question_id === q.id && r.publie)){ add(q.membre_id, pts("question",2), "c", q.cree_le); if(S[q.membre_id]) S[q.membre_id].quest++; } }
+  for(const q of (etat.questions||[])){ if((etat.reponses||[]).some(r => r.question_id === q.id && r.publie)){ for(const id of [q.membre_id, ...(q.co_auteurs||[])]){ add(id, pts("question",2), "c", q.cree_le); if(S[id]) S[id].quest++; } } }
   // paiements : dans le mois (+3) / en avance (+4) ; suite de mois ponctuels
   const parMembre = {}; for(const p of etat.paiements){ if(!p.mois || !p.date) continue; (parMembre[p.membre_id] = parMembre[p.membre_id] || []).push(p); }
   for(const [id, L] of Object.entries(parMembre)){ const x = S[id]; if(!x) continue; const moisOK = new Set(), moisAv = new Set();
@@ -1885,7 +1885,7 @@ function vueQuestions(params){
       + '<button class="btn sm dgr" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'refuser\')">Refuser (supprimer)</button></div></div>'; };
   const q0 = accentMin(params.q||""), scores = scoresTous();
   const auteur = id => { const x = etat.membres.find(y => y.id === id); return x ? ech(x.nom)+' '+badgesHTML(scores[x.id], true) : "Un membre"; };
-  const visibles = qs.filter(q => !q0 || accentMin(q.question+" "+(q.tags||"")+" "+reps.filter(r => r.question_id === q.id && r.publie).map(r => r.texte).join(" ")).includes(q0));
+  const visibles = qs.filter(q => !q0 || accentMin(q.question+" "+(q.tags||"")+" "+(q.variantes||[]).join(" ")+" "+reps.filter(r => r.question_id === q.id && r.publie).map(r => r.texte).join(" ")).includes(q0));
   return '<main><div class="carte"><h3>❓ Questions &amp; réponses du réseau</h3>'
     + '<p class="mut">Base de connaissances du réseau : les membres posent des questions (fiscalité, comptabilité, vie professionnelle…) et <strong>y répondent</strong>. Vous connaissez la réponse ? Postez la question et sa réponse ensemble. Une réponse devient publique après validation par '+(minV>1 ? minV+' validateurs' : 'un validateur')+' du bureau (nom et date affichés). Chaque contribution rapporte des <a href="#/palmares">points et badges</a>.</p>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="qRecherche" value="'+ech(params.q||"")+'" placeholder="Rechercher par mots-clés : TVA, DSF, CNPS, bail…" style="width:auto;min-width:260px;flex:1" onkeydown="if(event.key===\'Enter\')aller(\'#/questions?q=\'+encodeURIComponent(this.value)+(\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\'))"><button class="btn sec" onclick="aller(\'#/questions?q=\'+encodeURIComponent(document.querySelector(\'#qRecherche\').value)+\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\')">Rechercher</button></div>'
@@ -1912,7 +1912,7 @@ function suggererSimilaires(texte){
   clearTimeout(_simT); const z = $("#qSimilaires"); if(!z) return; if(texte.trim().length < 10){ z.innerHTML = ""; return; }
   _simT = setTimeout(async () => {
     const mots = accentMin(texte).split(/[^a-z0-9]+/).filter(w => w.length > 3);
-    const loc = (etat.questions||[]).map(q => ({ q, n: mots.filter(w => accentMin(q.question+" "+(q.tags||"")).includes(w)).length })).filter(x => x.n >= Math.max(2, Math.ceil(mots.length*0.4))).sort((a,b) => b.n - a.n).slice(0,4);
+    const loc = (etat.questions||[]).map(q => ({ q, n: mots.filter(w => accentMin(q.question+" "+(q.tags||"")+" "+(q.variantes||[]).join(" ")).includes(w)).length })).filter(x => x.n >= Math.max(2, Math.ceil(mots.length*0.4))).sort((a,b) => b.n - a.n).slice(0,4);
     if(!loc.length){ z.innerHTML = ""; return; }
     z.innerHTML = '<div class="alerte al-info" style="margin:0 0 10px"><strong>Cette question existe peut-être déjà :</strong><ul style="margin:6px 0 0 18px">'+loc.map(x => '<li><a href="#/questions?q='+encodeURIComponent(x.q.question.slice(0,60))+'">'+ech(x.q.question)+'</a>'+((etat.reponses||[]).some(r => r.question_id === x.q.id && r.publie) ? ' <span class="badge b-paye">répondue</span>' : ' <span class="badge b-partiel">sans réponse — répondez-y !</span>')+'</li>').join("")+'</ul><div class="mut" style="margin-top:6px">Si c’est la même question, répondez-y plutôt que d’en créer une nouvelle.</div></div>';
   }, 400);
@@ -1948,8 +1948,27 @@ function sectionQuestionsAdmin(){
   const vals = (etat.settings.qr_validateurs||"").split(",").map(x => x.trim()).filter(Boolean).map(t => { const m = trouverMembre(t); return m ? m.nom : t+" (inconnu)"; });
   return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">❓ Questions &amp; réponses</h3><span class="mut">'+qs.length+' question'+(qs.length>1?'s':'')+' · '+attente.length+' réponse'+(attente.length>1?'s':'')+' en attente · '+(etat.settings.qr_validations_min||2)+' validations requises</span></div>'
     + '<p class="mut">Validateurs : '+(vals.length ? vals.map(ech).join(", ") : '<strong style="color:#b45309">aucun — à désigner dans Paramètres (téléphones)</strong>')+'. Les validateurs valident depuis la page <a href="#/questions">Questions</a> après identification par leur téléphone.</p>'
-    + (qs.length ? '<div class="survol"><table><tr><th>Date</th><th>Question</th><th>Réponses</th><th></th></tr>'+qs.map(q => '<tr><td>'+dateFR(String(q.cree_le).slice(0,10))+'</td><td>'+ech(q.question).slice(0,140)+'</td><td>'+reps.filter(r=>r.question_id===q.id&&r.publie).length+' publiée(s) · '+reps.filter(r=>r.question_id===q.id&&!r.publie).length+' en attente</td><td><button class="btn sm dgr" onclick="supprimerQuestion('+q.id+')">Supprimer</button></td></tr>').join("")+'</table></div>' : '')
+    + (qs.length ? '<div class="survol"><table><tr><th>Date</th><th>Question</th><th>Réponses</th><th></th></tr>'+qs.map(q => '<tr><td>'+dateFR(String(q.cree_le).slice(0,10))+'</td><td>'+ech(q.question).slice(0,140)+'</td><td>'+reps.filter(r=>r.question_id===q.id&&r.publie).length+' publiée(s) · '+reps.filter(r=>r.question_id===q.id&&!r.publie).length+' en attente</td><td style="white-space:nowrap">'+(qs.length>1 ? '<button class="btn sm sec" onclick="fusionnerQuestion('+q.id+')">Fusionner</button> ' : '')+'<button class="btn sm dgr" onclick="supprimerQuestion('+q.id+')">Supprimer</button></td></tr>'+((q.variantes||[]).length ? '<tr><td></td><td colspan="3" class="mut" style="font-size:12px">↳ fusionnée avec : '+q.variantes.map(ech).join(" · ")+'</td></tr>' : '')).join("")+'</table></div>' : '')
+    + '<div id="fusionZone"></div>'
     + '</div>';
+}
+/* Fusion d'un doublon : le trésorier choisit la question d'origine (les plus proches en tête). */
+function fusionnerQuestion(id){
+  const q = (etat.questions||[]).find(x => x.id === id); if(!q) return;
+  const mots = accentMin(q.question).split(/[^a-z0-9]+/).filter(w => w.length > 3);
+  const autres = (etat.questions||[]).filter(x => x.id !== id).map(x => ({ x, n: mots.filter(w => accentMin(x.question+" "+(x.variantes||[]).join(" ")).includes(w)).length })).sort((a,b) => b.n - a.n || b.x.id - a.x.id);
+  $("#fusionZone").innerHTML = '<div class="alerte al-info" style="margin-top:10px"><strong>Fusionner le doublon</strong> « '+ech(q.question)+' »<br>dans la question d’origine :'
+    + '<select id="fusionCible" style="margin:8px 0;max-width:100%">'+autres.map(a => '<option value="'+a.x.id+'">'+(a.n ? '★'.repeat(Math.min(3,a.n))+' ' : '')+ech(a.x.question.slice(0,110))+'</option>').join("")+'</select><br>'
+    + '<span class="mut">Les réponses du doublon sont rattachées à la question d’origine, son texte reste cherchable comme variante, et son auteur devient co-auteur (il garde ses points). Le doublon est ensuite supprimé.</span><br>'
+    + '<button class="btn sm" style="margin-top:8px" onclick="confirmerFusion('+id+')">Confirmer la fusion</button> <button class="btn sm sec" onclick="document.querySelector(\'#fusionZone\').innerHTML=\'\'">Annuler</button></div>';
+  $("#fusionZone").scrollIntoView({ behavior:"smooth", block:"center" });
+}
+async function confirmerFusion(id){
+  const cible = parseInt($("#fusionCible").value,10); if(!cible) return;
+  try{ const r = await sb("rpc/cc_fusionner_questions", { method:"POST", body: JSON.stringify({ p_doublon:id, p_cible:cible }) });
+    if(!r.ok){ toast("Fusion refusée ("+r.motif+").", "err"); return; }
+    await chargerDonnees(); toast("Questions fusionnées : "+r.reponses_deplacees+" réponse(s) rattachée(s).", "ok"); rendu();
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function supprimerQuestion(id){
   if(!confirm("Supprimer cette question et ses réponses ?")) return;
