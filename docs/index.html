@@ -1444,11 +1444,13 @@ function rendu(){
 }
 
 /* --------------------------- Vues publiques --------------------------- */
+/* Un membre du bureau est aussi membre du réseau : sa photo de profil (fiche membre, même téléphone) est utilisée en priorité, toujours à jour. */
+function avecPhotoMembre(x){ const t = String(x.telephone||"").replace(/\D/g,""); if(t.length < 8) return x; const m = trouverMembre(t); return (m && m.photo_url) ? Object.assign({}, x, { photo_url: m.photo_url }) : x; }
 function sectionBureau(){
   const b = etat.bureau.filter(x => x.actif !== false);
   if(!b.length) return "";
   return '<div class="carte"><h3>Le bureau</h3><div class="bureau">'
-    + b.map(x => '<div class="p">'+avatar(x, "xl")+'<div class="nm">'+ech(x.nom)+'</div><div class="ps">'+ech(x.poste)+'</div>'
+    + b.map(x => '<div class="p">'+avatar(avecPhotoMembre(x), "xl")+'<div class="nm">'+ech(x.nom)+'</div><div class="ps">'+ech(x.poste)+'</div>'
       + (x.telephone ? '<div class="mut" style="margin-top:4px"><a href="https://wa.me/'+ech(String(x.telephone).replace(/\D/g,""))+'" target="_blank" rel="noopener">WhatsApp</a></div>' : '')+'</div>').join("")
     + '</div></div>';
 }
@@ -3617,7 +3619,7 @@ function vueReseau(){
     + '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">Le bureau</h3><span style="flex:1"></span><button class="btn sm" onclick="editerBureau(0)">+ Ajouter</button></div>'
     + '<div id="editeurBureau"></div>'
     + (etat.bureau.length ? '<div class="survol"><table><tr><th></th><th>Nom</th><th>Poste</th><th>Téléphone</th><th>Ordre</th><th></th></tr>'
-      + etat.bureau.map(b => '<tr><td>'+avatar(b)+'</td><td><strong>'+ech(b.nom)+'</strong>'+(b.actif===false ? ' <span class="badge b-neutre">masqué</span>' : '')+'</td><td>'+ech(b.poste)+'</td><td>'+ech(b.telephone||"")+'</td><td>'+b.ordre+'</td>'
+      + etat.bureau.map(b => '<tr><td>'+avatar(avecPhotoMembre(b))+'</td><td><strong>'+ech(b.nom)+'</strong>'+(b.actif===false ? ' <span class="badge b-neutre">masqué</span>' : '')+'</td><td>'+ech(b.poste)+'</td><td>'+ech(b.telephone||"")+'</td><td>'+b.ordre+'</td>'
         + '<td style="white-space:nowrap"><button class="btn sm sec" onclick="photoBureau('+b.id+')">📷</button> <button class="btn sm sec" onclick="editerBureau('+b.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerBureau('+b.id+')">✕</button></td></tr>').join("")
       + '</table></div>' : '<p class="mut">Ajoutez les membres du bureau : ils apparaissent sur la page d’accueil avec nom, poste et photo.</p>')
     + '<p class="mut" style="margin-top:8px">Astuce : si un membre du bureau est aussi membre du réseau, choisissez-le dans la liste pour reprendre sa photo.</p></div>'
