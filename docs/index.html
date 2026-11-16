@@ -7,13 +7,34 @@
 <meta name="theme-color" content="#0A1C2D">
 <title>ComptaConnect — cotisations</title>
 <link rel="icon" href="logomark.png">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ComptaConnect">
+<meta name="description" content="ComptaConnect — le réseau des professionnels de la comptabilité : cotisations en ligne, carte de membre, questions-réponses, agenda, annuaire.">
 <style>
 :root{
   --bleu:#0A1C2D; --bleu2:#16283E; --vert:#1D9E75; --vert-fonce:#085041;
   --menthe:#7DCDB0; --menthe-pale:#9FE1CB; --vert-eau:#D5E8E0;
   --or:#C9A227; --creme:#FEF5DC; --rouge:#C0392B; --fond:#F7F7F5;
-  --carte:#ffffff; --ligne:#e3e8e6; --muet:#5c6b76; --r:14px;
+  --carte:#ffffff; --ligne:#e3e8e6; --muet:#5c6b76; --r:14px; --texte:#0A1C2D;
 }
+html[data-theme="sombre"]{ --fond:#0f1a24; --carte:#172534; --ligne:#2a3a4a; --muet:#9fb0bd; --texte:#e8eef2; --bleu:#e8eef2; --vert-fonce:#7DCDB0; --creme:#2a2a1c; }
+html[data-theme="sombre"] body{color:var(--texte)}
+html[data-theme="sombre"] .topwrap{background:linear-gradient(120deg,#0A1C2D,#0b1520)}
+html[data-theme="sombre"] input,html[data-theme="sombre"] select,html[data-theme="sombre"] textarea{background:#0f1a24;color:var(--texte);border-color:var(--ligne)}
+html[data-theme="sombre"] table th{background:#1d2e3f}
+html[data-theme="sombre"] .kpi,html[data-theme="sombre"] .alerte{background:#1d2e3f;color:var(--texte)}
+html[data-theme="sombre"] .carte[style*="#fff"],html[data-theme="sombre"] .alerte[style*="#fff"]{background:var(--carte)!important}
+html[data-theme="sombre"] .mut{color:var(--muet)}
+html[data-theme="sombre"] .b-neutre{background:#2a3a4a;color:#dfe7ec}
+.chiffres{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin:14px 0 0}
+.chiffres div{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:8px 14px;min-width:110px;text-align:center;color:#fff}
+.chiffres b{display:block;font-size:20px;color:var(--menthe)}
+.carte-membre{background:linear-gradient(135deg,#0A1C2D,#16283E 60%,#085041);color:#fff;border-radius:18px;padding:18px;position:relative;overflow:hidden;max-width:420px;margin:0 auto 14px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.carte-membre:before{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;border-radius:50%;background:rgba(125,205,176,.15)}
+.carte-membre .qr{background:#fff;border-radius:10px;padding:6px;width:96px;height:96px;float:right;margin-left:10px}
+.carte-membre .qr svg{width:84px;height:84px;display:block}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Helvetica Neue",Arial,sans-serif;
@@ -1230,7 +1251,7 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes, etat.evenements, etat.evenementInscrits] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
@@ -1241,6 +1262,8 @@ async function chargerDonnees(){
     opt("cc_reponses?select=*&order=id.asc", []),
     opt("cc_sondages?select=*&order=ouvert.desc,id.desc", []),
     opt("cc_votes?select=sondage_id,membre_id,choix", []),
+    opt("cc_evenements?select=*&order=date.desc", []),
+    opt("cc_evenement_inscrits?select=evenement_id,membre_id,date", []),
   ]);
 }
 
@@ -1363,7 +1386,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1389,6 +1412,8 @@ function rendu(){
     else if(route === "questions") corps = vueQuestions(params);
     else if(route === "palmares") corps = vuePalmares(params);
     else if(route === "annuaire") corps = vueAnnuaire(params);
+    else if(route === "carte") corps = vueCarte(params);
+    else if(route === "agenda") corps = vueAgenda(params);
     else if(route === "legal") corps = vueLegal(params);
     else if(route === "journal" && etat.session) corps = vueJournal(params);
     else if(route === "appel") corps = vueAppelPublic(params);
@@ -1413,7 +1438,7 @@ function rendu(){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
   }
   app.innerHTML = entete() + corps
-    + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
+    + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
 }
@@ -1456,10 +1481,11 @@ function vueAccueil(){
     + '<input id="matAccueil" placeholder="Votre numéro de téléphone" autocapitalize="characters" autocomplete="off">'
     + '<button class="btn" onclick="verifierMatricule()">Vérifier</button></div>'
     + '<p class="mut" style="margin:8px 0 0;color:#cfe3da">Le numéro de téléphone est celui utilisé pour vos cotisations.</p>'
-    + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
+    + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p>'
+    + chiffresCles() + '</div>'
     + carteAnniversairesAccueil()
     + sectionAnnonces(3)
-    + colonnes([carteDefi(), carteHonneur(), carteSondage(null), carteAnnuaireAccueil()])
+    + colonnes([carteDefi(), carteAgendaAccueil(), carteHonneur(), carteSondage(null), carteAnnuaireAccueil(), carteTemoignages()])
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
     + colonnes([(s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : ''), sectionBureau()])
     + sectionAppelsOuverts(null)
@@ -1494,6 +1520,77 @@ function verifierMatricule(){
   if(!m){ toast(matriculeNormaliser(v) ? "N° de carte inconnu : entrez plutôt votre numéro de téléphone." : (v.replace(/\D/g,"").length >= 8 ? "Aucun membre avec ce numéro de téléphone. Contactez le trésorier : "+(etat.settings.tresorier_tel||"") : "Saisissez votre numéro de téléphone ou votre matricule."), "err"); return; }
   aller(lienMembre(m));
 }
+/* Générateur QR compact — byte mode, niveau L, versions 1 à 5 (un seul bloc), masques 0-7 avec pénalité. */
+function qrMatrice(texte, masqueForce){
+  const data = unescape(encodeURIComponent(texte)); const V = [[19,7],[34,10],[55,15],[80,20],[108,26]];   // [codewords de données, codewords de correction] niveau L
+  let ver = V.findIndex(v => data.length <= v[0]-2); if(ver < 0) return null; const [nData, nEC] = V[ver]; ver += 1;
+  const n = 17 + 4*ver;
+  // --- bits de données
+  const bits = []; const put = (v, l) => { for(let i = l-1; i >= 0; i--) bits.push((v >> i) & 1); };
+  put(4, 4); put(data.length, 8); for(const ch of data) put(ch.charCodeAt(0), 8);
+  const total = nData*8; put(0, Math.min(4, total - bits.length)); while(bits.length % 8) bits.push(0);
+  const cw = []; for(let i = 0; i < bits.length; i += 8) cw.push(parseInt(bits.slice(i, i+8).join(""), 2));
+  for(let p = 0; cw.length < nData; p++) cw.push(p % 2 ? 0x11 : 0xEC);
+  // --- Reed-Solomon
+  const EXP = new Array(512), LOG = new Array(256); for(let i = 0, x = 1; i < 255; i++){ EXP[i] = x; LOG[x] = i; x <<= 1; if(x & 256) x ^= 0x11D; } for(let i = 255; i < 512; i++) EXP[i] = EXP[i-255];
+  const mul = (a, b) => (a && b) ? EXP[LOG[a] + LOG[b]] : 0;
+  let gen = [1]; for(let i = 0; i < nEC; i++){ const g = new Array(gen.length+1).fill(0); for(let j = 0; j < gen.length; j++){ g[j] ^= gen[j]; g[j+1] ^= mul(gen[j], EXP[i]); } gen = g; }
+  const rest = cw.concat(new Array(nEC).fill(0)); for(let i = 0; i < nData; i++){ const c = rest[i]; if(c) for(let j = 0; j < gen.length; j++) rest[i+j] ^= mul(gen[j], c); }
+  const all = cw.concat(rest.slice(nData));
+  // --- matrice
+  const M = Array.from({ length:n }, () => new Array(n).fill(null)); const F = Array.from({ length:n }, () => new Array(n).fill(false));
+  const set = (x, y, v) => { M[y][x] = v ? 1 : 0; F[y][x] = true; };
+  const finder = (x0, y0) => { for(let y = -1; y <= 7; y++) for(let x = -1; x <= 7; x++){ const X = x0+x, Y = y0+y; if(X < 0 || Y < 0 || X >= n || Y >= n) continue; const on = (x >= 0 && x <= 6 && y >= 0 && y <= 6) && (x === 0 || x === 6 || y === 0 || y === 6 || (x >= 2 && x <= 4 && y >= 2 && y <= 4)); set(X, Y, on); } };
+  finder(0, 0); finder(n-7, 0); finder(0, n-7);
+  if(ver >= 2){ const a = [6, 10 + 4*ver]; const c = a[1]; for(let y = -2; y <= 2; y++) for(let x = -2; x <= 2; x++) set(c+x, c+y, Math.max(Math.abs(x), Math.abs(y)) !== 1); }
+  for(let i = 8; i < n-8; i++){ if(!F[6][i]) set(i, 6, i % 2 === 0); if(!F[i][6]) set(6, i, i % 2 === 0); }
+  // réservation format + module sombre
+  for(let i = 0; i < 8; i++){ if(!F[8][i]) set(i, 8, 0); if(!F[i][8]) set(8, i, 0); set(n-1-i, 8, 0); set(8, n-1-i, 0); } set(8, 8, 0); set(8, n-8, 1);
+  // placement données
+  const dataBits = []; for(const c of all) for(let i = 7; i >= 0; i--) dataBits.push((c >> i) & 1);
+  let k = 0, up = true; for(let x = n-1; x > 0; x -= 2){ if(x === 6) x = 5; for(let i = 0; i < n; i++){ const y = up ? n-1-i : i; for(const dx of [0, -1]){ const X = x+dx; if(F[y][X]) continue; M[y][X] = k < dataBits.length ? dataBits[k] : 0; k++; } } up = !up; }
+  // masques
+  const MASK = [(x,y)=>(x+y)%2===0, (x,y)=>y%2===0, (x,y)=>x%3===0, (x,y)=>(x+y)%3===0, (x,y)=>(Math.floor(y/2)+Math.floor(x/3))%2===0, (x,y)=>(x*y)%2+(x*y)%3===0, (x,y)=>((x*y)%2+(x*y)%3)%2===0, (x,y)=>((x+y)%2+(x*y)%3)%2===0];
+  const applique = mi => { const R = M.map(r => r.slice()); for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) if(!F[y][x] && MASK[mi](x, y)) R[y][x] ^= 1;
+    // format : niveau L (01) + masque
+    let f = (1 << 3) | mi, r = f << 10; for(let i = 14; i >= 10; i--) if(r & (1 << i)) r ^= 0x537 << (i-10); f = ((f << 10) | r) ^ 0x5412; const b = i => (f >> i) & 1;
+    const pos1 = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+    for(let i = 0; i < 15; i++){ const [x, y] = pos1[i]; R[y][x] = b(i); }
+    for(let i = 0; i < 8; i++) R[8][n-1-i] = b(i); for(let i = 8; i < 15; i++) R[n-15+i][8] = b(i);
+    return R; };
+  const penalite = R => { let p = 0; for(let y = 0; y < n; y++){ let run = 1; for(let x = 1; x < n; x++){ if(R[y][x] === R[y][x-1]){ run++; if(run === 5) p += 3; else if(run > 5) p++; } else run = 1; } }
+    for(let x = 0; x < n; x++){ let run = 1; for(let y = 1; y < n; y++){ if(R[y][x] === R[y-1][x]){ run++; if(run === 5) p += 3; else if(run > 5) p++; } else run = 1; } }
+    for(let y = 0; y < n-1; y++) for(let x = 0; x < n-1; x++) if(R[y][x] === R[y][x+1] && R[y][x] === R[y+1][x] && R[y][x] === R[y+1][x+1]) p += 3;
+    let noirs = 0; for(const r of R) for(const v of r) noirs += v; p += Math.floor(Math.abs(noirs*100/(n*n) - 50)/5)*10; return p; };
+  if(masqueForce !== undefined) return applique(masqueForce);
+  let best = null, bp = Infinity; for(let mi = 0; mi < 8; mi++){ const R = applique(mi), pe = penalite(R); if(pe < bp){ bp = pe; best = R; } } return best;
+}
+/* Carte de membre numérique (QR de vérification = lien vers la page du membre). Mémorisée pour un usage hors ligne. */
+function qrSVG(texte){ /* QR code version 1-4, niveau L — générateur compact (byte mode) */
+  const QR = qrMatrice(texte); if(!QR) return ""; const n = QR.length, c = 4;
+  let d = ""; for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) if(QR[y][x]) d += "M"+(x+c)+" "+(y+c)+"h1v1h-1z";
+  return '<svg viewBox="0 0 '+(n+2*c)+' '+(n+2*c)+'" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="'+d+'" fill="#000"/></svg>';
+}
+function carteMembreHTML(m, statut){
+  const s = etat.settings, lien = (s.site_public||location.origin+location.pathname).replace(/\/?$/,"/")+"#/payer?t="+String(m.telephone||"").replace(/\D/g,"");
+  const etiquette = { PAYE:"À JOUR", AVANCE:"À JOUR", EXONERE:"MEMBRE", NATURE:"À JOUR", PARTIEL:"PARTIEL", IMPAYE:"À RÉGULARISER", A_PAYER:"À PAYER" }[statut] || "";
+  return '<div class="carte-membre"><div class="qr">'+qrSVG(lien)+'</div>'
+    + '<div style="font-size:11px;letter-spacing:2px;opacity:.8">'+ech((s.reseau||"COMPTACONNECT").toUpperCase())+'</div>'
+    + '<div style="font-weight:800;font-size:19px;margin-top:6px">'+ech(m.nom)+'</div>'
+    + (m.titre||m.specialite ? '<div style="opacity:.85;font-size:13px">'+ech(m.titre||m.specialite)+'</div>' : '')
+    + '<div style="margin-top:10px;font-size:12px;opacity:.8">N° DE CARTE</div><div class="matricule" style="font-size:16px">'+(m.matricule ? ech(m.matricule) : '—')+'</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-end;margin-top:12px"><div style="font-size:12px;opacity:.8">Membre depuis '+(anneeAdhesion(m)||"")+'</div>'
+    + (etiquette ? '<span class="badge '+(/JOUR|MEMBRE/.test(etiquette) ? 'b-paye' : 'b-partiel')+'">'+etiquette+(statut !== "EXONERE" ? ' · '+libelleMois(moisCourant()).toUpperCase() : '')+'</span>' : '')+'</div>'
+    + '<div style="clear:both;font-size:11px;opacity:.7;margin-top:8px">QR : vérification en direct de la situation du membre</div></div>';
+}
+function vueCarte(params){
+  const m = params.t ? trouverMembre(params.t) : null;
+  if(m && !etat.horsLigne){ const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, moisCourant()).lignes[0]; try{ localStorage.setItem("cc_carte", JSON.stringify({ m, statut: l.statut, date: aujourdhui(), settings: { reseau: etat.settings.reseau, site_public: etat.settings.site_public } })); }catch(_){}
+    return '<main>'+carteMembreHTML(m, l.statut)+'<p class="mut" style="text-align:center">Carte mémorisée sur cet appareil : elle s’ouvre même sans connexion (application installée → « Ma carte de membre »). <a href="'+lienMembre(m)+'">Ma situation</a></p></main>'; }
+  let memo = null; try{ memo = JSON.parse(localStorage.getItem("cc_carte")||"null"); }catch(_){}
+  if(memo && memo.m){ if(!etat.settings.reseau) etat.settings = Object.assign({}, memo.settings, etat.settings); return '<main>'+carteMembreHTML(memo.m, memo.statut)+'<p class="mut" style="text-align:center">'+(etat.horsLigne ? '📴 Hors ligne — ' : '')+'situation enregistrée le '+dateFR(memo.date)+'.</p></main>'; }
+  return '<main><div class="carte"><h3>Ma carte de membre</h3><p class="mut">Identifiez-vous une première fois avec votre téléphone (connexion nécessaire) ; la carte sera ensuite disponible hors ligne.</p><div style="display:flex;gap:8px"><input id="telCarte" placeholder="Votre numéro de téléphone" inputmode="tel"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telCarte\').value);if(x)aller(\'#/carte?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">Afficher</button></div></div></main>';
+}
 function vuePayer(params){
   const saisie = params.m || params.t || "";
   const mois = normaliserMois(params.mois || moisCourant());
@@ -1525,6 +1622,7 @@ function vuePayer(params){
     + (annee ? '<div class="mut">Membre depuis '+annee+'</div>' : '')
     + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
+    + (enAttente ? "" : '<p style="margin:-6px 0 12px"><a class="btn sm sec" href="#/carte?t='+encodeURIComponent(idMembre(m))+'">🪪 Ma carte de membre (QR, hors ligne)</a> '+((etat.settings.agenda||"oui") !== "non" ? '<a class="btn sm sec" href="#/agenda?t='+encodeURIComponent(idMembre(m))+'">📅 Agenda</a>' : '')+'</p>')
     + (enAttente ? "" : carteFiche(m))
     + (enAttente ? "" : sectionAnnonces(2))
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée avec votre numéro de téléphone <strong>'+ech(m.telephone||"")+'</strong> : c’est lui qui vous servira à revenir sur cette page. '
@@ -1708,7 +1806,7 @@ function carteAnniversairesTresorier(){
 const BADGES = {
   contributeur:["🧩","Contributeur","3 réponses validées"], expert:["🎓","Expert","10 réponses validées"], validateur:["✔️","Validateur","a validé des réponses"],
   curieux:["❓","Curieux","3 questions publiées"], ponctuel:["⏱️","Ponctuel","3 mois de suite payés dans le mois"], fidele:["💎","Fidèle","12 mois réglés"],
-  avance:["🚀","Prévoyant","a payé en avance"], parrain:["🤝","Parrain","a fait adhérer un membre"], pionnier:["🌱","Pionnier","parmi les 100 premiers membres"], profil:["🪪","Profil complet","fiche et photo à jour"] };
+  avance:["🚀","Prévoyant","a payé en avance"], parrain:["🤝","Parrain","a fait adhérer un membre"], veilleur:["🔭","Veilleur","a revérifié 5 réponses"], pionnier:["🌱","Pionnier","parmi les 100 premiers membres"], profil:["🪪","Profil complet","fiche et photo à jour"] };
 function pts(cle, defaut){ const v = parseInt(etat.settings["pts_"+cle]||"",10); return isNaN(v) ? defaut : v; }
 function trimestreDe(d){ d = d || new Date(); const t = Math.floor(d.getMonth()/3); return { cle: d.getFullYear()+"-T"+(t+1), debut: d.getFullYear()+"-"+String(t*3+1).padStart(2,"0")+"-01", fin: d.getFullYear()+"-"+String(t*3+3).padStart(2,"0")+"-31", libelle: (t+1)+(t?"ᵉ":"ᵉʳ")+" trimestre "+d.getFullYear() }; }
 function trimestrePrecedent(){ const d = new Date(); d.setMonth(d.getMonth()-3); return trimestreDe(d); }
@@ -1720,6 +1818,7 @@ function scoresTous(tri){
   const add = (id, n, type, date) => { const x = S[id]; if(!x) return; x.total += n; if(dansTri(date)) x[type === "p" ? "tri_paiement" : "tri_contrib"] += n; };
   // contributions
   for(const r of (etat.reponses||[])){ if(!r.publie) continue; add(r.membre_id, pts("reponse",5), "c", r.cree_le); if(S[r.membre_id]) S[r.membre_id].rep++;
+    for(const v of (r.revisions||[])){ add(v.membre_id, pts("revision",2), "c", v.date); if(S[v.membre_id]) S[v.membre_id].revis = (S[v.membre_id].revis||0)+1; }
     for(const v of (r.validations||[])){ add(v.membre_id, pts("validation",1), "c", v.date); if(S[v.membre_id]) S[v.membre_id].valid++; } }
   for(const q of (etat.questions||[])){ if((etat.reponses||[]).some(r => r.question_id === q.id && r.publie)){ for(const id of [q.membre_id, ...(q.co_auteurs||[])]){ add(id, pts("question",2), "c", q.cree_le); if(S[id]) S[id].quest++; } } }
   // paiements : dans le mois (+3) / en avance (+4) ; suite de mois ponctuels
@@ -1738,7 +1837,7 @@ function scoresTous(tri){
   // parrainage : points au parrain quand le filleul est activé (adhésion payée)
   if((etat.settings.parrainage||"oui") !== "non") for(const m of etat.membres){ if(m.parrain_id && m.actif && S[m.parrain_id]){ add(m.parrain_id, pts("parrainage",10), "c", m.date_adhesion); S[m.parrain_id].filleuls = (S[m.parrain_id].filleuls||0)+1; } }
   // fiche / badges
-  for(const x of Object.values(S)){ const m = x.m; if(x.filleuls) x.badges.push("parrain");
+  for(const x of Object.values(S)){ const m = x.m; if(x.filleuls) x.badges.push("parrain"); if((x.revis||0) >= 5) x.badges.push("veilleur");
     if(!champsManquants(m).length && m.photo_url){ x.total += pts("fiche",2); x.badges.push("profil"); }
     if(x.rep >= 10) x.badges.push("expert"); else if(x.rep >= 3) x.badges.push("contributeur");
     if(x.valid >= 1) x.badges.push("validateur"); if(x.quest >= 3) x.badges.push("curieux");
@@ -1942,6 +2041,122 @@ function vueLegal(){
     + '<p class="mut">Dernière mise à jour : '+dateFR(new Date().toISOString().slice(0,10))+'.</p></div></main>';
 }
 
+/* --------------------------- Vitrine : chiffres clés, témoignages --------------------------- */
+function chiffresCles(){
+  const actifs = etat.membres.filter(m => m.actif); if(!actifs.length) return "";
+  const villes = new Set(actifs.map(m => (m.ville||"").trim().toLowerCase()).filter(Boolean)).size, pays = new Set(actifs.map(m => (m.pays||"").trim()).filter(Boolean)).size;
+  const reps = (etat.reponses||[]).filter(r => r.publie).length, premiere = actifs.map(m => String(m.date_adhesion||"").slice(0,4)).filter(a => /^\d{4}$/.test(a)).sort()[0];
+  return '<div class="chiffres"><div><b>'+actifs.length+'</b>membres</div><div><b>'+villes+'</b>ville'+(villes>1?'s':'')+(pays > 1 ? ' · '+pays+' pays' : '')+'</div>'+(reps ? '<div><b>'+reps+'</b>réponses d’experts</div>' : '')+(premiere ? '<div><b>'+premiere+'</b>création</div>' : '')+'</div>';
+}
+/* Témoignages : Paramètres → une ligne par témoignage « Nom, fonction | texte » */
+function carteTemoignages(){
+  const L = (etat.settings.temoignages||"").split("\n").map(x => x.split("|")).filter(x => x.length >= 2 && x[1].trim()).slice(0,4); if(!L.length) return "";
+  return '<div class="carte"><h3>💬 Ils parlent du réseau</h3>'+L.map(([n,t]) => '<blockquote style="margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--or);background:var(--creme);border-radius:8px"><div style="font-style:italic">« '+ech(t.trim())+' »</div><div class="mut" style="margin-top:4px">— '+ech(n.trim())+'</div></blockquote>').join("")+'</div>';
+}
+
+/* --------------------------- Agenda des événements --------------------------- */
+function evenementsAVenir(){ const auj = aujourdhui(); return (etat.evenements||[]).filter(e => e.publie !== false && e.date >= auj).sort((a,b) => a.date.localeCompare(b.date)); }
+function inscritsDe(id){ return (etat.evenementInscrits||[]).filter(i => i.evenement_id === id); }
+function carteAgendaAccueil(){
+  if((etat.settings.agenda||"oui") === "non") return ""; const L = evenementsAVenir().slice(0,3); if(!L.length) return "";
+  return '<div class="carte"><h3>📅 Prochains rendez-vous</h3>'+L.map(e => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--ligne)"><div style="text-align:center;min-width:46px;background:var(--creme);border-radius:8px;padding:4px"><div style="font-weight:800;font-size:18px;line-height:1">'+e.date.slice(8,10)+'</div><div style="font-size:11px;text-transform:uppercase">'+MOIS_FR[parseInt(e.date.slice(5,7),10)-1].slice(0,4)+'</div></div><div><strong>'+ech(e.titre)+'</strong><div class="mut">'+(e.heure ? ech(e.heure)+' · ' : '')+ech(e.lieu||"")+(inscritsDe(e.id).length ? ' · '+inscritsDe(e.id).length+' inscrit'+(inscritsDe(e.id).length>1?'s':'') : '')+'</div></div></div>').join("")
+    + '<p style="margin-top:10px"><a class="btn sm sec" href="#/agenda">Voir l’agenda et m’inscrire</a></p></div>';
+}
+function vueAgenda(params){
+  if((etat.settings.agenda||"oui") === "non") return '<main><div class="carte"><p>L’agenda est désactivé.</p></div></main>';
+  const m = params.t ? trouverMembre(params.t) : null, auj = aujourdhui(), lienT = m ? '?t='+encodeURIComponent(idMembre(m)) : '';
+  const avenir = evenementsAVenir(), passes = (etat.evenements||[]).filter(e => e.publie !== false && e.date < auj).sort((a,b) => b.date.localeCompare(a.date)).slice(0,12);
+  const carteEvt = (e, passe) => { const ins = inscritsDe(e.id), moi = m && ins.some(i => i.membre_id === m.id), complet = e.places > 0 && ins.length >= e.places, r = e.rencontre_id ? etat.rencontres.find(x => x.id === e.rencontre_id) : null;
+    return '<div class="carte"><div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap"><div style="text-align:center;min-width:56px;background:'+(passe ? 'var(--ligne)' : 'var(--creme)')+';border-radius:10px;padding:6px"><div style="font-weight:800;font-size:22px;line-height:1">'+e.date.slice(8,10)+'</div><div style="font-size:11px;text-transform:uppercase">'+MOIS_FR[parseInt(e.date.slice(5,7),10)-1].slice(0,4)+' '+e.date.slice(0,4)+'</div></div>'
+      + '<div style="flex:1;min-width:220px"><strong style="font-size:16px">'+ech(e.titre)+'</strong><div class="mut">'+[e.heure, e.lieu].filter(Boolean).map(ech).join(" · ")+'</div>'
+      + (e.description ? '<p style="margin:6px 0">'+ech(e.description).replace(/\n/g,"<br>")+'</p>' : '')
+      + (e.lien ? '<p style="margin:4px 0"><a href="'+ech(e.lien)+'" target="_blank" rel="noopener">🔗 Lien (visio / plan / programme)</a></p>' : '')
+      + (!passe && e.inscription ? '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+          + (m ? (moi ? '<span class="badge b-paye">✔ inscrit</span><button class="btn sm sec" onclick="inscrireEvt(\''+ech(idMembre(m))+'\','+e.id+',false)">Me désinscrire</button>' : complet ? '<span class="badge b-impaye">complet</span>' : '<button class="btn sm" onclick="inscrireEvt(\''+ech(idMembre(m))+'\','+e.id+',true)">Je participe</button>')
+               : '<span class="mut">Identifiez-vous (téléphone) pour vous inscrire.</span>')
+          + '<span class="mut">'+ins.length+' inscrit'+(ins.length>1?'s':'')+(e.places ? ' / '+e.places+' places' : '')+'</span>'
+          + '<a class="btn sm sec" href="'+icsLien(e)+'" download="'+ech(e.titre.replace(/[^\w]+/g,"_"))+'.ics">📆 Ajouter à mon calendrier</a></div>' : '')
+      + (passe && e.compte_rendu ? '<details style="margin-top:8px" open><summary style="font-weight:700">📝 Compte rendu</summary><div style="margin-top:6px">'+ech(e.compte_rendu).replace(/\n/g,"<br>")+'</div></details>' : '')
+      + (passe && r && (r.photos||[]).length ? '<p style="margin:6px 0 0"><a class="btn sm sec" href="#/rencontres?id='+r.id+'">📷 Photos de la rencontre ('+r.photos.length+')</a></p>' : '')
+      + '</div></div></div>'; };
+  return '<main><div class="carte"><h3>📅 Agenda du réseau</h3><p class="mut">Rencontres, formations, assemblées : inscrivez-vous en un clic, recevez un rappel la veille, et retrouvez les comptes rendus après coup.</p>'
+    + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>.</p>' : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telAg" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telAg\').value);if(x)aller(\'#/agenda?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">M’identifier</button></div>')+'</div>'
+    + (avenir.length ? avenir.map(e => carteEvt(e, false)).join("") : '<div class="carte"><p class="mut">Aucun événement programmé pour le moment.</p></div>')
+    + (passes.length ? '<h3 style="margin:18px 0 10px">Événements passés &amp; comptes rendus</h3>'+passes.map(e => carteEvt(e, true)).join("") : '')+'</main>';
+}
+function icsLien(e){ const d = e.date.replace(/-/g,""), h = (e.heure||"").match(/(\d{1,2})\s*[h:]\s*(\d{0,2})/); const deb = h ? d+"T"+String(h[1]).padStart(2,"0")+(h[2]||"00").padStart(2,"0")+"00" : d;
+  const ics = ["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//ComptaConnect//FR","BEGIN:VEVENT","UID:cc-evt-"+e.id+"@comptaconnect.org","DTSTAMP:"+new Date().toISOString().replace(/[-:]/g,"").slice(0,15)+"Z",(h ? "DTSTART:" : "DTSTART;VALUE=DATE:")+deb,"SUMMARY:"+e.titre.replace(/[,;]/g," "),"LOCATION:"+(e.lieu||"").replace(/[,;]/g," "),"DESCRIPTION:"+(e.description||"").replace(/\n/g,"\\n").replace(/[,;]/g," "),"END:VEVENT","END:VCALENDAR"].join("\r\n");
+  return "data:text/calendar;charset=utf-8,"+encodeURIComponent(ics); }
+async function inscrireEvt(tel, id, oui){ try{ const r = await sb("rpc/cc_inscrire_evenement", { method:"POST", body: JSON.stringify({ p_tel: tel, p_evenement_id: id, p_oui: !!oui }) });
+  if(!r.ok){ toast({ complet:"Plus de places disponibles.", ferme:"Inscriptions fermées.", passe:"Cet événement est passé.", inconnu:"Membre inconnu ou inactif." }[r.motif]||"Refusé.", "err"); return; }
+  await chargerDonnees(); toast(oui ? "Inscription enregistrée. À bientôt !" : "Désinscription enregistrée.", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
+function sectionAgendaAdmin(){
+  if((etat.settings.agenda||"oui") === "non") return "";
+  const L = (etat.evenements||[]).slice().sort((a,b) => b.date.localeCompare(a.date)).slice(0,20), auj = aujourdhui();
+  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">📅 Agenda des événements</h3><span style="flex:1"></span><button class="btn sm" onclick="editerEvenement(0)">+ Nouvel événement</button></div>'
+    + '<p class="mut">Les membres s’inscrivent depuis l’agenda ; la veille à 8 h, le serveur envoie un rappel par e-mail aux inscrits (dès que Brevo est actif) et le bouton WhatsApp ci-dessous vous donne le message prêt à coller dans le groupe. Après l’événement, rédigez le compte rendu et reliez la galerie photos.</p>'
+    + '<div id="editeurEvenement"></div>'
+    + (L.length ? '<div class="survol"><table><tr><th>Date</th><th>Événement</th><th>Inscrits</th><th></th></tr>'+L.map(e => { const ins = inscritsDe(e.id); const msg = "📅 "+e.titre+"\n"+dateFR(e.date)+(e.heure ? " à "+e.heure : "")+(e.lieu ? " — "+e.lieu : "")+(e.description ? "\n"+e.description : "")+"\n\nInscription en 1 clic : "+(etat.settings.site_public||location.origin+location.pathname)+"#/agenda";
+        return '<tr><td style="white-space:nowrap">'+dateFR(e.date)+(e.date < auj ? '' : ' <span class="badge b-paye">à venir</span>')+(e.publie === false ? ' <span class="badge b-neutre">brouillon</span>' : '')+'</td><td><strong>'+ech(e.titre)+'</strong><div class="mut">'+[e.heure, e.lieu].filter(Boolean).map(ech).join(" · ")+(e.compte_rendu ? ' · 📝 compte rendu' : '')+'</div></td>'
+          + '<td>'+ins.length+(e.places ? ' / '+e.places : '')+(ins.length ? ' <a href="javascript:void(0)" onclick="listeInscrits('+e.id+')">voir</a>' : '')+'</td>'
+          + '<td style="white-space:nowrap"><a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(msg)+'">WhatsApp</a> <button class="btn sm sec" onclick="editerEvenement('+e.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerLigne(\'cc_evenements\','+e.id+')">Suppr.</button></td></tr>'; }).join("")+'</table></div>' : '<p class="mut">Aucun événement.</p>')+'<div id="listeInscrits"></div></div>';
+}
+function listeInscrits(id){ const ins = inscritsDe(id), e = (etat.evenements||[]).find(x => x.id === id); const L = ins.map(i => etat.membres.find(m => m.id === i.membre_id)).filter(Boolean);
+  $("#listeInscrits").innerHTML = '<div class="alerte al-info" style="margin-top:10px"><strong>Inscrits — '+ech(e ? e.titre : "")+' ('+L.length+')</strong><div class="survol"><table><tr><th>Nom</th><th>Téléphone</th><th>Ville</th></tr>'+L.map(m => '<tr><td>'+ech(m.nom)+'</td><td>'+ech(m.telephone||"")+'</td><td>'+ech(m.ville||"")+'</td></tr>').join("")+'</table></div>'
+    + '<button class="btn sm sec" onclick="telechargerCSV(\'inscrits_'+id+'.csv\', [[\'Nom\',\'Téléphone\',\'Ville\',\'Email\']].concat('+JSON.stringify(L.map(m => [m.nom, m.telephone||"", m.ville||"", m.email||""])).replace(/"/g,"&quot;")+'))">CSV (feuille de présence)</button></div>'; }
+function telechargerCSV(nom, lignes){ const csv = lignes.map(l => l.map(v => '"'+String(v ?? "").replace(/"/g,'""')+'"').join(";")).join("\n"); const b = new Blob(["\ufeff"+csv], { type:"text/csv;charset=utf-8" }), u = URL.createObjectURL(b), a = document.createElement("a"); a.href = u; a.download = nom; a.click(); URL.revokeObjectURL(u); }
+function editerEvenement(id){
+  const e = (etat.evenements||[]).find(x => x.id === id) || { titre:"", date: aujourdhui(), heure:"", lieu:"", description:"", lien:"", inscription:true, places:0, publie:true, compte_rendu:"", rencontre_id:null };
+  const champ = (k, l, type) => '<div class="champ"><span>'+l+'</span><input id="ev_'+k+'" type="'+(type||"text")+'" value="'+ech(e[k] ?? "")+'"></div>';
+  $("#editeurEvenement").innerHTML = '<div class="alerte al-info" style="margin-top:10px"><strong>'+(id ? "Modifier" : "Nouvel")+' événement</strong><div class="grille g2">'
+    + champ("titre","Titre") + champ("date","Date","date") + champ("heure","Heure (ex. 15h30)") + champ("lieu","Lieu (ou « en ligne »)") + champ("lien","Lien (visio, plan, programme)") + champ("places","Places (0 = illimité)","number")
+    + '<div class="champ"><span>Inscription des membres</span><select id="ev_inscription"><option value="true"'+(e.inscription!==false?" selected":"")+'>oui</option><option value="false"'+(e.inscription===false?" selected":"")+'>non (information seulement)</option></select></div>'
+    + '<div class="champ"><span>Publication</span><select id="ev_publie"><option value="true"'+(e.publie!==false?" selected":"")+'>publié</option><option value="false"'+(e.publie===false?" selected":"")+'>brouillon</option></select></div></div>'
+    + '<div class="champ"><span>Description / programme</span><textarea id="ev_description" rows="3">'+ech(e.description||"")+'</textarea></div>'
+    + '<div class="champ"><span>Compte rendu (après l’événement — visible de tous dans l’agenda)</span><textarea id="ev_compte_rendu" rows="4">'+ech(e.compte_rendu||"")+'</textarea></div>'
+    + '<div class="champ"><span>Galerie photos associée (rencontre)</span><select id="ev_rencontre_id"><option value="">— aucune —</option>'+etat.rencontres.map(r => '<option value="'+r.id+'"'+(String(e.rencontre_id||"")===String(r.id)?' selected':'')+'>'+ech(r.titre)+' ('+dateFR(r.date)+')</option>').join("")+'</select></div>'
+    + '<button class="btn" onclick="enregistrerEvenement('+id+')">Enregistrer</button> <button class="btn sec" onclick="document.querySelector(\'#editeurEvenement\').innerHTML=\'\'">Annuler</button></div>';
+  $("#editeurEvenement").scrollIntoView({ behavior:"smooth", block:"center" });
+}
+async function enregistrerEvenement(id){
+  const v = k => $("#ev_"+k).value.trim();
+  const corps = { titre: v("titre"), date: v("date"), heure: v("heure"), lieu: v("lieu"), lien: v("lien"), description: v("description"), compte_rendu: v("compte_rendu"), places: parseInt(v("places"),10) || 0, inscription: v("inscription") === "true", publie: v("publie") === "true", rencontre_id: v("rencontre_id") ? parseInt(v("rencontre_id"),10) : null };
+  if(corps.titre.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(corps.date)){ toast("Titre et date obligatoires.", "err"); return; }
+  try{ if(id) await sb("cc_evenements?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) }); else await sb("cc_evenements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); toast("Événement enregistré.", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+
+/* --------------------------- Rapport financier mensuel (PDF) --------------------------- */
+function rapportMensuel(mois){
+  mois = normaliserMois(mois || moisCourant()); const s = etat.settings, per = { debut: mois, fin: mois, mode:"mois" }, t = tableauSolde(per), l = t.lignes[0] || { recettes:0, brut:0, frais:0, depenses:0, net:0, cumul:t.report };
+  const P = pointage(etat.membres, etat.paiements, mois), dep = (etat.depenses||[]).filter(d => String(d.date||"").slice(0,7) === mois).sort((a,b) => String(a.date).localeCompare(String(b.date)));
+  const insc = etat.inscriptions.filter(p => String(p.date||"").slice(0,7) === mois), inscTot = insc.reduce((x,p) => x + parseInt(p.montant,10), 0), inscCumul = etat.inscriptions.filter(p => String(p.date||"").slice(0,7) <= mois).reduce((x,p) => x + parseInt(p.montant,10), 0);
+  const pm = etat.paiements.filter(p => String(p.date||"").slice(0,7) === mois), canaux = {}; for(const p of pm){ const k = /cinetpay|wave|orange|mtn|moov/i.test(p.canal||"") ? "En ligne (CinetPay)" : (p.canal||"Manuel"); canaux[k] = (canaux[k]||0) + parseInt(p.montant,10); }
+  const nouveaux = etat.membres.filter(m => String(m.date_adhesion||"").slice(0,7) === mois).length, actifs = etat.membres.filter(m => m.actif).length;
+  const ligne = (a,b,c) => '<tr><td>'+a+'</td><td style="text-align:right">'+b+'</td>'+(c !== undefined ? '<td class="m">'+c+'</td>' : '')+'</tr>';
+  ouvrirDoc(docCadre("Rapport financier "+libelleMois(mois), '<div class="t">Rapport financier mensuel — '+libelleMois(mois)+'</div><p class="m">Établi le '+dateFR(aujourdhui())+' par la plateforme à partir des écritures enregistrées (reçus numérotés, journal d’audit).</p>'
+    + '<h3 style="margin:14px 0 4px">1. Trésorerie</h3><table>'+ligne("Solde reporté au 1er "+libelleMois(mois), fcfa(t.report)+" F")+ligne("Cotisations encaissées (brut)", fcfa(l.brut)+" F", Object.entries(canaux).map(([k,v]) => k+" : "+fcfa(v)+" F").join(" · "))+ligne("Frais de plateforme (CinetPay "+ech(s.cinetpay_commission||"2.5")+" % + reversement)", "− "+fcfa(l.frais)+" F")+ligne("<strong>Recettes nettes</strong>", "<strong>"+fcfa(l.recettes)+" F</strong>")+ligne("Dépenses du mois", "− "+fcfa(l.depenses)+" F")+ligne("<strong>Résultat du mois</strong>", "<strong>"+fcfa(l.net)+" F</strong>")+'<tr class="tot"><td>Solde en caisse (cotisations) fin '+libelleMois(mois)+'</td><td style="text-align:right">'+fcfa(l.cumul)+' F</td><td></td></tr></table>'
+    + '<h3 style="margin:14px 0 4px">2. Caisse des frais d’inscription (séparée)</h3><table>'+ligne("Encaissé ce mois ("+insc.length+" adhésion"+(insc.length>1?"s":"")+")", fcfa(inscTot)+" F")+ligne("<strong>Cumul de la caisse</strong>", "<strong>"+fcfa(inscCumul)+" F</strong>")+'</table>'
+    + '<h3 style="margin:14px 0 4px">3. Cotisations du mois</h3><table>'+ligne("Membres actifs", actifs, nouveaux+" nouvelle"+(nouveaux>1?"s":"")+" adhésion"+(nouveaux>1?"s":""))+ligne("À jour", P.totaux.nb_payes+" ("+P.totaux.taux+" %)", P.totaux.nb_avances+" en avance")+ligne("Partiels", P.totaux.nb_partiels)+ligne("Non réglées", P.totaux.nb_impayes, "manquant : "+fcfa(P.totaux.manquant)+" F")+'</table>'
+    + '<h3 style="margin:14px 0 4px">4. Dépenses détaillées</h3>'+(dep.length ? '<table><tr><th>Date</th><th>Libellé</th><th style="text-align:right">Montant</th></tr>'+dep.map(d => '<tr><td>'+dateFR(d.date)+'</td><td>'+ech(d.libelle||d.categorie||"")+'</td><td style="text-align:right">'+fcfa(d.montant)+' F</td></tr>').join("")+'<tr class="tot"><td colspan="2">Total</td><td style="text-align:right">'+fcfa(l.depenses)+' F</td></tr></table>' : '<p class="m">Aucune dépense ce mois.</p>')
+    + '<div class="sig"><div>'+ech(s.tresorier||"Le Trésorier")+'<br><span class="m">Trésorier</span></div><div>'+ech(s.fondateur||"Le Président")+'<br><span class="m">Président</span></div><div>Commissaire aux comptes<br><span class="m">visa</span></div></div>'));
+}
+
+/* --------------------------- Révision annuelle des contributions (Q/R) --------------------------- */
+function revisionActive(){ return (etat.settings.qr_revision||"oui") !== "non"; }
+function aReviser(r){ return revisionActive() && r.publie && (r.verifiee_annee||new Date(r.cree_le).getFullYear()) < new Date().getFullYear(); }
+async function confirmerReponse(tel, id){ try{ const r = await sb("rpc/cc_confirmer_reponse", { method:"POST", body: JSON.stringify({ p_tel: tel, p_reponse_id: id }) });
+  if(!r.ok){ toast({ deja:"Déjà confirmée pour cette année.", inconnu:"Membre inconnu ou inactif." }[r.motif]||"Refusé.", "err"); return; } await chargerDonnees(); toast("Merci ! Réponse confirmée pour "+r.annee+" (+"+pts("revision",2)+" pts).", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
+function carteRevisionTresorier(){
+  if(!revisionActive()) return ""; const L = (etat.reponses||[]).filter(aReviser); const an = new Date().getFullYear(), conf = (etat.reponses||[]).filter(r => (r.revisions||[]).some(v => v.annee === an)).length;
+  if(!L.length && !conf) return "";
+  const auteurs = {}; for(const r of L){ const m = etat.membres.find(x => x.id === r.membre_id); if(m) auteurs[m.id] = m; }
+  const msg = "📚 Révision annuelle "+an+" — "+(etat.settings.reseau||"ComptaConnect")+"\n\n"+L.length+" réponse"+(L.length>1?"s":"")+" de notre base de connaissances datent de l’an dernier. La loi de finances a changé : aidez le réseau à les vérifier !\n\n✔ « Toujours valable » = +"+pts("revision",2)+" points\n✏️ Mise à jour validée = +"+pts("reponse",5)+" points\n\n👉 "+(etat.settings.site_public||location.origin+location.pathname)+"#/questions";
+  return '<div class="carte" style="margin-top:14px;border-color:var(--or)"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">📚 Révision annuelle des réponses — '+an+'</h3><span style="flex:1"></span><a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(msg)+'">Lancer la campagne (WhatsApp)</a></div>'
+    + '<p style="margin-top:6px"><strong>'+L.length+'</strong> réponse'+(L.length>1?'s':'')+' à revérifier · <strong>'+conf+'</strong> confirmée'+(conf>1?'s':'')+' cette année · '+Object.keys(auteurs).length+' auteur'+(Object.keys(auteurs).length>1?'s':'')+' concerné'+(Object.keys(auteurs).length>1?'s':'')+(Object.keys(auteurs).length ? ' ('+Object.values(auteurs).slice(0,6).map(m => ech(m.nom.split(" ")[0])).join(", ")+(Object.keys(auteurs).length>6?'…':'')+')' : '')+'</p>'
+    + '<p class="mut">N’importe quel membre peut confirmer une réponse (« toujours valable ») ou proposer une mise à jour (nouvelle réponse → validateur). Les auteurs recevront aussi un e-mail dès que Brevo sera actif. Aucune réponse n’est archivée : une réponse non revérifiée reste visible avec un bandeau d’avertissement.</p></div>';
+}
+
 /* --------------------------- Animation de la communauté --------------------------- */
 /* Défi du mois : objectif collectif « X % des membres à jour avant le jour J », jauge sur l'accueil et la page membre. */
 function carteDefi(){
@@ -2060,7 +2275,9 @@ function vueQuestions(params){
   const attente = m ? (etat._qrAttente||[]) : [], miennes = m ? (etat._qrMiennes||[]) : [];
   const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+auteur(r.membre_id)+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
     + '<div style="margin-top:6px"><span class="badge b-avance">🤝 Co-contribution</span> <span class="mut">question : '+(q.anonyme ? "un membre" : auteur(q.membre_id))+(r.membre_id === q.membre_id ? ' (question et réponse)' : ' · réponse : '+auteur(r.membre_id))+'</span></div>'
-    + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+'</div></div>';
+    + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+(r.verifiee_annee && !aReviser(r) ? ' · <span class="badge b-paye">vérifiée pour '+r.verifiee_annee+'</span>' : '')+((r.revisions||[]).length ? ' · revue par '+(r.revisions||[]).map(v => ech(v.nom)+' ('+v.annee+')').join(", ") : '')+'</div>'
+    + (aReviser(r) ? '<div class="alerte al-info" style="margin:8px 0 0;background:#fff8e6;border-color:#f3c969">⚠️ Réponse vérifiée pour '+(r.verifiee_annee||new Date(r.cree_le).getFullYear())+' — <strong>à revérifier pour '+new Date().getFullYear()+'</strong> (textes fiscaux et sociaux susceptibles d’avoir changé). '
+        + (m ? '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><button class="btn sm" onclick="confirmerReponse(\''+ech(m.telephone)+'\','+r.id+')">✔ Toujours valable (+'+pts("revision",2)+' pts)</button><button class="btn sm sec" onclick="(function(){const d=document.querySelector(\'#rep_'+q.id+'\');if(d){d.closest(\'details\').open=true;d.value=d.value||\'Mise à jour '+new Date().getFullYear()+' : \';d.focus();}})()">✏️ Proposer une mise à jour</button></div>' : '<div class="mut">Identifiez-vous pour la confirmer ou la mettre à jour.</div>')+'</div>' : '')+'</div>';
   const blocAttente = r => { const q = qs.find(x => x.id === r.question_id); const deja = (r.validations||[]).some(v => v.membre_id === m.id);
     return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'
       + '<div class="mut">'+(r.validations||[]).length+' / '+minV+' validation'+(minV>1?'s':'')+(r.validations.length ? ' — '+r.validations.map(v => ech(v.nom)).join(", ") : '')+'</div>'
@@ -2562,6 +2779,7 @@ function vueTableauBord(){
     + carteAnniversairesTresorier()
     + cartePalmaresTresorier()
     + carteNatureTresorier()
+    + carteRevisionTresorier()
     + carteSanteReseau()
     + carteDefi()
     + carteSondagesAdmin()
@@ -3127,6 +3345,7 @@ function vueSolde(){
   const coul = v => 'style="color:'+(v>=0?'var(--vert)':'#b3261e')+'"';
   return '<main>'
     + barrePeriode("solde", per, "Solde de caisse")
+    + '<p style="margin:-4px 0 10px"><button class="btn sm" onclick="rapportMensuel(\''+(per.mode === "tout" ? moisCourant() : per.fin)+'\')">📄 Rapport financier mensuel (PDF) — '+libelleMois(per.mode === "tout" ? moisCourant() : per.fin)+'</button> <span class="mut">recettes, frais CinetPay, dépenses, solde, caisse des inscriptions, signatures · envoi automatique au bureau dès Brevo actif</span></p>'
     + '<div class="grille g4">'
     + kpi("Solde reporté", fcfa(t.report)+" F", "avant "+libelleMois(per.debut))
     + kpi("Recettes nettes de la période", fcfa(t.recettes)+" F", "cotisations encaissées, après "+fcfa(t.lignes.reduce((s,l)=>s+l.frais,0))+" F de frais de plateforme (hors frais d’inscription)")
@@ -3204,6 +3423,10 @@ function vueParametres(){
     + sel("certificats","Certificats PDF téléchargeables par les membres (« Membre à jour », « Contributeur de l’année »)")
     + sel("parrainage","Parrainage (champ « parrainé par » à l’adhésion)")
     + sel("annuaire","Annuaire professionnel (chaque membre choisit d’y figurer)")
+    + sel("agenda","Agenda des événements (inscriptions, rappels, comptes rendus)")
+    + sel("qr_revision","Révision annuelle des réponses Q/R (bandeau « à revérifier » dès janvier, confirmable par tout membre)")
+    + '<div class="champ"><span>Points pour une réponse revérifiée</span><input id="s_pts_revision" type="number" min="0" max="20" value="'+ech(s.pts_revision||"2")+'"></div>'
+    + '<div class="champ"><span>Témoignages (accueil) — une ligne par témoignage : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
     + '<div class="champ"><span>Mois de révision annuelle des cotisations en nature</span><input id="s_nature_revision_mois" type="number" min="1" max="12" value="'+ech(s.nature_revision_mois||"12")+'"></div>'
     + '<div class="champ"><span>Points au parrain quand le filleul adhère</span><input id="s_pts_parrainage" type="number" min="0" max="100" value="'+ech(s.pts_parrainage||"10")+'"></div>'
     + '</div>'
@@ -3275,7 +3498,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
@@ -3383,6 +3606,7 @@ function vueReseau(){
   return '<main>'
     + sectionAnnoncesAdmin()
     + sectionFormationsAdmin()
+    + sectionAgendaAdmin()
     + sectionQuestionsAdmin()
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
@@ -3737,11 +3961,20 @@ async function supprimerVitrine(id){
 
 /* --------------------------- Démarrage --------------------------- */
 window.addEventListener("hashchange", rendu);
+/* Thème : clair par défaut, sombre au choix (mémorisé) ou selon le réglage du téléphone */
+function appliquerTheme(){ const t = localStorage.getItem("cc_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "sombre" : "clair"); document.documentElement.dataset.theme = t; }
+function basculerTheme(){ const t = (document.documentElement.dataset.theme === "sombre") ? "clair" : "sombre"; localStorage.setItem("cc_theme", t); appliquerTheme(); }
+appliquerTheme();
+/* Application installable (PWA) : service worker + invitation à installer */
+if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){ navigator.serviceWorker.register("sw.js").catch(() => {}); }
+let _installPrompt = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); _installPrompt = e; const b = $("#btnInstaller"); if(b) b.style.display = ""; });
+async function installerApp(){ if(!_installPrompt){ toast("Sur iPhone : Partager → « Sur l’écran d’accueil ». Sur Android : menu ⋮ → « Installer l’application ».", "ok"); return; } _installPrompt.prompt(); await _installPrompt.userChoice; _installPrompt = null; }
 (async function(){
   cfgCharger(); sessionCharger();
   if(etat.cfg){
-    try{ await chargerDonnees(); }
-    catch(e){ console.warn("chargement:", e.message); }
+    try{ await chargerDonnees(); etat.horsLigne = false; }
+    catch(e){ console.warn("chargement:", e.message); etat.horsLigne = true; }
   }
   rendu();
 })();

@@ -1095,3 +1095,90 @@ alter table cc_membres add column if not exists nature_exceptions jsonb not null
 -- Nabil : espèces jusqu'en août 2026, en nature depuis septembre 2026 ; complément 4 420 F en déc. 2026, puis 5 700 F/an
 update cc_membres set exonere = false, nature_depuis = '2026-09-01', nature_montant = 5700, nature_exceptions = '{"2026": 4420}'::jsonb
   where id = 89 and coalesce(cotisation_nature,'') <> '';
+
+-- ====================================================================================
+-- Vague 2 : révision annuelle des contributions, agenda des événements, réglages PWA/vitrine
+-- ====================================================================================
+insert into cc_settings (cle, valeur) values ('qr_revision','oui'), ('pts_revision','2'), ('agenda','oui'), ('temoignages','') on conflict (cle) do nothing;
+
+-- Révision annuelle : chaque réponse publiée porte l'année pour laquelle elle a été vérifiée.
+-- Dès l'année suivante elle est « à revérifier » ; N'IMPORTE QUEL membre peut la confirmer (points) ou proposer une mise à jour (nouvelle réponse → validateur).
+alter table cc_reponses add column if not exists verifiee_annee int;
+alter table cc_reponses add column if not exists revisions jsonb not null default '[]'::jsonb;   -- [{"membre_id","nom","date","annee"}]
+update cc_reponses set verifiee_annee = extract(year from coalesce(cree_le, now()))::int where verifiee_annee is null;
+create or replace function cc_confirmer_reponse(p_tel text, p_reponse_id bigint) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_r cc_reponses; v_an int := extract(year from now())::int;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null or not v_m.actif then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  select * into v_r from cc_reponses where id = p_reponse_id and publie;
+  if not found then return json_build_object('ok', false, 'motif', 'reponse'); end if;
+  if coalesce(v_r.verifiee_annee, 0) >= v_an then return json_build_object('ok', false, 'motif', 'deja'); end if;
+  update cc_reponses set verifiee_annee = v_an,
+    revisions = revisions || jsonb_build_object('membre_id', v_m.id, 'nom', v_m.nom, 'date', to_char(now(), 'YYYY-MM-DD'), 'annee', v_an)
+    where id = p_reponse_id;
+  return json_build_object('ok', true, 'annee', v_an);
+end $$;
+revoke all on function cc_confirmer_reponse(text,bigint) from public;
+grant execute on function cc_confirmer_reponse(text,bigint) to anon, authenticated;
+-- Une réponse nouvellement validée est vérifiée pour l'année en cours
+create or replace function cc_reponse_publiee_annee() returns trigger language plpgsql as $$
+begin if new.publie and (old.publie is distinct from true) then new.verifiee_annee := extract(year from now())::int; end if; return new; end $$;
+drop trigger if exists trg_reponse_annee on cc_reponses;
+create trigger trg_reponse_annee before update on cc_reponses for each row execute function cc_reponse_publiee_annee();
+
+-- Agenda : événements à venir (inscription des membres, rappel la veille) et comptes rendus après coup
+create table if not exists cc_evenements (
+  id bigserial primary key,
+  titre text not null,
+  date date not null,
+  heure text default '',
+  lieu text default '',
+  description text default '',
+  lien text default '',                 -- visio / formulaire / plan
+  inscription boolean not null default true,
+  places int default 0,                 -- 0 = illimité
+  publie boolean not null default true,
+  compte_rendu text default '',
+  rencontre_id bigint references cc_rencontres(id) on delete set null,   -- galerie photos associée
+  cree_le timestamptz not null default now()
+);
+create table if not exists cc_evenement_inscrits (
+  id bigserial primary key,
+  evenement_id bigint not null references cc_evenements(id) on delete cascade,
+  membre_id bigint not null references cc_membres(id) on delete cascade,
+  date timestamptz not null default now(),
+  present boolean,
+  unique (evenement_id, membre_id)
+);
+alter table cc_evenements enable row level security; alter table cc_evenement_inscrits enable row level security;
+drop policy if exists "lecture publique cc_evenements" on cc_evenements;
+create policy "lecture publique cc_evenements" on cc_evenements for select using (publie or cc_est_tresorier());
+drop policy if exists "ecriture tresorier cc_evenements" on cc_evenements;
+create policy "ecriture tresorier cc_evenements" on cc_evenements for all to authenticated using (true) with check (true);
+drop policy if exists "lecture publique cc_evenement_inscrits" on cc_evenement_inscrits;
+create policy "lecture publique cc_evenement_inscrits" on cc_evenement_inscrits for select using (true);
+drop policy if exists "ecriture tresorier cc_evenement_inscrits" on cc_evenement_inscrits;
+create policy "ecriture tresorier cc_evenement_inscrits" on cc_evenement_inscrits for all to authenticated using (true) with check (true);
+grant select on cc_evenements, cc_evenement_inscrits to anon, authenticated;
+grant insert, update, delete on cc_evenements, cc_evenement_inscrits to authenticated;
+grant usage, select on sequence cc_evenements_id_seq, cc_evenement_inscrits_id_seq to authenticated;
+grant all on cc_evenements, cc_evenement_inscrits to service_role;
+create or replace function cc_inscrire_evenement(p_tel text, p_evenement_id bigint, p_oui boolean default true) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_e cc_evenements; v_n int;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null or not v_m.actif then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  select * into v_e from cc_evenements where id = p_evenement_id and publie;
+  if not found or not v_e.inscription then return json_build_object('ok', false, 'motif', 'ferme'); end if;
+  if v_e.date < current_date then return json_build_object('ok', false, 'motif', 'passe'); end if;
+  if not p_oui then delete from cc_evenement_inscrits where evenement_id = p_evenement_id and membre_id = v_m.id; return json_build_object('ok', true, 'inscrit', false); end if;
+  select count(*) into v_n from cc_evenement_inscrits where evenement_id = p_evenement_id;
+  if v_e.places > 0 and v_n >= v_e.places and not exists (select 1 from cc_evenement_inscrits where evenement_id = p_evenement_id and membre_id = v_m.id) then return json_build_object('ok', false, 'motif', 'complet'); end if;
+  insert into cc_evenement_inscrits (evenement_id, membre_id) values (p_evenement_id, v_m.id) on conflict do nothing;
+  return json_build_object('ok', true, 'inscrit', true);
+end $$;
+revoke all on function cc_inscrire_evenement(text,bigint,boolean) from public;
+grant execute on function cc_inscrire_evenement(text,bigint,boolean) to anon, authenticated;

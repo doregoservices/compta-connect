@@ -18,6 +18,26 @@ const lib = m => MOIS[parseInt(m.slice(5), 10) - 1] + " " + m.slice(0, 4);
 const fcfa = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/); return x ? x[1] + "-" + x[2].padStart(2, "0") : null; };
 
+async function rappelsAgenda(emailActif, exp, reseau, auj){
+// Agenda : rappel la veille aux inscrits (e-mail si Brevo actif)
+  try {
+    const demain = new Date(auj.getTime() + 86400000).toISOString().slice(0, 10);
+    const evts = await db(`cc_evenements?select=*&publie=is.true&date=eq.${demain}`);
+    for (const e of evts) {
+      if (!emailActif) { console.log(`agenda : « ${e.titre} » demain — rappel e-mail non envoyé (Brevo inactif)`); continue; }
+      const ins = await db(`cc_evenement_inscrits?select=membre_id&evenement_id=eq.${e.id}`);
+      const ids = ins.map(i => i.membre_id); if (!ids.length) continue;
+      const ms = await db(`cc_membres?select=id,nom,email&id=in.(${ids.join(",")})`);
+      let n = 0;
+      for (const m of ms) { if (!/@/.test(m.email || "")) continue;
+        const html = `<p>Bonjour ${m.nom.split(" ")[0]},</p><p>Petit rappel : <strong>${e.titre}</strong> a lieu <strong>demain ${demain.slice(8,10)}/${demain.slice(5,7)}</strong>${e.heure ? " à " + e.heure : ""}${e.lieu ? " — " + e.lieu : ""}.</p>${e.description ? "<p>" + e.description.replace(/\n/g, "<br>") + "</p>" : ""}${e.lien ? `<p>Lien : <a href="${e.lien}">${e.lien}</a></p>` : ""}<p>À demain !<br>Le bureau du réseau ${reseau}</p>`;
+        const r = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": SEC.brevo_api_key, "Content-Type": "application/json" },
+          body: JSON.stringify({ sender: { name: reseau, email: exp }, to: [{ email: m.email, name: m.nom }], subject: `Rappel : ${e.titre} — demain`, htmlContent: html }) });
+        if (r.ok) n++; }
+      console.log(`agenda : « ${e.titre} » demain — ${n} rappel(s) e-mail envoyé(s)`);
+    }
+  } catch (e) { console.warn("agenda : rappels impossibles —", e.message); }
+}
 (async () => {
   const force = process.argv[2];                                   // ex. `node relances.js retard` pour forcer un type (test)
   const S = Object.fromEntries((await db("cc_settings?select=cle,valeur")).map(x => [x.cle, x.valeur]));
@@ -28,6 +48,7 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
   const cour = mois2(auj), tol = parseInt(S.cotisation_tolerance || "10", 10), limite = jour > tol ? moisPrec(cour) : moisPrec(moisPrec(cour));
   const MAX = parseInt(S.relance_max_jour || "250", 10);              // plafond quotidien (Brevo gratuit : 300/jour)
   let type = force || (jour === jAppel ? "appel" : jour === jRappel ? "rappel" : (jour === Math.min(jDernier, dernierJour)) ? "dernier" : jour === jRetard ? "retard" : null);
+  await rappelsAgenda((S.relance_email || "oui") !== "non" && SEC.brevo_api_key, SEC.brevo_expediteur || "supportcomptaconnect@gmail.com", S.reseau || "ComptaConnect", auj);
   if (!type) {                                                         // hors calendrier : on poursuit la dernière campagne du mois si elle n'est pas terminée
     const der = await db(`cc_relances?select=type,date&date=gte.${cour}-01&order=date.desc&limit=1`);
     if (!der.length || der[0].date === auj.toISOString().slice(0, 10)) { console.log(new Date().toISOString(), "aucune relance prévue aujourd'hui (jour " + jour + ")"); return; }
