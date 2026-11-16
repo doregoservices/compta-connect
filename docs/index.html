@@ -1436,6 +1436,7 @@ function vueAccueil(){
     + '<button class="btn" onclick="verifierMatricule()">Vérifier</button></div>'
     + '<p class="mut" style="margin:8px 0 0;color:#cfe3da">Le numéro de téléphone est celui utilisé pour vos cotisations.</p>'
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
+    + carteAnniversairesAccueil()
     + sectionAnnonces(3)
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
     + (s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : '')
@@ -1516,6 +1517,7 @@ function vuePayer(params){
     + '</div>'
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
+    + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
     + (enAttente ? "" : carteFormationMembre(m))
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
     + '<div class="carte"><h3>Comment ça marche</h3>'
@@ -1537,6 +1539,7 @@ function carteFiche(m){
     + 'Pour changer de <strong>numéro de téléphone</strong>, contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+') : c’est votre clé d’accès.</p>'
     + '<div class="grille g2">'+CHAMPS_FICHE.map(([k,l]) => '<div class="champ"><span>'+l+(String(m[k]||"").trim() ? '' : ' <span style="color:#b45309">(manquant)</span>')+'</span><input id="f_'+k+'" value="'+ech(m[k]||"")+'"'+(k==="email" ? ' type="email" inputmode="email"' : '')+'></div>').join("")+'</div>'
     + '<div class="champ"><span>Téléphone (clé d’accès — modifiable par le trésorier)</span><input value="'+ech(m.telephone||"")+'" disabled></div>'
+    + ((etat.settings.anniversaires||"oui") !== "non" ? '<div class="champ"><span>Date de naissance (facultatif — pour les vœux du réseau 🎂)</span><input id="f_naissance" type="date" value="'+ech(String(m.date_naissance||"").slice(0,10))+'"></div>' : '')
     + '<div class="champ"><span>N° de votre carte de membre (facultatif, ex. CC-26-00026)</span><input id="f_carte" value="'+ech(m.matricule||"")+'" placeholder="Pas encore de carte ? laissez vide" autocapitalize="characters" autocomplete="off"><small class="mut">'+carteCommande(m)+'</small></div>'
     + '<button class="btn" onclick="enregistrerFiche(\''+ech(idMembre(m))+'\')">Enregistrer mes informations</button>'
     + (m.fiche_maj_le ? '<p class="mut">Dernière mise à jour : '+ech(String(m.fiche_maj_le).slice(0,10))+'</p>' : '')+'</details>';
@@ -1556,7 +1559,7 @@ async function enregistrerFiche(identifiant){
   if(v("email") && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v("email"))){ toast("Adresse e-mail invalide.", "err"); return; }
   try{
     const r = await sb("rpc/cc_maj_fiche", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_matricule: m.matricule||"",
-      p_nom: v("nom"), p_email: v("email"), p_ville: v("ville"), p_pays: v("pays"), p_specialite: v("specialite"), p_employeur: v("employeur") }) });
+      p_nom: v("nom"), p_email: v("email"), p_ville: v("ville"), p_pays: v("pays"), p_specialite: v("specialite"), p_employeur: v("employeur"), p_naissance: ($("#f_naissance") ? $("#f_naissance").value : null) }) });
     if(!r.ok){ toast(r.motif === "nom" ? "Nom trop court." : "Fiche introuvable : contactez le trésorier.", "err"); return; }
     if((matriculeNormaliser(carte)||"") !== (m.matricule||"")){
       const rc = await sb("rpc/cc_maj_carte", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_carte: carte }) });
@@ -1644,6 +1647,32 @@ function vueAppelPublic(params){
         + '<p class="mut" style="margin-top:8px">Pas encore membre ? <a href="#/adherer">Adhérez d’abord</a>, puis revenez sur ce lien.</p>'
       : '<div class="alerte al-info" style="margin-top:12px">Cet appel à paiement est clôturé.</div>')
     + '</div></main>';
+}
+
+/* --------------------------- Anniversaires --------------------------- */
+function anniversaires(decalageJours){
+  const d = new Date(); d.setDate(d.getDate() + (decalageJours||0)); const md = String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  return etat.membres.filter(m => m.actif && String(m.date_naissance||"").slice(5,10) === md);
+}
+function anniversairesDuMois(){
+  const mm = String(new Date().getMonth()+1).padStart(2,"0");
+  return etat.membres.filter(m => m.actif && String(m.date_naissance||"").slice(5,7) === mm).sort((a,b) => String(a.date_naissance).slice(8,10).localeCompare(String(b.date_naissance).slice(8,10)));
+}
+function carteAnniversairesAccueil(){
+  if((etat.settings.anniversaires||"oui") === "non") return "";
+  const auj = anniversaires(0); if(!auj.length) return "";
+  return '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire !</h3><p>Le réseau souhaite un excellent anniversaire à '+auj.map(m => '<strong>'+ech(m.nom)+'</strong>').join(", ")+' 🎉</p></div>';
+}
+function carteAnniversairesTresorier(){
+  if((etat.settings.anniversaires||"oui") === "non") return "";
+  const auj = anniversaires(0), demain = anniversaires(1), mois = anniversairesDuMois();
+  const msg = m => "https://wa.me/"+String(m.telephone||"").replace(/\D/g,"")+"?text="+encodeURIComponent("🎂 Joyeux anniversaire "+m.nom.split(" ")[0]+" ! Tout le réseau "+(etat.settings.reseau||"ComptaConnect")+" vous souhaite une excellente journée et une belle année de réussite 🎉");
+  const sans = etat.membres.filter(m => m.actif && !m.date_naissance).length;
+  return '<div class="carte" style="margin-top:14px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">🎂 Anniversaires</h3><span class="mut">'+(mois.length ? mois.length+' ce mois-ci' : 'aucun ce mois-ci')+' · '+sans+' membre'+(sans>1?'s':'')+' sans date (à compléter dans leur fiche)</span></div>'
+    + (auj.length ? '<p style="margin-top:8px"><strong>Aujourd’hui :</strong> '+auj.map(m => ech(m.nom)+' <a class="btn sm" style="background:#25D366" href="'+msg(m)+'" target="_blank" rel="noopener">Souhaiter sur WhatsApp</a>').join(" · ")+'</p>' : '')
+    + (demain.length ? '<p class="mut">Demain : '+demain.map(m => ech(m.nom)).join(", ")+'</p>' : '')
+    + (mois.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+mois.map(m => '<span class="badge b-neutre">'+String(m.date_naissance).slice(8,10)+' · '+ech(m.nom)+'</span>').join("")+'</div>' : '')
+    + '</div>';
 }
 
 /* --------------------------- Formation --------------------------- */
@@ -2044,6 +2073,7 @@ function vueTableauBord(){
     + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse global</div><div class="v" style="color:'+(recettesTot-depensesTot>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettesTot-depensesTot)+' F</div><div class="mut">cotisations − dépenses, depuis le début · <a href="#/solde">voir le solde</a></div></div>'
     + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa(sommeNet((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per))))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · net de frais · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
+    + carteAnniversairesTresorier()
     + carteRelancesJour()
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
@@ -2654,6 +2684,7 @@ function vueParametres(){
     + '<h3>Choix du bureau (interrupteurs)</h3>'
     + '<div class="grille g2">'
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
+    + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div>'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
@@ -2724,7 +2755,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){

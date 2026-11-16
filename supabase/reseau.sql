@@ -646,3 +646,31 @@ create policy "ecriture tresorier cc_formations" on cc_formations for all to aut
 grant select on cc_formations to anon, authenticated;
 grant insert, update, delete on cc_formations to authenticated;
 grant usage, select on sequence cc_formations_id_seq to authenticated;
+
+-- Anniversaires : date de naissance facultative (renseignée par le membre dans sa fiche), affichage réglé par « anniversaires » dans Paramètres.
+alter table cc_membres add column if not exists date_naissance date;
+create or replace function cc_maj_fiche(p_tel text, p_matricule text, p_nom text, p_email text, p_ville text, p_specialite text, p_employeur text, p_pays text default null, p_naissance text default null) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m record; v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_n date;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if cc_matricule_normaliser(p_matricule) is not null then
+    select * into v_m from cc_membres where matricule = cc_matricule_normaliser(p_matricule);
+  elsif length(v_tel) >= 8 then
+    select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  end if;
+  if v_m is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_nom,''))) < 3 then return json_build_object('ok', false, 'motif', 'nom'); end if;
+  begin v_n := nullif(trim(coalesce(p_naissance,'')), '')::date; exception when others then v_n := null; end;
+  if v_n is not null and (v_n > current_date or v_n < date '1920-01-01') then v_n := null; end if;
+  update cc_membres set nom = left(trim(p_nom), 80), email = left(lower(trim(coalesce(p_email,''))), 120),
+    ville = left(trim(coalesce(p_ville,'')), 60), specialite = left(trim(coalesce(p_specialite,'')), 80),
+    employeur = left(trim(coalesce(p_employeur,'')), 80), pays = coalesce(nullif(left(trim(p_pays),60),''), pays, 'Côte d’Ivoire'),
+    date_naissance = coalesce(v_n, case when p_naissance is null then date_naissance else null end), fiche_maj_le = now()
+  where id = v_m.id;
+  return json_build_object('ok', true);
+end $$;
+revoke all on function cc_maj_fiche(text,text,text,text,text,text,text,text,text) from public;
+grant execute on function cc_maj_fiche(text,text,text,text,text,text,text,text,text) to anon, authenticated;
+drop function if exists cc_maj_fiche(text,text,text,text,text,text,text,text);
+drop function if exists cc_maj_fiche(text,text,text,text,text,text,text);
