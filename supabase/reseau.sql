@@ -674,3 +674,38 @@ revoke all on function cc_maj_fiche(text,text,text,text,text,text,text,text,text
 grant execute on function cc_maj_fiche(text,text,text,text,text,text,text,text,text) to anon, authenticated;
 drop function if exists cc_maj_fiche(text,text,text,text,text,text,text,text);
 drop function if exists cc_maj_fiche(text,text,text,text,text,text,text);
+
+-- Questions / Réponses : un membre identifié pose une question ; un validateur unique (bureau) répond, avec son nom et la date ; seules les réponses validées sont publiées.
+create table if not exists cc_questions (
+  id bigserial primary key,
+  membre_id bigint references cc_membres(id) on delete set null,
+  question text not null,
+  reponse text default '',
+  repondu_par text default '',
+  repondu_le timestamptz,
+  publie boolean default false,
+  anonyme boolean default false,
+  cree_le timestamptz default now()
+);
+alter table cc_questions enable row level security;
+drop policy if exists "lecture cc_questions" on cc_questions;
+create policy "lecture cc_questions" on cc_questions for select using (publie = true or cc_est_tresorier());
+drop policy if exists "ecriture tresorier cc_questions" on cc_questions;
+create policy "ecriture tresorier cc_questions" on cc_questions for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+grant select on cc_questions to anon, authenticated;
+grant insert, update, delete on cc_questions to authenticated;
+grant usage, select on sequence cc_questions_id_seq to authenticated;
+create or replace function cc_poser_question(p_tel text, p_question text, p_anonyme boolean default false) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m record; v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g');
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  select * into v_m from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if v_m is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_question,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if (select count(*) from cc_questions where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 3 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  insert into cc_questions (membre_id, question, anonyme) values (v_m.id, left(trim(p_question), 1000), coalesce(p_anonyme, false));
+  return json_build_object('ok', true);
+end $$;
+revoke all on function cc_poser_question(text,text,boolean) from public;
+grant execute on function cc_poser_question(text,text,boolean) to anon, authenticated;

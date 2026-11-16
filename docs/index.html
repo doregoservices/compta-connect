@@ -1220,13 +1220,14 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
     opt("cc_annonces?select=*&order=epingle.desc,date.desc,id.desc", []),
     opt("cc_vitrines?select=*&order=en_avant.desc,id.desc", []),
     opt("cc_formations?select=*&order=date.desc,id.desc", []),
+    opt("cc_questions?select=*&order=id.desc", []),
   ]);
 }
 
@@ -1349,7 +1350,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1372,6 +1373,7 @@ function rendu(){
     else if(route === "simulation") corps = vueSimulation(params);
     else if(route === "rencontres") corps = vueRencontres(params);
     else if(route === "formation") corps = vueFormation(params);
+    else if(route === "questions") corps = vueQuestions(params);
     else if(route === "appel") corps = vueAppelPublic(params);
     else if(route === "annonces") corps = vueAnnonces(params);
     else if(route === "marche" && !etat.session) corps = vueMarche(params);
@@ -1519,6 +1521,7 @@ function vuePayer(params){
     + (enAttente ? "" : carteHistorique(m, mois))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
     + (enAttente ? "" : carteFormationMembre(m))
+    + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau : la réponse validée par '+ech(etat.settings.questions_validateur||"le bureau")+' sera publiée pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
     + '<div class="carte"><h3>Comment ça marche</h3>'
     + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov. <span class="mut">'+texteZone()+' Autres pays : procédure « membre hors zone » affichée ci-dessus.</span></div></div>'
@@ -1673,6 +1676,57 @@ function carteAnniversairesTresorier(){
     + (demain.length ? '<p class="mut">Demain : '+demain.map(m => ech(m.nom)).join(", ")+'</p>' : '')
     + (mois.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">'+mois.map(m => '<span class="badge b-neutre">'+String(m.date_naissance).slice(8,10)+' · '+ech(m.nom)+'</span>').join("")+'</div>' : '')
     + '</div>';
+}
+
+/* --------------------------- Questions / Réponses --------------------------- */
+function vueQuestions(params){
+  const m = params.t ? trouverMembre(params.t) : null;
+  const publiees = (etat.questions||[]).filter(q => q.publie);
+  const nomDe = q => { if(q.anonyme) return "Un membre"; const x = etat.membres.find(y => y.id === q.membre_id); return x ? x.nom : "Un membre"; };
+  const validateur = etat.settings.questions_validateur || "le bureau";
+  return '<main><div class="carte"><h3>❓ Questions au réseau</h3>'
+    + '<p class="mut">Posez votre question (fiscalité, comptabilité, vie du réseau…). Chaque réponse est validée par <strong>'+ech(validateur)+'</strong> avant publication, avec son nom et la date.</p>'
+    + (m ? '<p>Vous êtes <strong>'+ech(m.nom)+'</strong>.</p><div class="champ"><textarea id="qTexte" style="min-height:80px" placeholder="Votre question…"></textarea></div>'
+          + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label>'
+          + '<button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Envoyer ma question</button>'
+         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour poser une question</button></div>')
+    + '</div>'
+    + (publiees.length ? publiees.map(q => '<div class="carte"><div class="mut">'+ech(nomDe(q))+' · '+dateFR(String(q.cree_le).slice(0,10))+'</div><p><strong>'+ech(q.question)+'</strong></p>'
+        + '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px">'+ech(q.reponse).replace(/\n/g,"<br>")+'<div class="mut" style="margin-top:6px">✔ Réponse validée par '+ech(q.repondu_par||validateur)+(q.repondu_le ? ' le '+dateFR(String(q.repondu_le).slice(0,10)) : '')+'</div></div></div>').join("")
+       : '<div class="carte"><p class="mut">Aucune question publiée pour l’instant.</p></div>')
+    + '</main>';
+}
+async function poserQuestion(tel){
+  const q = ($("#qTexte").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
+  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked }) });
+    if(!r.ok){ toast({ courte:"Question trop courte.", limite:"Maximum 3 questions par jour.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
+    $("#qTexte").value = ""; toast("Question envoyée ✅ Elle sera publiée avec sa réponse après validation.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+function sectionQuestionsAdmin(){
+  const qs = etat.questions||[], attente = qs.filter(q => !q.publie);
+  const nomDe = q => { const x = etat.membres.find(y => y.id === q.membre_id); return x ? x.nom+(q.anonyme ? " (souhaite rester anonyme)" : "") : "—"; };
+  const ligne = q => '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:8px 0"><div class="mut">'+ech(nomDe(q))+' · '+dateFR(String(q.cree_le).slice(0,10))+(q.publie ? ' · <span class="badge b-paye">publiée</span> validée par '+ech(q.repondu_par)+' le '+dateFR(String(q.repondu_le||"").slice(0,10)) : ' · <span class="badge b-partiel">en attente</span>')+'</div>'
+    + '<p style="margin:6px 0"><strong>'+ech(q.question)+'</strong></p>'
+    + '<div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse…">'+ech(q.reponse||"")+'</textarea></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm" onclick="validerQuestion('+q.id+', true)">'+(q.publie ? 'Mettre à jour' : 'Valider et publier')+'</button>'
+    + (q.publie ? '<button class="btn sm sec" onclick="validerQuestion('+q.id+', false)">Dépublier</button>' : '')+'<button class="btn sm dgr" onclick="supprimerQuestion('+q.id+')">Supprimer</button></div></div>';
+  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">❓ Questions des membres</h3><span class="mut">'+attente.length+' en attente · validateur : '+ech(etat.settings.questions_validateur||"(à définir dans Paramètres)")+'</span></div>'
+    + '<p class="mut">La réponse est publiée avec le nom du validateur et la date. Page publique : <a href="#/questions">#/questions</a>.</p>'
+    + (qs.length ? attente.map(ligne).join("") + (qs.length > attente.length ? '<details style="margin-top:8px"><summary class="mut">Questions déjà publiées ('+(qs.length-attente.length)+')</summary>'+qs.filter(q=>q.publie).map(ligne).join("")+'</details>' : '') : '<p class="mut">Aucune question pour l’instant.</p>')
+    + '</div>';
+}
+async function validerQuestion(id, publier){
+  const rep = ($("#rep_"+id).value||"").trim();
+  if(publier && rep.length < 2){ toast("Écrivez la réponse avant de publier.", "err"); return; }
+  const qui = etat.settings.questions_validateur || (etat.session && etat.session.email) || "le bureau";
+  try{ await sb("cc_questions?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(publier ? { reponse: rep, repondu_par: qui, repondu_le: new Date().toISOString(), publie: true } : { publie: false }) });
+    await chargerDonnees(); rendu(); toast(publier ? "Réponse publiée." : "Question dépubliée.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function supprimerQuestion(id){
+  if(!confirm("Supprimer cette question ?")) return;
+  try{ await sb("cc_questions?id=eq."+id, { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 
 /* --------------------------- Formation --------------------------- */
@@ -2685,6 +2739,8 @@ function vueParametres(){
     + '<div class="grille g2">'
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Nom du validateur unique des réponses</span><input id="s_questions_validateur" value="'+ech(s.questions_validateur||"")+'" placeholder="EKLOU Basil, Président"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div>'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
@@ -2755,7 +2811,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","questions_validateur","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
@@ -2863,6 +2919,7 @@ function vueReseau(){
   return '<main>'
     + sectionAnnoncesAdmin()
     + sectionFormationsAdmin()
+    + sectionQuestionsAdmin()
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec" onclick="changerPhotoGroupe()">📷 '+(s.photo_groupe_url ? 'Changer' : 'Ajouter')+' la photo de groupe</button>'
