@@ -1088,3 +1088,10 @@ update cc_membres set exonere = true,
   cotisation_nature = 'Hébergement du serveur, nom de domaine et maintenance de la plateforme',
   nature_montant = 5700, nature_revise_le = current_date
   where telephone in ('0502657392','2250502657392') and coalesce(cotisation_nature,'') = '';
+
+-- Cotisation en nature : date de début (avant = cotisation normale) et exceptions par année sur le complément annuel
+alter table cc_membres add column if not exists nature_depuis date;
+alter table cc_membres add column if not exists nature_exceptions jsonb not null default '{}'::jsonb;
+-- Nabil : espèces jusqu'en août 2026, en nature depuis septembre 2026 ; complément 4 420 F en déc. 2026, puis 5 700 F/an
+update cc_membres set exonere = false, nature_depuis = '2026-09-01', nature_montant = 5700, nature_exceptions = '{"2026": 4420}'::jsonb
+  where id = 89 and coalesce(cotisation_nature,'') <> '';

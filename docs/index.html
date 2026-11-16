@@ -38,6 +38,7 @@ main{max-width:1060px;margin:0 auto;padding:16px}
 .carte{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--r);
   padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(10,28,45,.05)}
 .grille{display:grid;gap:12px}
+.carte[data-col]{margin-bottom:0}
 .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:820px){.g4{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.g2,.g3,.g4{grid-template-columns:1fr}}
@@ -1077,16 +1078,25 @@ function moisDebutMembre(m, paiements){
   if(/^\d{4}-\d{2}$/.test(plancher) && (!debut || debut < plancher)) debut = plancher;
   return debut || moisCourant();
 }
+/* Cotisation due par un membre pour un mois donné. Cas général : sa cotisation (0 si exonéré).
+   Cotisation en nature (à partir de nature_depuis) : 0 chaque mois, sauf le mois d'échéance (Paramètres, déc. par défaut)
+   où le complément annuel est dû (nature_montant, ou l'exception de l'année : {"2026":4420}). */
+function enNature(m, mois){ return !!(m.cotisation_nature && (!m.nature_depuis || mois >= String(m.nature_depuis).slice(0,7))); }
+function complementNature(m, annee){ const ex = m.nature_exceptions || {}; const v = ex[String(annee)]; return v !== undefined && v !== null && v !== "" ? parseInt(v,10) || 0 : parseInt(m.nature_montant||0,10); }
+function duMembreMois(m, mois){
+  if(enNature(m, mois)){ const ech = String(parseInt(etat.settings.nature_revision_mois||"12",10) || 12).padStart(2,"0"); return mois.slice(5,7) === ech ? complementNature(m, mois.slice(0,4)) : 0; }
+  return m.exonere ? 0 : parseInt(m.cotisation||0,10);
+}
 function historiqueMembre(m, paiements, jusqua){
   jusqua = normaliserMois(jusqua || moisCourant());
-  const cot = m.exonere ? 0 : parseInt(m.cotisation||0,10);
   const lignes = []; let du = 0, verse = 0; const limite = moisLimiteRetard();
   for(let mois = moisDebutMembre(m, paiements); mois <= jusqua; mois = moisSuivant(mois)){
+    const cot = duMembreMois(m, mois);
     const recus = paiements.filter(p => String(p.membre_id) === String(m.id) && normaliserMois(p.mois||"0000-01") === mois);
     const v = recus.reduce((s,p)=>s+parseInt(p.montant,10),0);
     du += cot; verse += v;
     lignes.push({ mois, du: cot, verse: v, dates: recus.map(p => p.date).filter(Boolean),
-      statut: cot === 0 ? (m.cotisation_nature ? "NATURE" : "EXONERE") : v >= cot ? "PAYE" : v > 0 ? "PARTIEL" : (mois > limite ? "A_PAYER" : "IMPAYE") });
+      statut: cot === 0 ? (enNature(m, mois) ? "NATURE" : "EXONERE") : v >= cot ? "PAYE" : v > 0 ? "PARTIEL" : (mois > limite ? "A_PAYER" : "IMPAYE"), nature: enNature(m, mois) });
     if(lignes.length > 120) break;
   }
   const avance = paiements.filter(p => String(p.membre_id) === String(m.id) && p.mois && normaliserMois(p.mois) > jusqua)
@@ -1105,7 +1115,7 @@ function pointage(membres, paiements, mois){
   let verseTotal = 0, duTotal = 0, nbPayes = 0, nbPartiels = 0, nbImpayes = 0, nbAvances = 0;
   for(const m of membres){
     if(!m.actif) continue;
-    const du = m.exonere ? 0 : parseInt(m.cotisation||0,10);
+    const du = duMembreMois(m, mois);
     duTotal += du;
     const recus = paiements.filter(p => String(p.membre_id) === String(m.id) && normaliserMois(p.mois||"0000-01") === mois);
     const verse = recus.reduce((s,p) => s + parseInt(p.montant,10), 0);
@@ -1114,7 +1124,7 @@ function pointage(membres, paiements, mois){
       .filter(p => String(p.membre_id) === String(m.id) && p.mois && normaliserMois(p.mois) > mois)
       .reduce((s,p) => s + parseInt(p.montant,10), 0);
     let statut;
-    if(du === 0) statut = m.cotisation_nature ? "NATURE" : "EXONERE";
+    if(du === 0) statut = enNature(m, mois) ? "NATURE" : "EXONERE";
     else if(verse >= du) statut = verse > du ? "AVANCE" : "PAYE";
     else if(verse > 0) statut = "PARTIEL";
     else statut = "IMPAYE";
@@ -1435,6 +1445,8 @@ function sectionAppelsOuverts(m){
         + '</div>'; }).join("")
     + '</div>';
 }
+/* Dispose des cartes sur deux colonnes (une seule sur mobile) ; les cartes vides sont ignorées. */
+function colonnes(cartes){ const L = cartes.filter(Boolean); if(!L.length) return ""; if(L.length === 1) return L[0]; return '<div class="grille g2" style="align-items:start;margin-bottom:14px">'+L.map(c => '<div style="display:grid;gap:12px">'+c.replace(/class="carte"/g,'class="carte" data-col="1"')+'</div>').join("")+'</div>'; }
 function vueAccueil(){
   const s = etat.settings;
   return '<main><div class="hero"><img src="logo.jpg" alt="logo">'
@@ -1446,14 +1458,10 @@ function vueAccueil(){
     + '<p class="mut" style="margin:8px 0 0;color:#cfe3da">Le numéro de téléphone est celui utilisé pour vos cotisations.</p>'
     + '<p style="margin:14px 0 0"><a class="btn sec" href="#/adherer">Nouveau ? Devenir membre — '+fcfa(s.adhesion||s.cotisation||5000)+' FCFA</a></p></div>'
     + carteAnniversairesAccueil()
-    + carteDefi()
-    + carteHonneur()
-    + carteSondage(null)
-    + carteAnnuaireAccueil()
     + sectionAnnonces(3)
+    + colonnes([carteDefi(), carteHonneur(), carteSondage(null), carteAnnuaireAccueil()])
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
-    + (s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : '')
-    + sectionBureau()
+    + colonnes([(s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : ''), sectionBureau()])
     + sectionAppelsOuverts(null)
     + sectionVitrines()
     + (etat.rencontres.filter(r => r.publie !== false).length ? '<div class="carte"><h3>Nos rencontres</h3>'
@@ -1500,7 +1508,7 @@ function vuePayer(params){
   const code = String(m.code).padStart(3,"0");
   const enAttente = !m.actif;
   const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
-  const cot = parseInt(m.cotisation||etat.settings.cotisation||"5000",10);
+  const cot = enNature(m, mois) ? l.du : parseInt(m.cotisation||etat.settings.cotisation||"5000",10);
   const adhesion = parseInt(etat.settings.adhesion||etat.settings.cotisation||"5000",10);
   const montant = enAttente ? adhesion : (l.statut === "PARTIEL" ? l.reliquat : cot);
   setTimeout(() => chargerBienvenue(code), 0);
@@ -1725,8 +1733,8 @@ function scoresTous(tri){
     for(let i = 0; i < tous.length; i++){ suite = (i && tous[i] === moisSuivant(tous[i-1])) ? suite+1 : 1; if(suite > max) max = suite; } x.suite = max; }
   // cotisation en nature : apport mensuel réputé réglé dans le mois (+pts paiement) depuis l'adhésion
   for(const m of etat.membres){ if(!m.actif || !m.cotisation_nature || !S[m.id]) continue; const x = S[m.id]; let n = 0;
-    for(let mois = moisDebutMembre(m, etat.paiements), i = 0; mois <= moisCourant() && i < 240; mois = moisSuivant(mois), i++){ add(m.id, pts("paiement_mois",3), "p", mois+"-01"); n++; }
-    x.mois_ok = n; x.suite = n; }
+    for(let mois = moisDebutMembre(m, etat.paiements), i = 0; mois <= moisCourant() && i < 240; mois = moisSuivant(mois), i++){ if(!enNature(m, mois) || duMembreMois(m, mois) > 0) continue; add(m.id, pts("paiement_mois",3), "p", mois+"-01"); n++; }
+    x.mois_ok += n; x.suite = Math.max(x.suite, n); }
   // parrainage : points au parrain quand le filleul est activé (adhésion payée)
   if((etat.settings.parrainage||"oui") !== "non") for(const m of etat.membres){ if(m.parrain_id && m.actif && S[m.parrain_id]){ add(m.parrain_id, pts("parrainage",10), "c", m.date_adhesion); S[m.parrain_id].filleuls = (S[m.parrain_id].filleuls||0)+1; } }
   // fiche / badges
@@ -1772,21 +1780,27 @@ function cartePalmaresTresorier(){
 
 /* --------------------------- Cotisation en nature --------------------------- */
 function carteNature(m){
-  const s = etat.settings, moisRev = parseInt(s.nature_revision_mois||"12",10) || 12;
+  const s = etat.settings, moisRev = parseInt(s.nature_revision_mois||"12",10) || 12, an = new Date().getFullYear();
+  const moisEch = an+"-"+String(moisRev).padStart(2,"0"), comp = complementNature(m, an);
+  const verse = etat.paiements.filter(p => String(p.membre_id) === String(m.id) && normaliserMois(p.mois||"0000-01") === moisEch).reduce((t,p) => t + parseInt(p.montant,10), 0);
+  const reste = Math.max(0, comp - verse), depuis = m.nature_depuis ? libelleMois(String(m.nature_depuis).slice(0,7)) : "";
   return '<div class="carte" style="border-color:var(--or);background:#fffdf5"><h3>🤝 Ma cotisation en nature</h3>'
-    + '<p>Par décision du bureau, votre cotisation est réglée <strong>en nature</strong> : '+ech(m.cotisation_nature)+'.'
-    + (m.nature_montant ? ' Valeur annuelle estimée : <strong>'+fcfa(m.nature_montant)+' FCFA/an</strong>' + (m.cotisation ? ' (cotisation normale : '+fcfa(parseInt(m.cotisation,10)*12)+' F/an)' : '') + '.' : '')+'</p>'
-    + '<p class="mut">Vous êtes considéré <strong>à jour</strong> chaque mois et marquez vos points de ponctualité comme tout membre. Cette convention est <strong>révisée chaque année en '+MOIS_FR[moisRev-1].toLowerCase()+'</strong> par le bureau'+(m.nature_revise_le ? ' — dernière révision le '+dateFR(m.nature_revise_le) : '')+'.</p></div>';
+    + '<p>Par décision du bureau, votre cotisation est réglée <strong>en nature</strong>'+(depuis ? ' depuis '+depuis : '')+' : '+ech(m.cotisation_nature)+'.'
+    + (comp ? ' S’y ajoute un <strong>complément annuel de '+fcfa(comp)+' FCFA</strong>'+(comp !== parseInt(m.nature_montant||0,10) ? ' pour '+an+' ('+fcfa(m.nature_montant)+' F les années suivantes)' : '')+', dû en <strong>'+MOIS_FR[moisRev-1]+'</strong>.' : '')+'</p>'
+    + (comp ? (reste ? '<p><span class="badge b-partiel">complément '+an+' : '+fcfa(reste)+' F à régler'+(verse ? ' (déjà versé '+fcfa(verse)+' F)' : '')+'</span></p>'
+        + (horsZone(m) ? '' : '<p><button class="btn" onclick="payerEnLigne(\''+m.code+'\',\''+moisEch+'\')">💳 Payer le complément '+an+' — '+fcfa(reste)+' F</button> <span class="mut">possible dès maintenant, sans attendre '+MOIS_FR[moisRev-1]+'</span></p>')
+        : '<p><span class="badge b-paye">complément '+an+' réglé ✔</span></p>') : '')
+    + '<p class="mut">Vous êtes <strong>à jour</strong> chaque mois et marquez vos points de ponctualité comme tout membre ; seul un complément non réglé après '+MOIS_FR[moisRev-1].toLowerCase()+' vous ferait passer « en retard ». La convention se reconduit d’année en année ; le bureau ne la révise que si nécessaire'+(m.nature_revise_le ? ' (dernière révision le '+dateFR(m.nature_revise_le)+')' : '')+'.</p></div>';
 }
 function carteNatureTresorier(){
   const L = etat.membres.filter(m => m.actif && m.cotisation_nature); if(!L.length) return "";
   const moisRev = parseInt(etat.settings.nature_revision_mois||"12",10) || 12, an = new Date().getFullYear(), enDec = new Date().getMonth()+1 === moisRev;
   const aReviser = L.filter(m => !m.nature_revise_le || String(m.nature_revise_le).slice(0,4) < String(an));
   return '<div class="carte" style="margin-top:14px'+(enDec && aReviser.length ? ';border:2px solid var(--or);background:#fffbea' : '')+'"><h3>🤝 Cotisations en nature'+(enDec && aReviser.length ? ' — <span style="color:#b45309">révision annuelle à faire</span>' : '')+'</h3>'
-    + '<div class="survol"><table><tr><th>Membre</th><th>Apport</th><th>Valeur / an</th><th>Révisé le</th><th></th></tr>'
-    + L.map(m => '<tr><td><strong>'+ech(m.nom)+'</strong></td><td>'+ech(m.cotisation_nature)+'</td><td>'+fcfa(m.nature_montant)+' F</td><td>'+(m.nature_revise_le ? dateFR(m.nature_revise_le) : '<span class="mut">jamais</span>')+'</td>'
+    + '<div class="survol"><table><tr><th>Membre</th><th>Apport</th><th>Complément / an</th><th>Révisé le</th><th></th></tr>'
+    + L.map(m => '<tr><td><strong>'+ech(m.nom)+'</strong>'+(m.nature_depuis ? '<div class="mut">depuis '+libelleMois(String(m.nature_depuis).slice(0,7))+'</div>' : '')+'</td><td>'+ech(m.cotisation_nature)+'</td><td>'+fcfa(m.nature_montant)+' F'+(complementNature(m, an) !== parseInt(m.nature_montant||0,10) ? '<div class="mut">'+an+' : '+fcfa(complementNature(m, an))+' F</div>' : '')+'</td><td>'+(m.nature_revise_le ? dateFR(m.nature_revise_le) : '<span class="mut">jamais</span>')+'</td>'
       + '<td><button class="btn sm sec" onclick="aller(\'#/membres\');setTimeout(()=>editerMembre('+m.id+'),150)">Réviser</button> <button class="btn sm sec" onclick="confirmerNature('+m.id+')">Reconduire '+an+'</button></td></tr>').join("")+'</table></div>'
-    + '<p class="mut">Chaque '+MOIS_FR[moisRev-1].toLowerCase()+', le bureau confirme ou ajuste la valeur de l’apport pour l’année suivante (« Réviser » pour modifier, « Reconduire » pour confirmer à l’identique).</p></div>';
+    + '<p class="mut">La convention se reconduit automatiquement chaque année ; le complément est dû en '+MOIS_FR[moisRev-1].toLowerCase()+' (ligne « '+MOIS_FR[moisRev-1].toLowerCase()+' » du membre, payable en ligne depuis sa page). « Réviser » seulement si nécessaire (« Reconduire » marque simplement la convention comme revue).</p></div>';
 }
 async function confirmerNature(id){ try{ await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ nature_revise_le: aujourdhui() }) }); await chargerDonnees(); toast("Convention reconduite.", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
 
@@ -2221,7 +2235,7 @@ function carteHistorique(m, mois){
   const b = { PAYE:'<span class="badge b-paye">payé</span>', PARTIEL:'<span class="badge b-partiel">partiel</span>',
     IMPAYE:'<span class="badge b-impaye">en retard</span>', A_PAYER:'<span class="badge b-partiel">à payer</span>', EXONERE:'<span class="badge b-neutre">exonéré</span>', NATURE:'<span class="badge b-paye">en nature ✔</span>' };
   const fdate = d => d ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : "";
-  const cotM = m.exonere ? 0 : parseInt(m.cotisation||0,10);
+  const cotM = (m.exonere || enNature(m, moisCourant())) ? 0 : parseInt(m.cotisation||0,10);
   const moisAvance = []; for(let x = moisSuivant(normaliserMois(mois)), i = 0; i < 12; x = moisSuivant(x), i++) moisAvance.push(x);
   const dejaAvance = new Set(etat.paiements.filter(p => String(p.membre_id) === String(m.id) && p.mois && normaliserMois(p.mois) > normaliserMois(mois)).map(p => normaliserMois(p.mois)));
   const premierDu = h.lignes.find(l => l.statut !== "PAYE" && l.statut !== "EXONERE" && l.statut !== "NATURE");
@@ -2475,18 +2489,18 @@ function bilanPeriode(per){
   const lignes = []; let du = 0, verse = 0;
   for(const m of etat.membres){
     if(!m.actif) continue;
-    const cot = m.exonere ? 0 : parseInt(m.cotisation||0,10);
     const debutM = moisDebutMembre(m, etat.paiements);
     const moisDus = moisL.filter(x => x >= debutM);
+    const cot = moisDus.length ? Math.round(moisDus.reduce((t,x) => t + duMembreMois(m, x), 0) / moisDus.length) : (m.exonere ? 0 : parseInt(m.cotisation||0,10));
     const paies = etat.paiements.filter(p => String(p.membre_id) === String(m.id) && dansPeriode(p.mois, per) && normaliserMois(p.mois) >= debutM);
-    const d = cot * moisDus.length, v = paies.reduce((s,p)=>s+parseInt(p.montant,10),0);
+    const d = moisDus.reduce((t,x) => t + duMembreMois(m, x), 0), v = paies.reduce((s,p)=>s+parseInt(p.montant,10),0);
     const moisPayes = new Set(paies.map(p => normaliserMois(p.mois)));
-    const impayes = moisDus.filter(x => !moisPayes.has(x));
+    const impayes = moisDus.filter(x => duMembreMois(m, x) > 0 && !moisPayes.has(x));
     const limite = moisLimiteRetard(), enRetard = impayes.filter(x => x <= limite);
     du += d; verse += v;
     lignes.push({ membre:m, du:d, verse:v, reste: Math.max(0, d - v), nb_mois: moisDus.length, nb_impayes: impayes.length,
       nb_retard: enRetard.length,
-      statut: cot === 0 ? (m.cotisation_nature ? "NATURE" : "EXONERE") : d === 0 ? "HORS" : v >= d ? "PAYE" : enRetard.length === 0 ? "A_PAYER" : v > 0 ? "PARTIEL" : "IMPAYE" });
+      statut: d === 0 && m.cotisation_nature ? "NATURE" : cot === 0 ? "EXONERE" : d === 0 ? "HORS" : v >= d ? "PAYE" : enRetard.length === 0 ? "A_PAYER" : v > 0 ? "PARTIEL" : "IMPAYE" });
   }
   const concernes = lignes.filter(l => l.statut !== "EXONERE" && l.statut !== "NATURE" && l.statut !== "HORS");
   const payes = concernes.filter(l => l.statut === "PAYE").length;
@@ -2756,7 +2770,9 @@ function editerMembre(id){
     + '<div class="champ"><span>Statut</span><select id="e_actif"><option value="true"'+(m.actif?" selected":"")+'>Actif</option><option value="false"'+(!m.actif?" selected":"")+'>Désactivé (ne doit plus rien, conservé dans l’historique)</option></select></div>'
     + '<div class="champ"><span>Cotisation</span><select id="e_exonere"><option value="false"'+(!m.exonere?" selected":"")+'>Normale</option><option value="true"'+(m.exonere?" selected":"")+'>Exonéré (membre d’honneur, bureau…)</option></select></div>'
     + '<div class="champ"><span>Cotisation en nature (description ; vide = aucune). Le membre est alors « à jour » chaque mois et marque ses points.</span><input id="e_cotisation_nature" value="'+ech(m.cotisation_nature||"")+'" placeholder="Ex. : hébergement du serveur et maintenance"></div>'
-    + '<div class="champ"><span>Valeur annuelle estimée de l’apport (FCFA) — révisable chaque année par le bureau</span><input id="e_nature_montant" type="number" min="0" value="'+ech(m.nature_montant||0)+'">'+(m.nature_revise_le ? '<small class="mut">Dernière révision : '+dateFR(m.nature_revise_le)+'</small>' : '')+'</div>'
+    + '<div class="champ"><span>En nature à partir du mois (AAAA-MM ; avant : cotisation normale)</span><input id="e_nature_depuis" type="month" value="'+ech(String(m.nature_depuis||"").slice(0,7))+'"></div>'
+    + '<div class="champ"><span>Complément annuel en espèces (FCFA), dû au mois d’échéance — reconduit chaque année</span><input id="e_nature_montant" type="number" min="0" value="'+ech(m.nature_montant||0)+'">'+(m.nature_revise_le ? '<small class="mut">Dernière révision : '+dateFR(m.nature_revise_le)+'</small>' : '')+'</div>'
+    + '<div class="champ"><span>Exceptions par année (ex. première année au prorata) : « 2026=4420 ; 2027=5000 »</span><input id="e_nature_exceptions" value="'+ech(Object.entries(m.nature_exceptions||{}).map(([a,v]) => a+"="+v).join(" ; "))+'" placeholder="2026=4420"></div>'
     + '</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" onclick="enregistrerMembre('+m.id+')">Enregistrer</button>'
     + '<button class="btn sec" onclick="document.querySelector(\'#editeurMembre\').innerHTML=\'\'">Annuler</button></div></div>';
@@ -2767,8 +2783,9 @@ async function enregistrerMembre(id){
   const corps = { nom: v("nom"), telephone: v("telephone"), ville: v("ville"), pays: v("pays"), specialite: v("specialite"), employeur: v("employeur"), email: v("email"), titre: v("titre"),
     cotisation: parseInt(v("cotisation").replace(/\D/g,""),10) || 0, date_adhesion: v("date_adhesion"),
     actif: $("#e_actif").value === "true", exonere: $("#e_exonere").value === "true",
-    cotisation_nature: v("cotisation_nature"), nature_montant: parseInt(v("nature_montant"),10) || 0 };
-  if(corps.cotisation_nature){ corps.exonere = true; const anc = etat.membres.find(x => x.id === id) || {}; if(anc.cotisation_nature !== corps.cotisation_nature || parseInt(anc.nature_montant||0,10) !== corps.nature_montant) corps.nature_revise_le = aujourdhui(); }
+    cotisation_nature: v("cotisation_nature"), nature_montant: parseInt(v("nature_montant"),10) || 0, nature_depuis: v("nature_depuis") ? v("nature_depuis").slice(0,7)+"-01" : null,
+    nature_exceptions: Object.fromEntries(v("nature_exceptions").split(/[;,]/).map(x => x.split("=").map(y => y.trim())).filter(x => /^\d{4}$/.test(x[0]) && x[1] !== undefined).map(x => [x[0], parseInt(x[1].replace(/\D/g,""),10) || 0])) };
+  if(corps.cotisation_nature){ const anc = etat.membres.find(x => x.id === id) || {}; if(anc.cotisation_nature !== corps.cotisation_nature || parseInt(anc.nature_montant||0,10) !== corps.nature_montant) corps.nature_revise_le = aujourdhui(); }
   if(!corps.nom){ toast("Le nom est obligatoire.", "err"); return; }
   if(v("matricule")){ if(!matriculeNormaliser(v("matricule"))){ toast("Matricule invalide : format CC-26-00026.", "err"); return; } corps.matricule = matriculeNormaliser(v("matricule")); }
   if(corps.date_adhesion && !/^\d{4}-\d{2}-\d{2}$/.test(corps.date_adhesion)){ toast("Date d’adhésion au format AAAA-MM-JJ.", "err"); return; }

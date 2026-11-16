@@ -24,12 +24,21 @@ Deno.serve(async (req) => {
       libelle = String(a.titre);
       if (aPayer <= 0) return json({ erreur: "Déjà réglé", deja: true }, 409);
     } else {
-      const montant = m.actif ? cot : Number(cfg.adhesion || cot);   // nouveau membre : droit d'adhésion
+      // Cotisation en nature (à partir de nature_depuis) : rien de dû sauf le complément annuel au mois d'échéance
+      let cotMois = cot;
+      if (m.cotisation_nature && (!m.nature_depuis || moisN >= String(m.nature_depuis).slice(0, 7))) {
+        const ech = String(Number(cfg.nature_revision_mois || 12)).padStart(2, "0");
+        const ex = (m.nature_exceptions || {}) as Record<string, unknown>;
+        const comp = ex[moisN.slice(0, 4)] !== undefined ? Number(ex[moisN.slice(0, 4)]) : Number(m.nature_montant || 0);
+        cotMois = moisN.slice(5, 7) === ech ? comp : 0;
+        if (cotMois <= 0) return json({ erreur: "Cotisation réglée en nature pour ce mois : rien à payer" }, 409);
+      }
+      const montant = m.actif ? cotMois : Number(cfg.adhesion || cot);   // nouveau membre : droit d'adhésion
       if (montant % 5 !== 0 || montant < 100) return json({ erreur: "Montant invalide" }, 400);
       // déjà payé pour ce mois ?
       const payes = await db(`cc_paiements?select=montant&membre_id=eq.${m.id}&mois=eq.${moisN}&caisse=eq.cotisation`) as { montant: number }[];
       const verse = payes.reduce((s, p) => s + Number(p.montant), 0);
-      const reste = Math.max(0, cot - verse);
+      const reste = Math.max(0, cotMois - verse);
       aPayer = m.actif ? (reste > 0 ? reste : 0) : montant;
       libelle = m.actif ? "cotisation " + moisN : "adhésion";
       if (aPayer <= 0) return json({ erreur: "Ce mois est déjà réglé", deja: true }, 409);

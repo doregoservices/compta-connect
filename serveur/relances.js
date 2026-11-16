@@ -33,7 +33,7 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
     if (!der.length || der[0].date === auj.toISOString().slice(0, 10)) { console.log(new Date().toISOString(), "aucune relance prévue aujourd'hui (jour " + jour + ")"); return; }
     type = der[0].type;
   }
-  const membres = await db("cc_membres?select=id,code,nom,telephone,email,cotisation,date_adhesion,actif,exonere&actif=is.true");
+  const membres = await db("cc_membres?select=id,code,nom,telephone,email,cotisation,date_adhesion,actif,exonere,cotisation_nature,nature_depuis,nature_montant,nature_exceptions&actif=is.true");
   const paiements = await db("cc_paiements?select=membre_id,mois,montant&caisse=not.eq.inscription&limit=100000");
   const deja = new Set((await db(`cc_relances?select=membre_id&date=gte.${cour}-01&type=eq.${type}&limit=100000`)).map(x => String(x.membre_id)));   // une fois par campagne et par mois
   const plancher = /^\d{4}-\d{2}$/.test(S.debut_cotisations || "") ? S.debut_cotisations : null;
@@ -47,7 +47,9 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
     if (!debut) debut = cour;
     const verse = {}; for (const p of mesP) { const pm = norm(p.mois); verse[pm] = (verse[pm] || 0) + parseInt(p.montant, 10); }
     const retard = [], aPayer = [];
-    for (let x = debut; x <= cour; x = moisSuiv(x)) { if ((verse[x] || 0) >= cot) continue; (x <= limite ? retard : aPayer).push(x); }
+    const ech = String(parseInt(S.nature_revision_mois || "12", 10) || 12).padStart(2, "0");
+    const duMois = x => { if (m.cotisation_nature && (!m.nature_depuis || x >= String(m.nature_depuis).slice(0, 7))) { const ex = m.nature_exceptions || {}; const c = ex[x.slice(0, 4)] !== undefined ? parseInt(ex[x.slice(0, 4)], 10) : parseInt(m.nature_montant || 0, 10); return x.slice(5, 7) === ech ? c : 0; } return cot; };
+    for (let x = debut; x <= cour; x = moisSuiv(x)) { const d = duMois(x); if (!d || (verse[x] || 0) >= d) continue; (x <= limite ? retard : aPayer).push(x); }
     if (type === "retard" ? retard.length : aPayer.includes(cour)) cibles.push({ m, cot, retard, aPayer, reste: [...retard, ...aPayer].reduce((s, x) => s + cot - (verse[x] || 0), 0) });
   }
   const reseau = S.reseau || "ComptaConnect", site = (S.site_public || "https://comptaconnect.org/").replace(/\/?$/, "/");
