@@ -1353,7 +1353,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1449,6 +1449,7 @@ function vueAccueil(){
     + carteDefi()
     + carteHonneur()
     + carteSondage(null)
+    + carteAnnuaireAccueil()
     + sectionAnnonces(3)
     + (s.photo_groupe_url ? '<div class="carte" style="padding:0;overflow:hidden"><img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="Les membres du réseau"></div>' : '')
     + (s.presentation || s.charte_lien || s.skool_lien ? '<div class="carte"><h3>Le réseau</h3>'+(s.presentation ? '<p>'+ech(s.presentation).replace(/\n/g,"<br>")+'</p>' : '')+ressourcesOfficielles(false)+'</div>' : '')
@@ -1859,6 +1860,19 @@ function carteSanteReseau(){
 }
 
 /* --------------------------- Annuaire professionnel (opt-in) --------------------------- */
+function carteAnnuaireAccueil(){
+  if((etat.settings.annuaire||"oui") === "non") return "";
+  const L = etat.membres.filter(m => m.actif && m.annuaire), specs = {}; for(const x of L) if(x.specialite) specs[x.specialite] = (specs[x.specialite]||0)+1;
+  const villes = {}; for(const x of L) if(x.ville) villes[x.ville] = (villes[x.ville]||0)+1;
+  const top = Object.entries(specs).sort((a,b) => b[1]-a[1]).slice(0,8);
+  return '<div class="carte"><h3>📇 Annuaire professionnel</h3>'
+    + (L.length ? '<p><strong>'+L.length+' professionnel'+(L.length>1?'s':'')+'</strong> dans '+Object.keys(villes).length+' ville'+(Object.keys(villes).length>1?'s':'')+' : trouvez un confrère par spécialité, cabinet ou ville.</p>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input id="qAnnAcc" placeholder="Rechercher : fiscaliste, auditeur, Bouaké…" style="flex:1;min-width:200px" onkeydown="if(event.key===\'Enter\')aller(\'#/annuaire?q=\'+encodeURIComponent(this.value))"><button class="btn" onclick="aller(\'#/annuaire?q=\'+encodeURIComponent(document.querySelector(\'#qAnnAcc\').value))">Rechercher</button></div>'
+        + (top.length ? '<p style="margin:8px 0 0">'+top.map(([k,n]) => '<a class="badge b-neutre" style="margin:2px;text-decoration:none" href="#/annuaire?q='+encodeURIComponent(k)+'">'+ech(k)+' · '+n+'</a>').join(" ")+'</p>' : '')
+        + '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'+L.slice().sort(() => Math.random()-0.5).slice(0,8).map(x => '<span title="'+ech(x.nom)+'">'+avatar(x,"sm")+'</span>').join("")+'</div>'
+        + '<p class="mut" style="margin-top:8px">Fiche visible de tous ; téléphone et e-mail réservés aux membres à jour. <a href="#/annuaire">Ouvrir l’annuaire</a></p>'
+      : '<p class="mut">L’annuaire se remplit au fur et à mesure : chaque membre peut cocher « Apparaître dans l’annuaire » dans sa fiche. <a href="#/annuaire">Ouvrir l’annuaire</a></p>')+'</div>';
+}
 async function optAnnuaire(tel, oui){ try{ const r = await sb("rpc/cc_annuaire_opt", { method:"POST", body: JSON.stringify({ p_tel: tel, p_oui: !!oui }) }); if(r.ok){ const m = trouverMembre(tel); if(m) m.annuaire = !!oui; toast(oui ? "Vous apparaissez dans l’annuaire." : "Retiré de l’annuaire.", "ok"); } }catch(e){ toast("Refusé : "+e.message, "err"); } }
 function vueAnnuaire(params){
   if((etat.settings.annuaire||"oui") === "non") return '<main><div class="carte"><p>L’annuaire est désactivé.</p></div></main>';
@@ -1868,7 +1882,7 @@ function vueAnnuaire(params){
   const specs = {}; for(const x of etat.membres.filter(x => x.actif && x.annuaire)) if(x.specialite) specs[x.specialite] = (specs[x.specialite]||0)+1;
   const lienT = m ? '&t='+encodeURIComponent(idMembre(m)) : '';
   return '<main><div class="carte"><h3>📇 Annuaire professionnel</h3>'
-    + '<p class="mut">Les membres qui ont choisi d’y figurer. '+(m ? (aJour ? 'Vous êtes à jour : les coordonnées sont visibles.' : 'Coordonnées visibles pour les membres à jour de cotisation — <a href="'+lienMembre(m)+'">régulariser</a>.') : 'Identifiez-vous avec votre téléphone pour voir les coordonnées.')+'</p>'
+    + '<p class="mut">Tous les membres qui ont choisi d’y figurer (à jour ou non). '+(m ? (aJour ? 'Vous êtes à jour : les coordonnées sont visibles.' : 'Coordonnées visibles pour les membres à jour de cotisation — <a href="'+lienMembre(m)+'">régulariser</a>.') : 'Identifiez-vous avec votre téléphone pour voir les coordonnées.')+'</p>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'+(m ? '' : '<input id="telAnn" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:200px"><button class="btn sec" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telAnn\').value);if(x)aller(\'#/annuaire?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">Me connecter</button>')
     + '<input id="qAnn" value="'+ech(params.q||"")+'" placeholder="Rechercher : nom, fonction, cabinet, ville…" style="flex:1;min-width:220px" onkeydown="if(event.key===\'Enter\')aller(\'#/annuaire?q=\'+encodeURIComponent(this.value)+\''+lienT+'\')"><button class="btn" onclick="aller(\'#/annuaire?q=\'+encodeURIComponent(document.querySelector(\'#qAnn\').value)+\''+lienT+'\')">Rechercher</button></div>'
     + '<p style="margin-top:8px">'+Object.entries(specs).sort((a,b) => b[1]-a[1]).slice(0,10).map(([k,n]) => '<a class="badge b-neutre" style="margin:2px;text-decoration:none" href="#/annuaire?q='+encodeURIComponent(k)+lienT+'">'+ech(k)+' · '+n+'</a>').join(" ")+'</p></div>'
