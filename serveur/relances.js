@@ -122,9 +122,9 @@ async function rappelsAgenda(emailActif, exp, reseau, auj){
   const MAX = parseInt(S.relance_max_jour || "250", 10);              // plafond quotidien (Brevo gratuit : 300/jour)
   let type = force || (jour === jAppel ? "appel" : jour === jRappel ? "rappel" : (jour === Math.min(jDernier, dernierJour)) ? "dernier" : jour === jRetard ? "retard" : null);
   await rappelsAgenda((S.relance_email || "oui") !== "non" && SEC.brevo_api_key, SEC.brevo_expediteur || "supportcomptaconnect@gmail.com", S.reseau || "ComptaConnect", auj);
+  if (force === "rapport") { await majSetting("rapport_envoye", ""); await rapportMensuel(auj); return; }   // test : renvoi forcé du rapport
   await rapportMensuel(auj);                                           // 1er passage du mois : rapport du mois précédent au bureau
   await campagneRevision(auj);                                         // janvier : révision annuelle des réponses
-  if (force === "rapport") { await majSetting("rapport_envoye", ""); await rapportMensuel(auj); return; }
   if (!type) {                                                         // hors calendrier : on poursuit la dernière campagne du mois si elle n'est pas terminée
     const der = await db(`cc_relances?select=type,date&date=gte.${cour}-01&order=date.desc&limit=1`);
     if (!der.length || der[0].date === auj.toISOString().slice(0, 10)) { console.log(new Date().toISOString(), "aucune relance prévue aujourd'hui (jour " + jour + ")"); return; }
