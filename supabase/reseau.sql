@@ -625,3 +625,24 @@ create policy "lecture tresorier cc_relances" on cc_relances for select to authe
 drop policy if exists "maj tresorier cc_relances" on cc_relances;
 create policy "maj tresorier cc_relances" on cc_relances for update to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
 create index if not exists cc_relances_date on cc_relances(date, type);
+
+-- Onglet Formation : vidéos, documents, lives, parcours Skool. Les liens réservés ne sont remis qu'aux membres identifiés (et à jour si demandé).
+create table if not exists cc_formations (
+  id bigserial primary key,
+  titre text not null,
+  type text default 'video',               -- video | document | live | skool | autre
+  description text default '',
+  lien text default '',
+  date date default current_date,
+  acces text default 'membres',            -- public | membres | a_jour
+  publie boolean default true,
+  cree_le timestamptz default now()
+);
+alter table cc_formations enable row level security;
+drop policy if exists "lecture publique cc_formations" on cc_formations;
+create policy "lecture publique cc_formations" on cc_formations for select using (true);
+drop policy if exists "ecriture tresorier cc_formations" on cc_formations;
+create policy "ecriture tresorier cc_formations" on cc_formations for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+grant select on cc_formations to anon, authenticated;
+grant insert, update, delete on cc_formations to authenticated;
+grant usage, select on sequence cc_formations_id_seq to authenticated;

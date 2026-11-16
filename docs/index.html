@@ -1220,12 +1220,13 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
     opt("cc_annonces?select=*&order=epingle.desc,date.desc,id.desc", []),
     opt("cc_vitrines?select=*&order=en_avant.desc,id.desc", []),
+    opt("cc_formations?select=*&order=date.desc,id.desc", []),
   ]);
 }
 
@@ -1348,7 +1349,7 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1370,6 +1371,7 @@ function rendu(){
     else if(route === "adherer") corps = vueAdherer();
     else if(route === "simulation") corps = vueSimulation(params);
     else if(route === "rencontres") corps = vueRencontres(params);
+    else if(route === "formation") corps = vueFormation(params);
     else if(route === "appel") corps = vueAppelPublic(params);
     else if(route === "annonces") corps = vueAnnonces(params);
     else if(route === "marche" && !etat.session) corps = vueMarche(params);
@@ -1514,6 +1516,7 @@ function vuePayer(params){
     + '</div>'
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
+    + (enAttente ? "" : carteFormationMembre(m))
     + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
     + '<div class="carte"><h3>Comment ça marche</h3>'
     + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov. <span class="mut">'+texteZone()+' Autres pays : procédure « membre hors zone » affichée ci-dessus.</span></div></div>'
@@ -1641,6 +1644,70 @@ function vueAppelPublic(params){
         + '<p class="mut" style="margin-top:8px">Pas encore membre ? <a href="#/adherer">Adhérez d’abord</a>, puis revenez sur ce lien.</p>'
       : '<div class="alerte al-info" style="margin-top:12px">Cet appel à paiement est clôturé.</div>')
     + '</div></main>';
+}
+
+/* --------------------------- Formation --------------------------- */
+const TYPES_FORMATION = { video:"▶️ Vidéo", document:"📄 Document", live:"🎥 Live / atelier", skool:"📚 Parcours Skool", autre:"🔗 Ressource" };
+function vueFormation(params){
+  const m = params.t ? trouverMembre(params.t) : null;
+  const s = etat.settings, liste = (etat.formations||[]).filter(f => f.publie !== false);
+  let aJour = false; if(m){ const h = historiqueMembre(m, etat.paiements, moisCourant()); aJour = h.nb_impayes === 0; }
+  const peut = f => f.acces === "public" || (m && (f.acces !== "a_jour" || aJour));
+  return '<main><div class="carte"><h3>🎓 Formation</h3>'
+    + '<p class="mut">Vidéos, documents et ateliers du réseau. Les ressources réservées s’ouvrent après identification par votre numéro de téléphone.</p>'
+    + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>'+(aJour ? ' <span class="badge b-paye">à jour</span>' : ' <span class="badge b-partiel">cotisation à régulariser</span> — <a href="'+lienMembre(m)+'">ma situation</a>')+'</p>'
+         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telFormation" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telFormation\').value);if(m)aller(\'#/formation?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier</button></div>')
+    + (m && s.skool_lien ? '<p style="margin-top:10px"><a class="btn sec" href="'+ech(s.skool_lien)+'" target="_blank" rel="noopener">📚 Plateforme Skool — formations gratuites</a> '+(s.replay_lien ? '<a class="btn sec" href="'+ech(s.replay_lien)+'" target="_blank" rel="noopener">▶️ Replay de présentation</a>' : '')+'</p>' : '')
+    + '</div>'
+    + (liste.length ? liste.map(f => '<div class="carte"><div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1"><div class="mut">'+(TYPES_FORMATION[f.type]||f.type)+' · '+dateFR(f.date)+'</div><h3 style="margin:4px 0">'+ech(f.titre)+'</h3>'+(f.description ? '<p>'+ech(f.description).replace(/\n/g,"<br>")+'</p>' : '')+'</div>'
+        + '<div>'+(f.lien ? (peut(f) ? '<a class="btn" href="'+ech(f.lien)+'" target="_blank" rel="noopener">Ouvrir</a>' : '<span class="badge b-neutre">'+(f.acces === "a_jour" ? "réservé aux membres à jour" : "réservé aux membres")+'</span>') : '')+'</div></div></div>').join("")
+       : '<div class="carte"><p class="mut">Aucune ressource publiée pour l’instant.</p></div>')
+    + '</main>';
+}
+function carteFormationMembre(m){
+  const liste = (etat.formations||[]).filter(f => f.publie !== false);
+  if(!liste.length && !etat.settings.skool_lien) return "";
+  return '<div class="carte"><h3>🎓 Formation</h3><p class="mut">'+(liste.length ? liste.length+' ressource'+(liste.length>1?'s':'')+' disponible'+(liste.length>1?'s':'')+' · ' : '')+'Skool, replays, documents.</p>'
+    + '<a class="btn sec" href="#/formation?t='+encodeURIComponent(m.telephone||"")+'">Accéder à l’espace formation</a></div>';
+}
+function sectionFormationsAdmin(){
+  return '<div class="carte"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><h3 style="margin:0">🎓 Formation</h3><span style="flex:1"></span><button class="btn sm" onclick="editerFormation(0)">+ Ajouter une ressource</button></div>'
+    + '<p class="mut">Vidéos, documents, lives et parcours Skool. « Membres » : visible après identification par téléphone ; « Membres à jour » : uniquement sans retard de cotisation.</p>'
+    + '<div id="editeurFormation"></div>'
+    + ((etat.formations||[]).length ? '<div class="survol"><table><tr><th>Date</th><th>Titre</th><th>Type</th><th>Accès</th><th>Statut</th><th></th></tr>'
+      + etat.formations.map(f => '<tr><td>'+dateFR(f.date)+'</td><td><strong>'+ech(f.titre)+'</strong></td><td>'+(TYPES_FORMATION[f.type]||f.type)+'</td><td>'+({public:"public",membres:"membres",a_jour:"membres à jour"}[f.acces]||f.acces)+'</td>'
+        + '<td>'+(f.publie !== false ? '<span class="badge b-paye">publiée</span>' : '<span class="badge b-neutre">brouillon</span>')+'</td>'
+        + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/?text='+encodeURIComponent("🎓 "+(etat.settings.reseau||"ComptaConnect")+" — nouvelle ressource : "+f.titre+"\n"+location.origin+location.pathname+"#/formation")+'" target="_blank" rel="noopener">WhatsApp</a> '
+        + '<button class="btn sm sec" onclick="editerFormation('+f.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerFormation('+f.id+')">Supprimer</button></td></tr>').join("")
+      + '</table></div>' : '')
+    + '</div>';
+}
+function editerFormation(id){
+  const f = (etat.formations||[]).find(x => String(x.id) === String(id)) || { titre:"", type:"video", description:"", lien:"", date: aujourdhui(), acces:"membres", publie:true };
+  const sel = (k, opts, val) => '<select id="fo_'+k+'">'+Object.entries(opts).map(([v,l]) => '<option value="'+v+'"'+(String(val)===v?' selected':'')+'>'+l+'</option>').join("")+'</select>';
+  $("#editeurFormation").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
+    + '<div class="champ"><span>Titre</span><input id="fo_titre" value="'+ech(f.titre)+'" placeholder="Atelier : déclaration TVA pas à pas"></div>'
+    + '<div class="champ"><span>Date</span><input id="fo_date" type="date" value="'+ech(f.date||"")+'"></div>'
+    + '<div class="champ"><span>Type</span>'+sel("type", TYPES_FORMATION, f.type)+'</div>'
+    + '<div class="champ"><span>Lien (YouTube, Drive, Skool, Zoom…)</span><input id="fo_lien" type="url" value="'+ech(f.lien||"")+'" placeholder="https://"></div>'
+    + '<div class="champ" style="grid-column:1/-1"><span>Description</span><textarea id="fo_description" style="min-height:70px">'+ech(f.description||"")+'</textarea></div>'
+    + '<div class="champ"><span>Accès</span>'+sel("acces", {public:"Public", membres:"Membres identifiés", a_jour:"Membres à jour de cotisation"}, f.acces)+'</div>'
+    + '<div class="champ"><span>Publication</span>'+sel("publie", {"true":"Publiée","false":"Brouillon"}, f.publie !== false)+'</div>'
+    + '</div><div style="display:flex;gap:8px"><button class="btn" onclick="enregistrerFormation('+(id||0)+')">Enregistrer</button><button class="btn sec" onclick="document.querySelector(\'#editeurFormation\').innerHTML=\'\'">Annuler</button></div></div>';
+}
+async function enregistrerFormation(id){
+  const v = k => ($("#fo_"+k).value||"").trim();
+  const corps = { titre:v("titre"), type:v("type"), description:v("description"), lien:v("lien"), date:v("date")||aujourdhui(), acces:v("acces"), publie:v("publie")==="true" };
+  if(!corps.titre){ toast("Le titre est obligatoire.", "err"); return; }
+  try{
+    if(id) await sb("cc_formations?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    else await sb("cc_formations", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
+    await chargerDonnees(); rendu(); toast("Ressource enregistrée.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function supprimerFormation(id){
+  if(!confirm("Supprimer cette ressource ?")) return;
+  try{ await sb("cc_formations?id=eq."+id, { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerDonnees(); rendu(); toast("Supprimée.", "ok"); }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 
 /* Liste positive (noms seulement) des membres à jour pour le mois affiché — activable dans Paramètres. */
@@ -2764,6 +2831,7 @@ function vueReseau(){
   const s = etat.settings;
   return '<main>'
     + sectionAnnoncesAdmin()
+    + sectionFormationsAdmin()
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec" onclick="changerPhotoGroupe()">📷 '+(s.photo_groupe_url ? 'Changer' : 'Ajouter')+' la photo de groupe</button>'
