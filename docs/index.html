@@ -1143,11 +1143,11 @@ const etat = { cfg:null, session:null, membres:[], paiements:[], depenses:[], se
 
 /* Connexion intégrée : les membres n'ont rien à configurer. (La clé anon est publique par conception ;
    l'écriture reste protégée par la connexion du trésorier et les règles RLS.) */
-const CFG_DEFAUT = { url: "https://ewcxndlelagtrlshadlj.supabase.co",
-  anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3Y3huZGxlbGFndHJsc2hhZGxqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODcyMjU4NzYsImV4cCI6MjEwMjgwMTg3Nn0.56ORPMKuu-RcbcqVTLuKC3gylOw5jQmXgIb1adXbjCg" };
+const CFG_DEFAUT = { url: "https://comptaconnect.org",
+  anon: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJjb21wdGFjb25uZWN0IiwicmVmIjoiY29tcHRhY29ubmVjdCIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzk0ODM0NzYyLCJleHAiOjI0MjU1NTQ3NjJ9.UiJIPruSqQ6MQrzPCWQRADM6luxBWW_1qRZJ5qv5_44" };
 function cfgCharger(){
   try{ etat.cfg = JSON.parse(localStorage.getItem("cc_cfg")||"null"); }catch(e){ etat.cfg = null; }
-  if(!etat.cfg || !etat.cfg.url || !etat.cfg.anon) etat.cfg = Object.assign({}, CFG_DEFAUT);
+  if(!etat.cfg || !etat.cfg.url || !etat.cfg.anon || /supabase\.co/.test(etat.cfg.url)) etat.cfg = Object.assign({}, CFG_DEFAUT);
 }
 function cfgSauver(url, anon){ etat.cfg = {url, anon}; localStorage.setItem("cc_cfg", JSON.stringify(etat.cfg)); }
 function sessionCharger(){ try{ etat.session = JSON.parse(localStorage.getItem("cc_session")||"null"); }catch(e){ etat.session = null; } }
@@ -1272,7 +1272,7 @@ async function connexion(email, motdepasse){
     headers:{ "apikey": etat.cfg.anon, "Content-Type":"application/json" },
     body: JSON.stringify({ email, password: motdepasse }),
   });
-  if(!rep.ok) throw new Error("Email ou mot de passe refusé. Le compte se crée dans Supabase → Authentication → Users.");
+  if(!rep.ok) throw new Error("Email ou mot de passe refusé.");
   const j = await rep.json();
   etat.session = { token: j.access_token, refresh: j.refresh_token, email, expire: Date.now() + (j.expires_in||3600)*1000 };
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
@@ -1809,7 +1809,7 @@ function vueInstallation(){
   return '<main style="max-width:560px"><div class="carte"><h3>Base de données (administrateur)</h3>'
     + '<div class="alerte al-info">Réglage technique réservé à l’administrateur : l’application est déjà reliée à sa base. '
     + 'Ne modifiez ces valeurs que pour changer de projet Supabase (tables préfixées « cc_ »).</div>'
-    + '<div class="champ"><span>URL du projet</span><input id="sbUrl" placeholder="https://xxxx.supabase.co" value="'+ech(etat.cfg?etat.cfg.url:"")+'"></div>'
+    + '<div class="champ"><span>URL du projet</span><input id="sbUrl" placeholder="https://comptaconnect.org" value="'+ech(etat.cfg?etat.cfg.url:"")+'"></div>'
     + '<div class="champ"><span>Clé anon (publique)</span><input id="sbAnon" placeholder="eyJhbGciOi..." value="'+ech(etat.cfg?etat.cfg.anon:"")+'"></div>'
     + '<button class="btn blk" onclick="enregistrerCfg()">Enregistrer</button> <button class="btn sec" style="margin-top:8px" onclick="localStorage.removeItem(\'cc_cfg\');cfgCharger();toast(\'Connexion par défaut rétablie.\',\'ok\');aller(\'#/\')">Rétablir la connexion par défaut</button>'
     + '<p class="mut">La clé anon est publique par conception : l’accès en écriture reste protégé par la connexion du trésorier (droits RLS).</p>'
@@ -1817,7 +1817,7 @@ function vueInstallation(){
 }
 async function enregistrerCfg(){
   const url = $("#sbUrl").value.trim(), anon = $("#sbAnon").value.trim();
-  if(!/^https:\/\/.+\.supabase\.co/.test(url)){ toast("URL invalide (https://xxxx.supabase.co).", "err"); return; }
+  if(!/^https:\/\/[a-z0-9.-]+/.test(url)){ toast("URL invalide (https://…).", "err"); return; }
   cfgSauver(url, anon);
   try{
     await chargerDonnees();

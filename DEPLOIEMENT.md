@@ -372,3 +372,21 @@ Les deux modes cohabitent : le bouton pour le confort, le motif pour le zéro fr
 - Relais CinetPay : `https://2-31-173-29.sslip.io` (aussi `https://comptaconnect.org/relais/`), service `relais`, secret dans `/etc/relais.env` = `cc_secrets.relais_secret`.
 - GitHub Pages reste actif mais redirige vers le domaine (script en tête de `index.html`).
 - Base + Edge Functions : encore sur Supabase (migration vers le serveur prévue après validation CinetPay).
+
+## Base et services dédiés (depuis le 16/11/2026) — Supabase n'est plus utilisé
+Sur le serveur Hetzner (`2.31.173.29`), tout tourne en local derrière Caddy (`https://comptaconnect.org`) :
+| Chemin public | Service | Port local |
+|---|---|---|
+| `/rest/v1/*` | PostgREST 13 → PostgreSQL 17, base `comptaconnect` | 3000 |
+| `/auth/v1/*` | GoTrue (supabase/auth) — mêmes comptes et mots de passe | 9999 |
+| `/functions/v1/*` | `serveur/api.js` (Node) exécutant les fonctions `supabase/functions/*` (bundlées par esbuild, `serveur/construire_fonctions.sh`) | 8788 |
+| `/storage/v1/object/cc_photos/*` (POST) | `serveur/api.js` → `/var/lib/comptaconnect/photos` | 8788 |
+| `/storage/v1/object/public/cc_photos/*` | fichiers statiques | — |
+| `/relais/*`, `2-31-173-29.sslip.io` | relais CinetPay (facultatif désormais : le serveur a lui-même l'IP fixe) | 8787 |
+
+- Secrets : `/etc/comptaconnect/{secrets.env,postgrest.conf,gotrue.env,api.env}` (JWT secret, clés anon/service, mots de passe PostgreSQL).
+- Rôles PostgreSQL : `anon`, `authenticated`, `service_role` (BYPASSRLS), `authenticator`, `supabase_auth_admin` ; fonctions `auth.uid()/role()/jwt()/email()` recréées → les politiques RLS d'origine s'appliquent sans modification.
+- Mise à jour du code : `git push` → `sync-comptaconnect` (cron 2 min) met à jour le site ; pour les fonctions : `bash /opt/comptaconnect/construire_fonctions.sh && systemctl restart cc-api`.
+- SQL : `sudo -u postgres psql -d comptaconnect`.
+- Sauvegarde : `serveur/sauvegarde.sh` (cron 03:00) → `/var/backups/comptaconnect` (30 jours). Copie hors serveur (Drive du réseau) : à brancher avec rclone.
+- Ancien projet Supabase `ewcxndlelagtrlshadlj` : conservé gelé comme copie de secours (données au 16/11/2026).
