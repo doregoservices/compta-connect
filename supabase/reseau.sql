@@ -957,3 +957,134 @@ begin
 end $$;
 revoke all on function cc_fusionner_questions(bigint,bigint) from public;
 grant execute on function cc_fusionner_questions(bigint,bigint) to authenticated;
+
+-- ====================================================================================
+-- Professionnalisation : cotisation en nature, reçus numérotés, journal d'audit, annuaire opt-in, consentement
+-- ====================================================================================
+alter table cc_membres add column if not exists cotisation_nature text default '';        -- description de l'apport en nature (vide = cotisation normale)
+alter table cc_membres add column if not exists nature_montant int default 0;             -- valeur annuelle estimée (révisable chaque décembre par le bureau)
+alter table cc_membres add column if not exists nature_revise_le date;                    -- dernière révision par le bureau
+alter table cc_membres add column if not exists annuaire boolean default false;           -- apparaît dans l'annuaire professionnel (choix du membre)
+alter table cc_membres add column if not exists consentement_le timestamptz;              -- acceptation charte + politique de confidentialité
+alter table cc_paiements add column if not exists recu_numero text;                       -- reçu n° RC-AAAA-NNNNN, attribué automatiquement
+insert into cc_settings (cle, valeur) values ('nature_revision_mois','12'), ('annuaire','oui'), ('audit','oui') on conflict (cle) do nothing;
+
+-- Numérotation des reçus : séquence annuelle, jamais de trou, jamais de doublon
+create table if not exists cc_compteurs (cle text primary key, valeur bigint not null default 0);
+grant select on cc_compteurs to anon, authenticated; grant all on cc_compteurs to service_role;
+create or replace function cc_recu_numeroter() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_an text := to_char(coalesce(new.date::date, current_date), 'YYYY'); v_n bigint;
+begin
+  if new.recu_numero is null or new.recu_numero = '' then
+    insert into cc_compteurs (cle, valeur) values ('recu_'||v_an, 1) on conflict (cle) do update set valeur = cc_compteurs.valeur + 1 returning valeur into v_n;
+    new.recu_numero := 'RC-'||v_an||'-'||lpad(v_n::text, 5, '0');
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_recu_numero on cc_paiements;
+create trigger trg_recu_numero before insert on cc_paiements for each row execute function cc_recu_numeroter();
+-- Paiements existants : numérotés dans l’ordre chronologique (une seule fois)
+with n as (select id, 'RC-'||to_char(date::date,'YYYY')||'-'||lpad((row_number() over (partition by to_char(date::date,'YYYY') order by date, id))::text,5,'0') as num
+           from cc_paiements where recu_numero is null)
+update cc_paiements p set recu_numero = n.num from n where p.id = n.id;
+insert into cc_compteurs (cle, valeur)
+  select 'recu_'||to_char(date::date,'YYYY'), count(*) from cc_paiements group by 1
+  on conflict (cle) do update set valeur = greatest(cc_compteurs.valeur, excluded.valeur);
+
+-- Journal d'audit : qui a modifié quoi (trésorier connecté, fonction serveur, membre via son téléphone)
+create table if not exists cc_audit (
+  id bigserial primary key,
+  date timestamptz not null default now(),
+  utilisateur text,                 -- e-mail du compte connecté, ou 'serveur' / 'membre' / 'anonyme'
+  action text not null,             -- INSERT / UPDATE / DELETE / FUSION…
+  tbl text not null,
+  ligne_id text,
+  avant jsonb,
+  apres jsonb
+);
+create index if not exists cc_audit_date on cc_audit(date desc);
+alter table cc_audit enable row level security;
+drop policy if exists "lecture tresorier cc_audit" on cc_audit;
+create policy "lecture tresorier cc_audit" on cc_audit for select to authenticated using (true);
+grant select on cc_audit to authenticated; grant all on cc_audit to service_role;
+create or replace function cc_audit_trg() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_user text := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'email', nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'role', 'serveur');
+        v_id text; v_avant jsonb; v_apres jsonb;
+begin
+  if tg_op = 'DELETE' then v_avant := to_jsonb(old); v_id := coalesce(v_avant->>'id', v_avant->>'email');
+  elsif tg_op = 'INSERT' then v_apres := to_jsonb(new); v_id := coalesce(v_apres->>'id', v_apres->>'email');
+  else v_avant := to_jsonb(old); v_apres := to_jsonb(new); v_id := coalesce(v_apres->>'id', v_apres->>'email');
+    if v_avant - 'fiche_maj_le' = v_apres - 'fiche_maj_le' then return new; end if;   -- rien de significatif
+  end if;
+  if tg_table_name = 'cc_membres' then v_avant := v_avant - 'photo_url'; v_apres := v_apres - 'photo_url'; end if;
+  insert into cc_audit (utilisateur, action, tbl, ligne_id, avant, apres) values (v_user, tg_op, tg_table_name, v_id, v_avant, v_apres);
+  return coalesce(new, old);
+end $$;
+do $$ declare t text; begin
+  foreach t in array array['cc_paiements','cc_membres','cc_depenses','cc_settings','cc_questions','cc_reponses','cc_appels','cc_roles','cc_bureau'] loop
+    execute format('drop trigger if exists trg_audit on %I', t);
+    execute format('create trigger trg_audit after insert or update or delete on %I for each row execute function cc_audit_trg()', t);
+  end loop;
+end $$;
+-- cc_settings n'a pas de colonne id : trigger dédié
+create or replace function cc_audit_settings_trg() returns trigger language plpgsql security definer set search_path = public as $$
+declare v_user text := coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb->>'email', 'serveur');
+begin
+  if tg_op = 'UPDATE' and old.valeur is not distinct from new.valeur then return new; end if;
+  insert into cc_audit (utilisateur, action, tbl, ligne_id, avant, apres) values (v_user, tg_op, 'cc_settings', coalesce(new.cle, old.cle),
+    case when tg_op <> 'INSERT' then jsonb_build_object('valeur', old.valeur) end, case when tg_op <> 'DELETE' then jsonb_build_object('valeur', new.valeur) end);
+  return coalesce(new, old);
+end $$;
+drop trigger if exists trg_audit on cc_settings;
+create trigger trg_audit after insert or update or delete on cc_settings for each row execute function cc_audit_settings_trg();
+
+-- Le membre choisit lui-même d'apparaître dans l'annuaire ; enregistre son consentement
+create or replace function cc_annuaire_opt(p_tel text, p_oui boolean) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_id bigint;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  select id into v_id from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if v_id is null then return json_build_object('ok', false); end if;
+  update cc_membres set annuaire = p_oui, consentement_le = coalesce(consentement_le, now()) where id = v_id;
+  return json_build_object('ok', true, 'annuaire', p_oui);
+end $$;
+revoke all on function cc_annuaire_opt(text,boolean) from public;
+grant execute on function cc_annuaire_opt(text,boolean) to anon, authenticated;
+
+-- Adhésion : horodatage du consentement (charte + confidentialité) — même signature, consentement systématique
+create or replace function cc_adherer(p_nom text, p_tel text, p_ville text default '', p_email text default '', p_specialite text default '', p_pays text default '', p_parrain_tel text default '')
+returns json
+language plpgsql security definer set search_path = public as $$
+declare
+  v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g');
+  v_ptel text := regexp_replace(coalesce(p_parrain_tel,''), '\D', '', 'g');
+  v_code text; v_id bigint; v_mat text; v_parrain bigint; v_existant record;
+begin
+  if length(trim(coalesce(p_nom,''))) < 3 then raise exception 'Nom trop court'; end if;
+  if length(v_tel) < 8 then raise exception 'Numéro de téléphone invalide'; end if;
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if length(v_ptel) = 13 and v_ptel like '225%' then v_ptel := substr(v_ptel, 4); end if;
+  select id, code, matricule, actif into v_existant from cc_membres
+    where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if found then
+    return json_build_object('code', v_existant.code, 'matricule', v_existant.matricule, 'id', v_existant.id, 'actif', v_existant.actif, 'existant', true);
+  end if;
+  if length(v_ptel) >= 8 and v_ptel <> v_tel and coalesce((select valeur from cc_settings where cle='parrainage'),'oui') <> 'non' then
+    select id into v_parrain from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_ptel, '225' || v_ptel) limit 1;
+  end if;
+  select lpad((coalesce(max(code::int), 0) + 1)::text, 3, '0') into v_code from cc_membres where code ~ '^\d+$';
+  insert into cc_membres (code, nom, telephone, ville, specialite, email, pays, cotisation, date_adhesion, actif, exonere, parrain_id, consentement_le)
+  values (v_code, trim(p_nom), v_tel, coalesce(p_ville,''), coalesce(p_specialite,''), coalesce(p_email,''),
+          coalesce(nullif(left(trim(p_pays),60),''), 'Côte d’Ivoire'),
+          coalesce((select valeur::int from cc_settings where cle='cotisation'), 5000),
+          to_char(current_date, 'YYYY-MM-DD'), false, false, v_parrain, now())
+  returning id, matricule into v_id, v_mat;
+  return json_build_object('code', v_code, 'matricule', v_mat, 'id', v_id, 'actif', false, 'existant', false, 'parrain', v_parrain is not null);
+end $$;
+
+-- Nabil : cotisation en nature (hébergement, domaine, maintenance), 5 700 F/an révisable — décision du bureau
+update cc_membres set exonere = true,
+  cotisation_nature = 'Hébergement du serveur, nom de domaine et maintenance de la plateforme',
+  nature_montant = 5700, nature_revise_le = current_date
+  where telephone in ('0502657392','2250502657392') and coalesce(cotisation_nature,'') = '';
