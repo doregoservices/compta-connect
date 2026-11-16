@@ -1761,6 +1761,7 @@ function vueQuestions(params){
       .then(([a, b]) => { etat._qrAttente = a||[]; etat._qrMiennes = b||[]; if(etat.route === "questions") rendu(); }).catch(()=>{}); }
   const attente = m ? (etat._qrAttente||[]) : [], miennes = m ? (etat._qrMiennes||[]) : [];
   const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+auteur(r.membre_id)+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
+    + '<div style="margin-top:6px"><span class="badge b-avance">🤝 Co-contribution</span> <span class="mut">question : '+(q.anonyme ? "un membre" : auteur(q.membre_id))+(r.membre_id === q.membre_id ? ' (question et réponse)' : ' · réponse : '+auteur(r.membre_id))+'</span></div>'
     + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+'</div></div>';
   const blocAttente = r => { const q = qs.find(x => x.id === r.question_id); const deja = (r.validations||[]).some(v => v.membre_id === m.id);
     return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'
@@ -1775,7 +1776,7 @@ function vueQuestions(params){
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="qRecherche" value="'+ech(params.q||"")+'" placeholder="Rechercher par mots-clés : TVA, DSF, CNPS, bail…" style="width:auto;min-width:260px;flex:1" onkeydown="if(event.key===\'Enter\')aller(\'#/questions?q=\'+encodeURIComponent(this.value)+(\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\'))"><button class="btn sec" onclick="aller(\'#/questions?q=\'+encodeURIComponent(document.querySelector(\'#qRecherche\').value)+\''+(m?'&t='+encodeURIComponent(m.telephone):'')+'\')">Rechercher</button></div>'
     + (q0 ? '<p class="mut" style="margin-top:6px">'+visibles.length+' résultat'+(visibles.length>1?'s':'')+' pour « '+ech(params.q)+' » · <a href="#/questions'+(m?'?t='+encodeURIComponent(m.telephone):'')+'">tout afficher</a></p>' : '')
     + (m ? '<details style="margin-top:12px"'+(params.poser?' open':'')+'><summary><strong>➕ Poser une question (et sa réponse si vous la connaissez)</strong></summary><p class="mut">Vous êtes <strong>'+ech(m.nom)+'</strong>'+(valid ? ' <span class="badge b-avance">validateur</span>' : '')+' · '+badgesHTML(scores[m.id])+'</p>'
-          + '<div class="champ"><span>Question</span><textarea id="qTexte" style="min-height:60px" placeholder="Ex. : quelle est la date limite de dépôt des états financiers ?"></textarea></div>'
+          + '<div class="champ"><span>Question</span><textarea id="qTexte" style="min-height:60px" placeholder="Ex. : quelle est la date limite de dépôt des états financiers ?" oninput="suggererSimilaires(this.value)"></textarea></div><div id="qSimilaires"></div>'
           + '<div class="champ"><span>Réponse (facultatif — si vous la connaissez)</span><textarea id="qReponse" style="min-height:80px" placeholder="Votre réponse, avec les références (articles du CGI, SYSCOHADA…)"></textarea></div>'
           + '<div class="champ"><span>Mots-clés (séparés par des virgules)</span><input id="qTags" placeholder="tva, déclaration, dgi"></div>'
           + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Publier</button></details>'
@@ -1791,10 +1792,24 @@ function vueQuestions(params){
        : '<div class="carte"><p class="mut">Aucune question pour l’instant.</p></div>')
     + '</main>';
 }
-async function poserQuestion(tel){
+let _simT = null;
+function suggererSimilaires(texte){
+  clearTimeout(_simT); const z = $("#qSimilaires"); if(!z) return; if(texte.trim().length < 10){ z.innerHTML = ""; return; }
+  _simT = setTimeout(async () => {
+    const mots = accentMin(texte).split(/[^a-z0-9]+/).filter(w => w.length > 3);
+    const loc = (etat.questions||[]).map(q => ({ q, n: mots.filter(w => accentMin(q.question+" "+(q.tags||"")).includes(w)).length })).filter(x => x.n >= Math.max(2, Math.ceil(mots.length*0.4))).sort((a,b) => b.n - a.n).slice(0,4);
+    if(!loc.length){ z.innerHTML = ""; return; }
+    z.innerHTML = '<div class="alerte al-info" style="margin:0 0 10px"><strong>Cette question existe peut-être déjà :</strong><ul style="margin:6px 0 0 18px">'+loc.map(x => '<li><a href="#/questions?q='+encodeURIComponent(x.q.question.slice(0,60))+'">'+ech(x.q.question)+'</a>'+((etat.reponses||[]).some(r => r.question_id === x.q.id && r.publie) ? ' <span class="badge b-paye">répondue</span>' : ' <span class="badge b-partiel">sans réponse — répondez-y !</span>')+'</li>').join("")+'</ul><div class="mut" style="margin-top:6px">Si c’est la même question, répondez-y plutôt que d’en créer une nouvelle.</div></div>';
+  }, 400);
+}
+async function poserQuestion(tel, forcer){
   const q = ($("#qTexte").value||"").trim(), rep = ($("#qReponse").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
   if(rep && rep.length < 10){ toast("Réponse trop courte (ou laissez vide).", "err"); return; }
-  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked, p_reponse: rep || null, p_tags: ($("#qTags").value||"").trim() }) });
+  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked, p_reponse: rep || null, p_tags: ($("#qTags").value||"").trim(), p_forcer: !!forcer }) });
+    if(!r.ok && r.motif === "identique"){ toast("Cette question existe déjà : « "+r.question+" ». Répondez-y directement.", "err"); return; }
+    if(!r.ok && r.motif === "doublon"){
+      $("#qSimilaires").innerHTML = '<div class="alerte al-info" style="margin:0 0 10px"><strong>Question très proche déjà posée :</strong> « '+ech(r.question)+' » <a href="#/questions?q='+encodeURIComponent(r.question.slice(0,60))+'">voir</a><div style="margin-top:8px"><button class="btn sm sec" onclick="poserQuestion(\''+ech(tel)+'\', true)">C’est une question différente, publier quand même</button></div></div>';
+      return; }
     if(!r.ok){ toast({ courte:"Question trop courte.", limite:"Maximum 5 questions par jour.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
     etat._qrTel = null; await chargerDonnees(); rendu(); toast(rep ? "Merci ! Question publiée ; votre réponse sera visible après validation." : "Question publiée ✅ Les membres peuvent y répondre.", "ok");
   }catch(e){ toast("Refusé : "+e.message, "err"); }

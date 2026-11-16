@@ -803,3 +803,38 @@ end $$;
 drop function if exists cc_poser_question(text, text, boolean);
 revoke all on function cc_poser_question(text,text,boolean,text,text) from public;
 grant execute on function cc_poser_question(text,text,boolean,text,text) to anon, authenticated;
+
+-- Anti-doublons : similarité de texte (pg_trgm). Une question trop proche d'une existante est refusée (motif « doublon » + id), sauf si le membre confirme (p_forcer).
+create extension if not exists pg_trgm;
+create or replace function cc_question_normaliser(t text) returns text language sql immutable as $$
+  select regexp_replace(lower(unaccent_lite(t)), '[^a-z0-9 ]+', ' ', 'g');
+$$;
+create or replace function unaccent_lite(t text) returns text language sql immutable as $$
+  select translate(coalesce(t,''), 'àâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ’''', 'aaaeeeeiioouuucAAAEEEEIIOOUUUC  ');
+$$;
+create or replace function cc_questions_similaires(p_texte text, p_limite int default 5) returns table(id bigint, question text, similarite real)
+language sql stable security definer set search_path = public as $$
+  select q.id, q.question, similarity(cc_question_normaliser(q.question), cc_question_normaliser(p_texte)) as similarite
+  from cc_questions q
+  where length(coalesce(p_texte,'')) >= 10 and similarity(cc_question_normaliser(q.question), cc_question_normaliser(p_texte)) > 0.25
+  order by 3 desc limit p_limite;
+$$;
+grant execute on function cc_questions_similaires(text,int) to anon, authenticated;
+create or replace function cc_poser_question(p_tel text, p_question text, p_anonyme boolean default false, p_reponse text default null, p_tags text default null, p_forcer boolean default false) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_id bigint; v_d record;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_question,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if (select count(*) from cc_questions where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 5 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  select * into v_d from cc_questions_similaires(p_question, 1) where similarite >= 0.6;
+  if v_d.id is not null and not coalesce(p_forcer, false) then return json_build_object('ok', false, 'motif', 'doublon', 'id', v_d.id, 'question', v_d.question); end if;
+  if v_d.id is not null and v_d.similarite >= 0.9 then return json_build_object('ok', false, 'motif', 'identique', 'id', v_d.id, 'question', v_d.question); end if;
+  insert into cc_questions (membre_id, question, anonyme, tags) values (v_m.id, left(trim(p_question), 1000), coalesce(p_anonyme, false), left(lower(trim(coalesce(p_tags,''))), 200)) returning id into v_id;
+  if length(trim(coalesce(p_reponse,''))) >= 10 then insert into cc_reponses (question_id, membre_id, texte) values (v_id, v_m.id, left(trim(p_reponse), 3000)); end if;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+drop function if exists cc_poser_question(text, text, boolean, text, text);
+revoke all on function cc_poser_question(text,text,boolean,text,text,boolean) from public;
+grant execute on function cc_poser_question(text,text,boolean,text,text,boolean) to anon, authenticated;
