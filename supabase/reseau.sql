@@ -806,11 +806,11 @@ grant execute on function cc_poser_question(text,text,boolean,text,text) to anon
 
 -- Anti-doublons : similarité de texte (pg_trgm). Une question trop proche d'une existante est refusée (motif « doublon » + id), sauf si le membre confirme (p_forcer).
 create extension if not exists pg_trgm;
-create or replace function cc_question_normaliser(t text) returns text language sql immutable as $$
-  select regexp_replace(lower(unaccent_lite(t)), '[^a-z0-9 ]+', ' ', 'g');
-$$;
 create or replace function unaccent_lite(t text) returns text language sql immutable as $$
   select translate(coalesce(t,''), 'àâäéèêëîïôöùûüçÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ’''', 'aaaeeeeiioouuucAAAEEEEIIOOUUUC  ');
+$$;
+create or replace function cc_question_normaliser(t text) returns text language sql immutable as $$
+  select regexp_replace(lower(unaccent_lite(t)), '[^a-z0-9 ]+', ' ', 'g');
 $$;
 create or replace function cc_questions_similaires(p_texte text, p_limite int default 5) returns table(id bigint, question text, similarite real)
 language sql stable security definer set search_path = public as $$
