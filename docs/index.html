@@ -2077,7 +2077,9 @@ function chiffresCles(){
   const actifs = etat.membres.filter(m => m.actif); if(!actifs.length) return "";
   const villes = new Set(actifs.map(m => (m.ville||"").trim().toLowerCase()).filter(Boolean)).size, pays = new Set(actifs.map(m => (m.pays||"").trim()).filter(Boolean)).size;
   const reps = (etat.reponses||[]).filter(r => r.publie).length, premiere = actifs.map(m => String(m.date_adhesion||"").slice(0,4)).filter(a => /^\d{4}$/.test(a)).sort()[0];
-  return '<div class="chiffres"><div><b>'+actifs.length+'</b>membres</div><div><b>'+villes+'</b>ville'+(villes>1?'s':'')+(pays > 1 ? ' · '+pays+' pays' : '')+'</div>'+(reps ? '<div><b>'+reps+'</b>réponses d’experts</div>' : '')+(premiere ? '<div><b>'+premiere+'</b>création</div>' : '')+'</div>';
+  // Villes : affichées seulement si la donnée est réellement renseignée (sinon le chiffre serait trompeur) ; les pays viennent des indicatifs/fiches
+  const geo = pays > 1 ? '<div><b>'+pays+'</b>pays'+(villes >= 10 ? ' · '+villes+' villes' : '')+'</div>' : (villes > 1 ? '<div><b>'+villes+'</b>villes</div>' : '');
+  return '<div class="chiffres"><div><b>'+actifs.length+'</b>membres</div>'+geo+(reps ? '<div><b>'+reps+'</b>réponses d’experts</div>' : '')+(premiere ? '<div><b>'+premiere+'</b>création</div>' : '')+'</div>';
 }
 /* Témoignages : Paramètres → une ligne par témoignage « Nom, fonction | texte » */
 function carteTemoignages(){
