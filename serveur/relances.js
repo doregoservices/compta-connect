@@ -25,12 +25,17 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
   const auj = new Date(), jour = auj.getDate(), dernierJour = new Date(auj.getFullYear(), auj.getMonth() + 1, 0).getDate();
   const jours = (S.relance_jours || "1,25,30,10").split(",").map(x => parseInt(x.trim(), 10)).filter(Boolean);
   const [jAppel, jRappel, jDernier, jRetard] = [jours[0] || 1, jours[1] || 25, jours[2] || 30, jours[3] || 10];
-  let type = force || (jour === jAppel ? "appel" : jour === jRappel ? "rappel" : (jour === Math.min(jDernier, dernierJour)) ? "dernier" : jour === jRetard ? "retard" : null);
-  if (!type) { console.log(new Date().toISOString(), "aucune relance prévue aujourd'hui (jour " + jour + ")"); return; }
   const cour = mois2(auj), tol = parseInt(S.cotisation_tolerance || "10", 10), limite = jour > tol ? moisPrec(cour) : moisPrec(moisPrec(cour));
+  const MAX = parseInt(S.relance_max_jour || "250", 10);              // plafond quotidien (Brevo gratuit : 300/jour)
+  let type = force || (jour === jAppel ? "appel" : jour === jRappel ? "rappel" : (jour === Math.min(jDernier, dernierJour)) ? "dernier" : jour === jRetard ? "retard" : null);
+  if (!type) {                                                         // hors calendrier : on poursuit la dernière campagne du mois si elle n'est pas terminée
+    const der = await db(`cc_relances?select=type,date&date=gte.${cour}-01&order=date.desc&limit=1`);
+    if (!der.length || der[0].date === auj.toISOString().slice(0, 10)) { console.log(new Date().toISOString(), "aucune relance prévue aujourd'hui (jour " + jour + ")"); return; }
+    type = der[0].type;
+  }
   const membres = await db("cc_membres?select=id,code,nom,telephone,email,cotisation,date_adhesion,actif,exonere&actif=is.true");
   const paiements = await db("cc_paiements?select=membre_id,mois,montant&caisse=not.eq.inscription&limit=100000");
-  const deja = new Set((await db(`cc_relances?select=membre_id&date=eq.${auj.toISOString().slice(0, 10)}&type=eq.${type}`)).map(x => String(x.membre_id)));
+  const deja = new Set((await db(`cc_relances?select=membre_id&date=gte.${cour}-01&type=eq.${type}&limit=100000`)).map(x => String(x.membre_id)));   // une fois par campagne et par mois
   const plancher = /^\d{4}-\d{2}$/.test(S.debut_cotisations || "") ? S.debut_cotisations : null;
   const cibles = [];
   for (const m of membres) {
@@ -60,7 +65,9 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
   const emailActif = (S.relance_email || "oui") !== "non" && SEC.brevo_api_key;
   const exp = SEC.brevo_expediteur || "supportcomptaconnect@gmail.com";
   let ok = 0, sans = 0, err = 0;
-  for (const c of cibles) {
+  cibles.sort((x, y) => y.reste - x.reste);
+  const aujourdhui = cibles.slice(0, MAX), reportes = cibles.length - aujourdhui.length;
+  for (const c of aujourdhui) {
     let canal = "aucun", statut = "a_faire", detail = "";
     if (emailActif && /@/.test(c.m.email || "")) {
       try {
@@ -71,5 +78,5 @@ const norm = m => { m = String(m || ""); const x = m.match(/^(\d{4})-(\d{1,2})/)
     } else sans++;
     await db("cc_relances", { method: "POST", body: JSON.stringify({ date: auj.toISOString().slice(0, 10), type, membre_id: c.m.id, canal, statut, detail, reste: c.reste, nb_mois: type === "retard" ? c.retard.length : 1 }) });
   }
-  console.log(new Date().toISOString(), `relance « ${type} » : ${cibles.length} membre(s) — e-mails envoyés ${ok}, erreurs ${err}, sans e-mail (WhatsApp trésorier) ${sans}`);
+  console.log(new Date().toISOString(), `relance « ${type} » : ${aujourdhui.length} membre(s) traités — e-mails envoyés ${ok}, erreurs ${err}, sans e-mail (WhatsApp trésorier) ${sans}` + (reportes ? `, ${reportes} reportés à demain (plafond ${MAX}/jour)` : ""));
 })().catch(e => { console.error("relances : échec —", e.message); process.exit(1); });
