@@ -1514,6 +1514,7 @@ function vuePayer(params){
     + '</div>'
     + (enAttente ? "" : sectionAppelsOuverts(m))
     + (enAttente ? "" : carteHistorique(m, mois))
+    + (!enAttente && etat.settings.liste_a_jour_visible === "oui" ? carteMembresAJour(mois) : "")
     + '<div class="carte"><h3>Comment ça marche</h3>'
     + '<div class="etape"><div class="n">1</div><div>Cliquez sur <strong>Payer en ligne</strong> et choisissez Wave, Orange Money, MTN ou Moov. <span class="mut">'+texteZone()+' Autres pays : procédure « membre hors zone » affichée ci-dessus.</span></div></div>'
     + '<div class="etape"><div class="n">2</div><div>Validez le paiement sur votre téléphone (code secret de votre opérateur).</div></div>'
@@ -1642,6 +1643,14 @@ function vueAppelPublic(params){
     + '</div></main>';
 }
 
+/* Liste positive (noms seulement) des membres à jour pour le mois affiché — activable dans Paramètres. */
+function carteMembresAJour(mois){
+  const pt = pointage(etat.membres, etat.paiements, mois);
+  const ok = pt.lignes.filter(l => l.statut === "PAYE" || l.statut === "AVANCE").map(l => l.membre.nom).sort((a,b)=>a.localeCompare(b,"fr"));
+  if(!ok.length) return "";
+  return '<div class="carte"><h3>Membres à jour — '+libelleMois(mois)+' <span class="mut">('+ok.length+')</span></h3>'
+    + '<p class="mut">Merci à celles et ceux qui ont déjà réglé ce mois 🙏</p><div style="display:flex;flex-wrap:wrap;gap:6px">'+ok.map(n => '<span class="badge b-paye">'+ech(n)+'</span>').join("")+'</div></div>';
+}
 function carteHistorique(m, mois){
   const h = historiqueMembre(m, etat.paiements, mois);
   const b = { PAYE:'<span class="badge b-paye">payé</span>', PARTIEL:'<span class="badge b-partiel">partiel</span>',
@@ -1664,7 +1673,7 @@ function carteHistorique(m, mois){
         + '<td>'+(b[l.statut]||"")+((l.statut==="IMPAYE"||l.statut==="PARTIEL"||l.statut==="A_PAYER") && l.mois !== mois ? (horsZone(m) ? '<div class="mut" style="margin-top:6px">par transfert (voir procédure)</div>' : '<div style="margin-top:6px"><button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',\''+l.mois+'\')">Payer '+fcfa(l.du-l.verse)+' F</button></div>') : '')+'</td></tr>').join("")
     + '</table></div>'
     + (h.reste ? '<p class="mut" style="margin-top:8px">Pour régulariser un mois, cliquez sur <strong>Payer</strong> en face du mois concerné.</p>' : '')
-    + (cotM && !horsZone(m) ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee"><strong>Payer en avance</strong> <span class="mut">— choisissez un mois à venir</span>'
+    + (cotM && !horsZone(m) && (etat.settings.paiement_avance||"oui") !== "non" ? '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #eee"><strong>Payer en avance</strong> <span class="mut">— choisissez un mois à venir</span>'
       + '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><select id="moisAvance">'+moisAvance.filter(x => !dejaAvance.has(x)).map(x => '<option value="'+x+'">'+libelleMois(x)+'</option>').join("")+'</select>'
       + '<button class="btn sm" onclick="payerEnLigne(\''+m.code+'\',document.querySelector(\'#moisAvance\').value)">Payer '+fcfa(cotM)+' F</button></div>'
       + (dejaAvance.size ? '<div class="mut" style="margin-top:6px">Déjà payé en avance : '+[...dejaAvance].sort().map(libelleMois).join(", ")+'</div>' : '')+'</div>' : '')
@@ -2086,11 +2095,15 @@ function vueMembres(){
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
     + '<input id="rechMembre" placeholder="Rechercher nom, téléphone, n° de carte, pays, ville…" style="width:auto;min-width:240px" oninput="filtrerMembres()"><span id="nbMembresFiltre" class="mut"></span>'
     + '<button class="btn sm sec" onclick="exportMembresCSV()">Télécharger CSV</button>'
+    + '<button class="btn sm sec" onclick="exportSituationCSV()" title="Liste filtrée avec situation, reste dû et mois en retard">📋 Export situation</button>'
     + '<button class="btn sm sec" onclick="exportCartesCSV()" title="Fichier pour l’imprimeur des cartes de membre">🪪 Export cartes</button></div>'
+    + (function(){ const c = {}; for(const m of etat.membres){ const k = m.actif ? (statutDe[m.id]||"") : "ATTENTE"; c[k] = (c[k]||0)+1; }
+        const F = [["","Tous",etat.membres.length],["PAYE","À jour",c.PAYE||0],["A_PAYER","À payer",c.A_PAYER||0],["IMPAYE","En retard",c.IMPAYE||0],["PARTIEL","Partiels",c.PARTIEL||0],["EXONERE","Exonérés",c.EXONERE||0],["ATTENTE","En attente",c.ATTENTE||0]];
+        return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px" id="filtresMembres">'+F.map(f => '<button class="btn sm '+(f[0]===(etat._filtreMembres||"")?'':'sec')+'" onclick="filtreMembres(\''+f[0]+'\')">'+f[1]+' <span class="mut">'+f[2]+'</span></button>').join("")+'</div>'; })()
     + cartePays()
     + '<div class="survol"><table id="tabMembres">'
     + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Pays / ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
-    + etat.membres.map(m => '<tr'+rech(m, (m.specialite||"")+" "+(m.employeur||""))+'><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
+    + etat.membres.map(m => '<tr data-statut="'+(m.actif ? (statutDe[m.id]||"") : "ATTENTE")+'"'+rech(m, (m.specialite||"")+" "+(m.employeur||""))+'><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
       + '<td>'+(m.pays && m.pays !== "Côte d’Ivoire" ? '<strong>'+ech(m.pays)+'</strong>'+(m.ville ? '<div class="mut">'+ech(m.ville)+'</div>' : '') : ech(m.ville||""))+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
       + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
       + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", voici votre lien personnel "+(etat.settings.reseau||"ComptaConnect")+" : "+lienMembreAbsolu(m)+(m.matricule ? " (matricule "+m.matricule+")" : " — vous pourrez y enregistrer le matricule de votre carte."))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
@@ -2133,9 +2146,22 @@ function cartePays(){
     + '</div><p class="mut" style="margin:8px 0 0">Cliquez sur un pays pour filtrer la liste. Le pays se recherche aussi dans la barre ci-dessus.</p></details>';
 }
 function filtrerMembres(){
-  const q = accentMin($("#rechMembre").value);
-  let n = 0; document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { const ok = !q || tr.dataset.rech.includes(q); tr.style.display = ok ? "" : "none"; if(ok) n++; });
-  const z = $("#nbMembresFiltre"); if(z) z.textContent = q ? n+" résultat"+(n>1?"s":"") : "";
+  const q = accentMin($("#rechMembre").value), f = etat._filtreMembres || "";
+  let n = 0; document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { const ok = (!q || tr.dataset.rech.includes(q)) && (!f || tr.dataset.statut === f); tr.style.display = ok ? "" : "none"; if(ok) n++; });
+  const z = $("#nbMembresFiltre"); if(z) z.textContent = (q || f) ? n+" résultat"+(n>1?"s":"") : "";
+}
+function filtreMembres(f){ etat._filtreMembres = f; document.querySelectorAll("#filtresMembres button").forEach(b => b.classList.toggle("sec", !b.getAttribute("onclick").includes("'"+f+"'"))); filtrerMembres(); }
+function exportSituationCSV(){
+  const per = periodeDepuisParams(etat.params), bl = bilanPeriode(per), q = accentMin(($("#rechMembre")||{value:""}).value), f = etat._filtreMembres || "";
+  const lib = { PAYE:"à jour", A_PAYER:"à payer", IMPAYE:"en retard", PARTIEL:"partiel", EXONERE:"exonéré", HORS:"pas encore membre", ATTENTE:"en attente" };
+  const lignes = [];
+  for(const m of etat.membres){
+    const l = bl.lignes.find(x => x.membre.id === m.id), st = m.actif ? (l ? l.statut : "") : "ATTENTE";
+    if(f && st !== f) continue;
+    if(q && !accentMin([m.nom,m.telephone,m.matricule,m.pays,m.ville,m.code].join(" ")).includes(q)) continue;
+    lignes.push([m.matricule||"", m.code, m.nom, m.telephone, m.email||"", m.pays||"", m.ville||"", m.cotisation, m.date_adhesion||"", lib[st]||st, l ? l.reste : 0, l ? (l.nb_retard||0) : 0, l ? l.nb_impayes : 0]);
+  }
+  telechargerCSV("situation_"+(f ? lib[f].replace(/\s/g,"_")+"_" : "")+per.debut+"_"+per.fin+".csv", ["Matricule","Code","Nom","Téléphone","Email","Pays","Ville","Cotisation","Adhésion","Situation","Reste dû","Mois en retard","Mois non réglés"], lignes);
 }
 function exportMembresCSV(){
   telechargerCSV("membres.csv", ["Matricule","Code","Nom","Téléphone","Pays","Ville","Fonction","Employeur","Titre","Email","Cotisation","Date adhésion","Actif","Exonéré","Fiche complète","Fiche mise à jour le"],
@@ -2558,6 +2584,11 @@ function vueParametres(){
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("charte_lien","Lien de la Charte de la communauté (PDF)") + champ("replay_lien","Lien du replay de présentation (vidéo)") + champ("fondateur","Nom du fondateur (signature des messages)")
     + champ("bienvenue","Message de bienvenue")
+    + '<h3>Choix du bureau (interrupteurs)</h3>'
+    + '<div class="grille g2">'
+    + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
+    + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '</div>'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
     + '<div class="champ"><span>Début de comptage des cotisations (optionnel)</span><input type="month" id="s_debut_cotisations" value="'+ech(s.debut_cotisations||"")+'"><small class="mut">Règle : chaque membre doit sa cotisation à partir du mois suivant son adhésion. Si vous indiquez un mois ici, aucun mois antérieur n’est réclamé (utile pour les anciens membres).</small></div>'
     + '<div class="champ"><span>Attribution automatique des matricules</span><select id="s_matricule_auto"><option value="non"'+(s.matricule_auto!=="oui"?' selected':'')+'>Non — n° de carte facultatif, noté par le membre ou le trésorier</option><option value="oui"'+(s.matricule_auto==="oui"?' selected':'')+'>Oui — la plateforme attribue le numéro suivant aux nouveaux</option></select></div>'
@@ -2626,7 +2657,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","cinetpay_test_tel"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     for(const cle of cles){
