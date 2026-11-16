@@ -59,10 +59,16 @@ main{max-width:1060px;margin:0 auto;padding:16px}
 .carte{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--r);
   padding:16px;margin-bottom:14px;box-shadow:0 1px 3px rgba(10,28,45,.05)}
 .grille{display:grid;gap:12px}
+.deux{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}.deux>div{min-width:0}
+@media(max-width:900px){.deux{grid-template-columns:1fr}}
+details.carte>summary{list-style:none}details.carte>summary::before{content:"▸ ";color:var(--vert)}details.carte[open]>summary::before{content:"▾ "}details.carte>summary::-webkit-details-marker{display:none}
+.pag-btn{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.pag-btn:empty{display:none}
+.col-aside .carte{padding:14px}.col-aside .carte h3{font-size:15px}
 .carte[data-col]{margin-bottom:0}
 .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g4{grid-template-columns:repeat(4,1fr)}
 @media(max-width:820px){.g4{grid-template-columns:1fr 1fr}}
-@media(max-width:560px){.g2,.g3,.g4{grid-template-columns:1fr}}
+@media(max-width:560px){.g2,.g3,.g4{grid-template-columns:1fr}.g2.k2{grid-template-columns:1fr 1fr}}
+.appel-ligne{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:10px 0;border-top:1px solid var(--ligne)}
 .kpi{background:var(--carte);border:1px solid var(--ligne);border-radius:var(--r);padding:13px 14px}
 .kpi .t{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:var(--muet)}
 .kpi .v{font-size:21px;font-weight:800;color:var(--vert-fonce)}
@@ -1441,6 +1447,7 @@ function rendu(){
     + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
+  paginer();
 }
 
 /* --------------------------- Vues publiques --------------------------- */
@@ -1462,8 +1469,8 @@ function sectionAppelsOuverts(m){
     + ouverts.map(a => {
       const paye = m ? etat.paiements.filter(p => String(p.membre_id) === String(m.id) && String(p.appel_id) === String(a.id)).reduce((s,p)=>s+parseInt(p.montant,10),0) : 0;
       const reste = Math.max(0, parseInt(a.montant,10) - paye);
-      return '<div style="display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--ligne)">'
-        + '<div style="font-size:26px">'+(icone[a.type]||"💳")+'</div><div style="flex:1"><strong>'+ech(a.titre)+'</strong>'
+      return '<div class="appel-ligne">'
+        + '<div style="font-size:26px">'+(icone[a.type]||"💳")+'</div><div style="flex:1;min-width:200px"><strong>'+ech(a.titre)+'</strong>'
         + (a.description ? '<div class="mut">'+ech(a.description)+'</div>' : '')
         + '<div class="mut">'+fcfa(a.montant)+' FCFA'+(a.date_limite ? ' · avant le '+dateFR(a.date_limite) : '')+'</div></div>'
         + (m ? (reste <= 0 ? '<span class="badge b-paye">payé ✓</span>'+(a.lien_apres ? ' <a class="btn sm sec" href="javascript:void(0)" onclick="ouvrirAccesAppel(\''+ech(idMembre(m))+'\','+a.id+')">Accéder</a>' : '')
@@ -1618,20 +1625,18 @@ function vuePayer(params){
     EXONERE:'<span class="badge b-neutre">exonéré</span>', NATURE:'<span class="badge b-paye">en nature ✔</span>' };
   const annee = anneeAdhesion(m);
   return corps
+    + '<div class="deux"><div class="col-main">'
     + '<div class="cartem">'+avatar(m, "xl")+'<div style="flex:1;min-width:0"><div style="font-weight:800;font-size:17px">'+ech(m.nom)+'</div>'
     + (m.titre || m.specialite ? '<div class="mut">'+ech(m.titre||m.specialite)+'</div>' : '')
     + '<div class="mut" style="margin-top:4px">N° DE CARTE DE MEMBRE</div><div class="matricule" style="font-size:18px">'+(m.matricule ? ech(m.matricule) : '<span class="mut" style="font-weight:500;font-size:13px">non renseigné — à noter dans « Mes informations » quand vous aurez votre carte</span>')+'</div>'
     + (annee ? '<div class="mut">Membre depuis '+annee+'</div>' : '')
     + '<div style="margin-top:6px"><a href="javascript:void(0)" style="color:#fff;font-size:13px" onclick="changerMaPhoto(\''+ech(idMembre(m))+'\')">📷 '+(m.photo_url ? 'Changer ma photo' : 'Ajouter ma photo')+'</a></div></div></div>'
     + '<div id="bienvenue"></div>'
-    + (enAttente ? "" : '<p style="margin:-6px 0 12px"><a class="btn sm sec" href="#/carte?t='+encodeURIComponent(idMembre(m))+'">🪪 Ma carte de membre (QR, hors ligne)</a> '+((etat.settings.agenda||"oui") !== "non" ? '<a class="btn sm sec" href="#/agenda?t='+encodeURIComponent(idMembre(m))+'">📅 Agenda</a>' : '')+'</p>')
-    + (enAttente ? "" : carteFiche(m))
-    + (enAttente ? "" : sectionAnnonces(2))
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée avec votre numéro de téléphone <strong>'+ech(m.telephone||"")+'</strong> : c’est lui qui vous servira à revenir sur cette page. '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><h3>Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "adhésion" : "cotisation "+libelleMois(mois))+'</h3>'
     + '<p>'+(enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</p>'
-    + '<div class="grille g2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(enAttente ? adhesion : l.du)+' F</div></div>'
+    + '<div class="grille g2 k2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(enAttente ? adhesion : l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
     + (l.statut==="PARTIEL" ? '<p>Il reste <strong>'+fcfa(l.reliquat)+' FCFA</strong> à régler.</p>' : "")
     + '<div id="payerEnLigne"><div class="mut" style="text-align:center;margin-top:10px">Chargement du paiement…</div></div>'
@@ -1640,6 +1645,10 @@ function vuePayer(params){
     + (!enAttente && m.cotisation_nature ? carteNature(m) : "")
     + (enAttente ? "" : carteHistorique(m, mois))
     + (enAttente ? "" : carteRecus(m))
+    + '</div><div class="col-aside">'
+    + (enAttente ? "" : '<p style="margin:0 0 12px"><a class="btn sm sec" href="#/carte?t='+encodeURIComponent(idMembre(m))+'">🪪 Ma carte de membre (QR, hors ligne)</a> '+((etat.settings.agenda||"oui") !== "non" ? '<a class="btn sm sec" href="#/agenda?t='+encodeURIComponent(idMembre(m))+'">📅 Agenda</a>' : '')+'</p>')
+    + (enAttente ? "" : carteFiche(m))
+    + (enAttente ? "" : sectionAnnonces(2))
     + ((etat.settings.anniversaires||"oui") !== "non" && String(m.date_naissance||"").slice(5,10) === new Date().toISOString().slice(5,10) ? '<div class="carte" style="background:#fff8e6;border-color:var(--or)"><h3>🎂 Joyeux anniversaire '+ech(m.nom.split(" ")[0])+' !</h3><p>Tout le réseau vous souhaite une excellente journée 🎉</p></div>' : '')
     + (enAttente ? "" : carteDefi())
     + (enAttente ? "" : carteSondage(m))
@@ -1653,6 +1662,7 @@ function vuePayer(params){
     + '<div class="etape"><div class="n">2</div><div>Validez le paiement sur votre téléphone (code secret de votre opérateur).</div></div>'
     + '<div class="etape"><div class="n">3</div><div>Vous revenez ici automatiquement : votre ligne passe à <strong>« à jour »</strong> immédiatement'+(enAttente ? ', et vos accès WhatsApp et Skool s’affichent' : '')+'.</div></div>'
     + '<p class="mut">Une question ? Trésorier : '+ech(etat.settings.tresorier||"")+' · <a href="tel:'+ech(etat.settings.tresorier_tel||"")+'">'+ech(etat.settings.tresorier_tel||"")+'</a></p></div>'
+    + '</div></div>'
     + '</main>';
 }
 /* Informations non sensibles que le membre complète/corrige lui-même (le téléphone, le matricule, la cotisation restent au trésorier) */
@@ -2790,30 +2800,33 @@ function vueTableauBord(){
     + kpi("Partiels", b.nb_partiels, "")
     + kpi("Impayés", b.nb_impayes, "")
     + '</div>'
-    + '<div class="grille g3" style="margin-top:12px">'
+    + '<div class="grille g4" style="margin-top:12px">'
     + kpi("Cotisations attendues", fcfa(b.du)+" F", listeMois(per).length+" mois × membres")
     + kpi("Cotisations encaissées", fcfa(b.verse)+" F", "")
     + kpi("Manquant", fcfa(b.manquant)+" F", "")
+    + kpi("Recettes nettes", fcfa(encaisseDates)+" F", fraisPer ? "après "+fcfa(fraisPer)+" F de frais de plateforme" : "aux dates de paiement")
     + '</div>'
     + '<div class="grille g3" style="margin-top:12px">'
-    + kpi("Recettes nettes (dates de paiement)", fcfa(encaisseDates)+" F", fraisPer ? "après "+fcfa(fraisPer)+" F de frais de plateforme" : "")
     + kpi("Dépenses", fcfa(depenses)+" F", '<a href="#/depenses">détail</a>')
     + '<div class="kpi" style="border:2px solid var(--or)"><div class="t">Solde de caisse global</div><div class="v" style="color:'+(recettesTot-depensesTot>=0?'var(--vert)':'#b3261e')+'">'+fcfa(recettesTot-depensesTot)+' F</div><div class="mut">cotisations − dépenses, depuis le début · <a href="#/solde">voir le solde</a></div></div>'
     + '<div class="kpi" style="border:2px dashed var(--or);background:#fffbea"><div class="t">Caisse des frais d’inscription (à part)</div><div class="v">'+fcfa(sommeNet((etat.inscriptions||[]).filter(p => dansPeriode(p.date, per))))+' F</div><div class="mut">'+(etat.inscriptions||[]).filter(p => dansPeriode(p.date, per)).length+' inscription(s) sur la période · net de frais · non comprise dans le solde · <a href="#/inscriptions">voir</a></div></div>'
     + '</div>'
-    + carteAnniversairesTresorier()
-    + cartePalmaresTresorier()
+    + '<div class="deux" style="margin-top:14px"><div class="col-main">'
+    + carteSanteReseau()
+    + carteRelancesJour()
     + carteNatureTresorier()
     + carteRevisionTresorier()
-    + carteSanteReseau()
+    + '</div><div class="col-aside">'
     + carteDefi()
+    + cartePalmaresTresorier()
+    + carteAnniversairesTresorier()
     + carteSondagesAdmin()
-    + carteRelancesJour()
+    + '</div></div>'
     + '<div class="carte" style="margin-top:14px"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">À relancer ('+relances.length+') — '+fcfa(relances.reduce((s,l)=>s+l.reste,0))+' F</h3><span style="flex:1"></span>'
     + (relances.length ? '<button class="btn sm" style="background:#25D366" onclick="relanceSerie(\'demarrer\')">📲 Relancer tout le monde (en série)</button><button class="btn sm sec" onclick="copierMessageGroupe()">Message pour le groupe</button>' : '')
     + barreRecherche("tabRelances") + '<button class="btn sm sec" onclick="exportRelances()">Télécharger CSV</button></div>'
     + '<div id="relanceSerie"></div>'
-    + (relances.length ? '<div class="survol"><table id="tabRelances"><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
+    + (relances.length ? '<div class="survol"><table class="pag" id="tabRelances"><tr><th>Code</th><th>Membre</th><th>Téléphone</th><th>Mois impayés</th><th>Reste dû</th><th>Relancer</th></tr>'
       + relances.map(l => '<tr'+rech(l.membre)+'><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td><td>'+ech(l.membre.telephone||"")+'</td><td>'+l.nb_impayes+' / '+l.nb_mois+'</td>'
         + '<td><strong>'+fcfa(l.reste)+' F</strong></td><td>'+(l.membre.telephone ? '<a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(l.membre.telephone)+'?text='+texteRelance(l)+'">WhatsApp</a>' : '<span class="mut">pas de n°</span>')+'</td></tr>').join("")
       + '</table></div>' : '<p class="mut">Tout le monde est à jour sur cette période. 🎉</p>')
@@ -2889,8 +2902,22 @@ function netDe(p){ return parseInt(p.montant,10) - (parseInt(p.frais,10) || 0); 
 function sommeNet(liste){ return liste.reduce((s,p) => s + netDe(p), 0); }
 function sommeFrais(liste){ return liste.reduce((s,p) => s + (parseInt(p.frais,10)||0), 0); }
 /* Barre de recherche générique : filtre les lignes <tr data-rech> d'un tableau */
+/* Tableaux longs : 30 lignes affichées, puis « Afficher plus » — la recherche porte toujours sur toutes les lignes. */
+const PAGE = 30; etat._pag = etat._pag || {};
+function paginer(){
+  document.querySelectorAll("table.pag").forEach(t => {
+    const rows = [...t.querySelectorAll("tr[data-rech]")], total = rows.length;
+    const lim = etat._pag[t.id] || PAGE, q = t.dataset.q || "";
+    rows.forEach((r, i) => { r.dataset.cache = i >= lim ? "1" : ""; if(!q) r.style.display = i >= lim ? "none" : ""; });
+    let b = t.closest(".survol") || t; let z = b.nextElementSibling; if(!z || !z.classList.contains("pag-btn")){ z = document.createElement("div"); z.className = "pag-btn"; b.after(z); }
+    z.innerHTML = total > PAGE && !q ? (lim < total
+      ? '<button class="btn sm sec" onclick="pagPlus(\''+t.id+'\','+PAGE+')">Afficher '+Math.min(PAGE, total - lim)+' de plus</button> <button class="btn sm sec" onclick="pagPlus(\''+t.id+'\',1e9)">Tout afficher</button> <span class="mut">'+Math.min(lim,total)+' sur '+total+'</span>'
+      : '<button class="btn sm sec" onclick="pagPlus(\''+t.id+'\',-1)">Réduire</button> <span class="mut">'+total+' lignes</span>') : "";
+  });
+}
+function pagPlus(id, n){ etat._pag[id] = n < 0 ? PAGE : (etat._pag[id] || PAGE) + n; paginer(); if(n < 0){ const t = document.getElementById(id); if(t) t.scrollIntoView({ block:"start", behavior:"smooth" }); } }
 function barreRecherche(tableId, placeholder){ return '<input placeholder="'+(placeholder||"Rechercher nom, téléphone, matricule…")+'" style="width:auto;min-width:220px" oninput="filtrerTable(\''+tableId+'\', this.value)">'; }
-function filtrerTable(tableId, q){ q = accentMin(q||""); document.querySelectorAll("#"+tableId+" tr[data-rech]").forEach(tr => { tr.style.display = !q || tr.dataset.rech.includes(q) ? "" : "none"; }); }
+function filtrerTable(tableId, q){ q = accentMin(q||""); const t = document.getElementById(tableId); if(t){ t.dataset.q = q; } document.querySelectorAll("#"+tableId+" tr[data-rech]").forEach(tr => { tr.style.display = (q ? tr.dataset.rech.includes(q) : !tr.dataset.cache) ? "" : "none"; }); paginer(); }
 function rech(m, extra){ return ' data-rech="'+ech(accentMin([m.nom, m.telephone, m.matricule, m.code, m.email, m.ville, m.pays, extra].filter(Boolean).join(" ")))+'"'; }
 function kpi(t, v, s){ return '<div class="kpi"><div class="t">'+t+'</div><div class="v">'+v+'</div><div class="mut">'+s+'</div></div>'; }
 
@@ -2904,7 +2931,8 @@ function vueMembres(){
     IMPAYE:'<span class="badge b-impaye">en retard</span>', A_PAYER:'<span class="badge b-partiel">à payer</span>', EXONERE:'<span class="badge b-neutre">exonéré</span>', HORS:'<span class="badge b-neutre">pas encore membre</span>' }[s]||"");
   return '<main>'
     + barrePeriode("membres", per, "Membres ("+etat.membres.length+")")
-    + '<div class="carte"><h3>Ajouter un membre</h3>'
+    + '<div class="grille g2" style="margin-bottom:12px;align-items:start">'
+    + '<details class="carte" style="margin:0"><summary style="cursor:pointer;font-weight:800">➕ Ajouter un membre</summary><p class="mut" style="margin-top:6px">Les nouveaux membres s’inscrivent normalement eux-mêmes via le lien « Devenir membre » ; ce formulaire sert aux cas particuliers.</p>'
     + '<div class="grille g2"><div>'
     + '<div class="champ"><span>N° de carte de membre (facultatif)</span><input id="mMat" placeholder="CC-26-00026" autocapitalize="characters"></div>'
     + '<div class="champ"><span>Nom complet</span><input id="mNom"></div>'
@@ -2916,12 +2944,12 @@ function vueMembres(){
     + '<div class="champ"><span>Date d’adhésion (AAAA-MM-JJ)</span><input id="mDate" placeholder="'+aujourdhui()+'"></div>'
     + '</div></div>'
     + '<button class="btn" onclick="ajouterMembre()">+ Ajouter le membre</button>'
-    + (etat.settings.matricule_auto === "oui" && parseInt(etat.settings.matricule_depart||"0",10) > 0 ? '<span class="mut" style="margin-left:10px">Prochain matricule automatique : <span class="matricule">'+ech(prochainMatricule())+'</span></span>' : '<span class="mut" style="margin-left:10px">N° de carte : facultatif — noté par le membre dans sa fiche ou par le trésorier (attribution automatique désactivée — voir Paramètres).</span>')+'</div>'
-    + '<div class="carte"><h3>Importer une liste (CSV)</h3>'
+    + (etat.settings.matricule_auto === "oui" && parseInt(etat.settings.matricule_depart||"0",10) > 0 ? '<span class="mut" style="margin-left:10px">Prochain matricule automatique : <span class="matricule">'+ech(prochainMatricule())+'</span></span>' : '<span class="mut" style="margin-left:10px">N° de carte : facultatif — noté par le membre dans sa fiche ou par le trésorier (attribution automatique désactivée — voir Paramètres).</span>')
+    + '</details><details class="carte" style="margin:0"><summary style="cursor:pointer;font-weight:800">📥 Importer une liste (CSV)</summary>'
     + '<p class="mut">Une ligne par membre : <code>matricule;nom;téléphone;ville;date d’adhésion</code> (séparateur ; ou , ou tabulation). '
     + 'Laissez le n° de carte <strong>vide</strong> pour les membres qui n’ont pas encore de carte : ils pourront le noter eux-mêmes dans leur fiche (ou il sera attribué automatiquement si vous l’activez dans Paramètres). Les matricules et téléphones déjà présents sont ignorés.</p>'
     + '<textarea id="csvMembres" placeholder="CC-26-00026;DOREGO Mouhamed Nabil;0717579556;Abidjan;2026-06-11&#10;;KOUAME Jean;0500000000;Abidjan;2026-07-02"></textarea>'
-    + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></div>'
+    + '<button class="btn sec" style="margin-top:8px" onclick="importerMembres()">Importer</button></details></div>'
     + '<div id="editeurMembre"></div>'
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Liste — situation '+libellePeriode(per)+'</h3><span style="flex:1"></span>'
     + '<input id="rechMembre" placeholder="Rechercher nom, téléphone, n° de carte, pays, ville…" style="width:auto;min-width:240px" oninput="filtrerMembres()"><span id="nbMembresFiltre" class="mut"></span>'
@@ -2932,7 +2960,7 @@ function vueMembres(){
         const F = [["","Tous",etat.membres.length],["PAYE","À jour",c.PAYE||0],["A_PAYER","À payer",c.A_PAYER||0],["IMPAYE","En retard",c.IMPAYE||0],["PARTIEL","Partiels",c.PARTIEL||0],["EXONERE","Exonérés",c.EXONERE||0],["ATTENTE","En attente",c.ATTENTE||0]];
         return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px" id="filtresMembres">'+F.map(f => '<button class="btn sm '+(f[0]===(etat._filtreMembres||"")?'':'sec')+'" onclick="filtreMembres(\''+f[0]+'\')">'+f[1]+' <span class="mut">'+f[2]+'</span></button>').join("")+'</div>'; })()
     + cartePays()
-    + '<div class="survol"><table id="tabMembres">'
+    + '<div class="survol"><table class="pag" id="tabMembres">'
     + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Pays / ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
     + etat.membres.map(m => '<tr data-statut="'+(m.actif ? (statutDe[m.id]||"") : "ATTENTE")+'"'+rech(m, (m.specialite||"")+" "+(m.employeur||""))+'><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
       + '<td>'+(m.pays && m.pays !== "Côte d’Ivoire" ? '<strong>'+ech(m.pays)+'</strong>'+(m.ville ? '<div class="mut">'+ech(m.ville)+'</div>' : '') : ech(m.ville||""))+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
@@ -2978,7 +3006,9 @@ function cartePays(){
 }
 function filtrerMembres(){
   const q = accentMin($("#rechMembre").value), f = etat._filtreMembres || "";
-  let n = 0; document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { const ok = (!q || tr.dataset.rech.includes(q)) && (!f || tr.dataset.statut === f); tr.style.display = ok ? "" : "none"; if(ok) n++; });
+  const t = $("#tabMembres"); if(t) t.dataset.q = q || f;
+  let n = 0; document.querySelectorAll("#tabMembres tr[data-rech]").forEach(tr => { const ok = (!q || tr.dataset.rech.includes(q)) && (!f || tr.dataset.statut === f) && ((q || f) || !tr.dataset.cache); tr.style.display = ok ? "" : "none"; if(ok) n++; });
+  paginer();
   const z = $("#nbMembresFiltre"); if(z) z.textContent = (q || f) ? n+" résultat"+(n>1?"s":"") : "";
 }
 function filtreMembres(f){ etat._filtreMembres = f; document.querySelectorAll("#filtresMembres button").forEach(b => b.classList.toggle("sec", !b.getAttribute("onclick").includes("'"+f+"'"))); filtrerMembres(); }
@@ -3096,7 +3126,7 @@ function vuePointage(params){
     + '<h3 style="margin:0">Pointage — '+libelleMois(mois)+'</h3><span style="flex:1"></span>'
     + '<input type="month" value="'+mois+'" style="width:auto" onchange="aller(\'#/pointage?mois=\'+this.value)">'
     + barreRecherche("tabPointage") + '<button class="btn sec sm" onclick="exporterPointage(\''+mois+'\')">⬇ CSV</button></div>'
-    + '<div class="carte"><div class="survol"><table id="tabPointage">'
+    + '<div class="carte"><div class="survol"><table class="pag" id="tabPointage">'
     + '<tr><th>Code</th><th>Membre</th><th>Référence</th><th>Dû</th><th>Versé</th><th>Reste</th><th>Statut</th></tr>'
     + pt.lignes.map(l => '<tr'+rech(l.membre)+'><td>'+l.membre.code+'</td><td>'+ech(l.membre.nom)+'</td>'
       + '<td style="font-family:monospace">'+l.reference+'</td><td>'+fcfa(l.du)+'</td><td>'+fcfa(l.verse)+'</td>'
@@ -3127,11 +3157,11 @@ function vuePaiements(params){
   const nomDe = id => { const m = etat.membres.find(x => String(x.id) === String(id)); return m ? m.nom : "—"; };
   return '<main>'
     + barrePeriode("paiements", per, "Paiements")
-    + '<div class="carte"><h3>Régularisation exceptionnelle — import d’un relevé</h3>'
+    + '<div class="grille g2" style="margin-bottom:12px;align-items:start"><details class="carte" style="margin:0"><summary style="cursor:pointer;font-weight:800">📥 Régularisation exceptionnelle — import d’un relevé</summary>'
     + '<p class="mut">Réservé aux cas particuliers (reprise d’historique, paiement reçu hors plateforme). Format : <code>date;montant;expéditeur;téléphone;motif</code>, un paiement par ligne.</p>'
     + '<textarea id="csvPaies" placeholder="05/09/2026;5000;KOUASSI AYA;0708112233;Cotisation CC'+moisCourt(mois)+'001"></textarea>'
-    + '<button class="btn" style="margin-top:8px" onclick="importerPaiements()">Importer et pointer</button></div>'
-    + '<div class="carte"><h3>Régularisation exceptionnelle — saisie manuelle</h3><div class="grille g4">'
+    + '<button class="btn" style="margin-top:8px" onclick="importerPaiements()">Importer et pointer</button></details>'
+    + '<details class="carte" style="margin:0"><summary style="cursor:pointer;font-weight:800">✍️ Régularisation exceptionnelle — saisie manuelle</summary><p class="mut" style="margin-top:6px">Les paiements en ligne se pointent seuls ; cette saisie sert aux cas hors plateforme (virement hors zone, espèces).</p><div class="grille g2">'
     + '<div class="champ"><span>Date</span><input id="pDate" type="date" value="'+aujourdhui()+'"></div>'
     + '<div class="champ"><span>Montant</span><input id="pMont" inputmode="numeric" value="5000"></div>'
     + '<div class="champ"><span>Canal</span><select id="pCanal"><option>Wave</option><option>Orange Money</option><option>MTN MoMo</option><option>Espèces</option><option>Autre</option></select></div>'
@@ -3140,10 +3170,10 @@ function vuePaiements(params){
     + '</div><div class="grille g2">'
     + '<div class="champ"><span>Expéditeur</span><input id="pExp"></div>'
     + '<div class="champ"><span>Motif (référence)</span><input id="pLib" placeholder="CC'+moisCourt(mois)+'042"></div></div>'
-    + '<button class="btn" onclick="ajouterPaiement()">Enregistrer</button></div>'
-    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Paiements ('+duMois.length+') — '+fcfa(duMois.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F payés · '+fcfa(sommeNet(duMois))+' F nets</h3><span style="flex:1"></span>' + barreRecherche("tabPaiements", "Rechercher membre, téléphone, référence…") + '<button class="btn sm sec" onclick="exportPaiementsCSV()">Télécharger CSV</button></div><div class="survol"><table id="tabPaiements">'
+    + '<button class="btn" onclick="ajouterPaiement()">Enregistrer</button></details></div>'
+    + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Paiements ('+duMois.length+') — '+fcfa(duMois.reduce((s,p)=>s+parseInt(p.montant,10),0))+' F payés · '+fcfa(sommeNet(duMois))+' F nets</h3><span style="flex:1"></span>' + barreRecherche("tabPaiements", "Rechercher membre, téléphone, référence…") + '<button class="btn sm sec" onclick="exportPaiementsCSV()">Télécharger CSV</button></div><div class="survol"><table class="pag" id="tabPaiements">'
     + '<tr><th>Date</th><th>Payé</th><th>Net reçu</th><th>Canal</th><th>Membre</th><th>Motif</th><th>Détection</th><th></th></tr>'
-    + duMois.slice(0,500).map(p => { const mb = etat.membres.find(x => String(x.id) === String(p.membre_id)) || { nom: p.expediteur, telephone: p.telephone }; return '<tr'+rech(mb, (p.libelle||"")+" "+(p.reference_externe||"")+" "+(p.telephone||""))+'><td>'+dateFR(p.date)+'</td><td>'+fcfa(p.montant)+' F</td><td>'+fcfa(netDe(p))+' F'+(p.frais ? '<div class="mut">− '+fcfa(p.frais)+' F frais</div>' : '')+'</td><td>'+ech(p.canal)+'</td>'
+    + duMois.slice(0,500).map(p => { const mb = etat.membres.find(x => String(x.id) === String(p.membre_id)) || { nom: p.expediteur, telephone: p.telephone }; return '<tr'+rech(mb, (p.libelle||"")+" "+(p.reference_externe||"")+" "+(p.telephone||""))+'><td style="white-space:nowrap">'+dateFR(p.date)+'</td><td style="white-space:nowrap">'+fcfa(p.montant)+' F</td><td style="white-space:nowrap">'+fcfa(netDe(p))+' F'+(p.frais ? '<div class="mut">− '+fcfa(p.frais)+' F frais</div>' : '')+'</td><td>'+ech(p.canal)+'</td>'
       + '<td>'+(p.membre_id ? ech(nomDe(p.membre_id)) : '<span class="badge b-impaye">à pointer</span>')+'</td>'
       + '<td>'+(p.appel_id ? '<span class="badge b-avance">'+ech((etat.appels.find(a => String(a.id)===String(p.appel_id))||{}).titre||"appel")+'</span> ' : '')+ech(p.libelle)+'</td><td class="mut">'+ech(p.methode)+'</td>'
       + '<td><button class="btn sm dgr" onclick="supprimerPaiement('+p.id+')">✕</button></td></tr>'; }).join("")
@@ -3411,7 +3441,8 @@ function vueParametres(){
   const s = etat.settings;
   const champ = (cle, label, type) => '<div class="champ"><span>'+label+'</span>'
     + '<input id="s_'+cle+'" type="'+(type||"text")+'" value="'+ech(s[cle]||"")+'"></div>';
-  return '<main style="max-width:640px"><div class="carte"><h3>Paramètres du réseau</h3>'
+  return '<main style="max-width:960px"><div class="carte"><h3>Paramètres du réseau</h3>'
+    + '<p class="mut">Tout ce qui est réglé ici s’applique immédiatement sur toutes les pages. Les sections : identité du réseau · choix du bureau · animation · règle de cotisation · paiement en ligne · e-mails.</p>'
     + '<div class="grille g2">'
     + champ("reseau","Nom du réseau") + champ("slogan","Slogan")
     + champ("cotisation","Cotisation mensuelle (FCFA)","number") + champ("jour_echeance","Jour d'échéance","number")
@@ -3424,8 +3455,8 @@ function vueParametres(){
     + champ("whatsapp_lien","Lien d'invitation du groupe WhatsApp") + champ("skool_lien","Lien Skool (bibliothèque de formation)")
     + champ("charte_lien","Lien de la Charte de la communauté (PDF)") + champ("replay_lien","Lien du replay de présentation (vidéo)") + champ("fondateur","Nom du fondateur (signature des messages)")
     + champ("bienvenue","Message de bienvenue")
-    + '<h3>Choix du bureau (interrupteurs)</h3>'
-    + '<div class="grille g2">'
+    + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Choix du bureau (interrupteurs)</h3>'
+    + '<div class="grille g3">'
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
@@ -3435,9 +3466,8 @@ function vueParametres(){
     + '<div class="champ"><span>Barème des points : réponse, question, validation, paiement dans le mois, en avance, profil complet</span><div style="display:flex;gap:6px;flex-wrap:wrap">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:70px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'" title="'+k+'">').join("")+'</div></div>'
     + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
-    + '</div>'
-    + '<h3>Animation de la communauté</h3>'
-    + '<div class="grille g2">'
+    + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Animation de la communauté</h3>'
+    + '<div class="grille g3">'
     + sel("defi","Défi du mois (jauge collective sur l’accueil)")
     + '<div class="champ"><span>Objectif du défi : % de membres à jour avant le jour</span><div style="display:flex;gap:6px"><input id="s_defi_objectif" type="number" min="10" max="100" style="width:90px" value="'+ech(s.defi_objectif||"80")+'"> %<input id="s_defi_jour" type="number" min="1" max="31" style="width:80px" value="'+ech(s.defi_jour||"25")+'"></div></div>'
     + '<div class="champ"><span>Texte libre du défi (facultatif, remplace le texte automatique)</span><input id="s_defi_texte" value="'+ech(s.defi_texte||"")+'" placeholder="Ex. : Tous à jour avant la rencontre du 28 !"></div>'
@@ -3454,12 +3484,12 @@ function vueParametres(){
     + '<div class="champ"><span>Témoignages (accueil) — une ligne par témoignage : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
     + '<div class="champ"><span>Mois de révision annuelle des cotisations en nature</span><input id="s_nature_revision_mois" type="number" min="1" max="12" value="'+ech(s.nature_revision_mois||"12")+'"></div>'
     + '<div class="champ"><span>Points au parrain quand le filleul adhère</span><input id="s_pts_parrainage" type="number" min="0" max="100" value="'+ech(s.pts_parrainage||"10")+'"></div>'
-    + '</div>'
+    + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Règle de cotisation et cartes de membre</h3><div class="grille g2">'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
     + '<div class="champ"><span>Début de comptage des cotisations (optionnel)</span><input type="month" id="s_debut_cotisations" value="'+ech(s.debut_cotisations||"")+'"><small class="mut">Règle : chaque membre doit sa cotisation à partir du mois suivant son adhésion. Si vous indiquez un mois ici, aucun mois antérieur n’est réclamé (utile pour les anciens membres).</small></div>'
     + '<div class="champ"><span>Attribution automatique des matricules</span><select id="s_matricule_auto"><option value="non"'+(s.matricule_auto!=="oui"?' selected':'')+'>Non — n° de carte facultatif, noté par le membre ou le trésorier</option><option value="oui"'+(s.matricule_auto==="oui"?' selected':'')+'>Oui — la plateforme attribue le numéro suivant aux nouveaux</option></select></div>'
     + champ("matricule_depart","Dernier n° de carte déjà imprimé (obligatoire pour l’attribution automatique)","number")
-    + '</div><button class="btn blk" onclick="enregistrerParametres()">Enregistrer</button>'
+    + '</div><button class="btn blk" onclick="enregistrerParametres()" style="margin-top:12px">Enregistrer les paramètres</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<h3>Paiement en ligne CinetPay</h3>'
     + '<p class="mut">À remplir par le <strong>titulaire du compte CinetPay</strong> lui-même, connecté ici en trésorier. Ces clés sont stockées dans une table privée (lecture réservée aux trésoriers connectés) et ne figurent jamais dans la page publique.</p>'
@@ -3634,10 +3664,12 @@ function exportAppelCSV(id){
 function vueReseau(){
   const s = etat.settings;
   return '<main>'
+    + '<div class="deux"><div class="col-main">'
     + sectionAnnoncesAdmin()
-    + sectionFormationsAdmin()
     + sectionAgendaAdmin()
+    + sectionFormationsAdmin()
     + sectionQuestionsAdmin()
+    + '</div><div class="col-aside">'
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
     + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec" onclick="changerPhotoGroupe()">📷 '+(s.photo_groupe_url ? 'Changer' : 'Ajouter')+' la photo de groupe</button>'
@@ -3656,7 +3688,7 @@ function vueReseau(){
     + etat.rencontres.map(r => '<div style="border-top:1px solid var(--ligne);padding:10px 0"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><strong>'+ech(r.titre)+'</strong><span class="mut">'+dateFR(r.date)+(r.lieu ? ' · '+ech(r.lieu) : '')+' · '+(r.photos||[]).length+' photo(s)</span>'+(r.publie===false ? '<span class="badge b-neutre">brouillon</span>' : '')+'<span style="flex:1"></span>'
         + '<button class="btn sm sec" onclick="ajouterPhotosRencontre('+r.id+')">📷 Ajouter des photos</button> <button class="btn sm sec" onclick="editerRencontre('+r.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerRencontre('+r.id+')">✕</button></div>'
         + '<div class="galerie" style="margin-top:8px">'+(r.photos||[]).map((u,i) => '<div style="position:relative"><img src="'+ech(u)+'" alt=""><button class="btn sm dgr" style="position:absolute;top:4px;right:4px;padding:2px 7px" onclick="retirerPhotoRencontre('+r.id+','+i+')">✕</button></div>').join("")+'</div></div>').join("")
-    + '</div></main>';
+    + '</div></div></main>';
 }
 /* Accès à l'espace trésorier : qui peut modifier (trésorier) et qui consulte seulement (fondateur / bureau) */
 /* Accès à l'espace trésorier : comptes (e-mail + mot de passe) et rôles, gérés depuis Paramètres par le trésorier.
