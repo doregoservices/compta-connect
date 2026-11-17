@@ -1415,7 +1415,7 @@ function rendu(){
   try{
     if(!etat.cfg) corps = vueInstallation();
     else if(route === "payer") corps = vuePayer(params);
-    else if(route === "adherer") corps = vueAdherer();
+    else if(route === "adherer") corps = vueAdherer(params);
     else if(route === "simulation") corps = vueSimulation(params);
     else if(route === "rencontres") corps = vueRencontres(params);
     else if(route === "formation") corps = vueFormation(params);
@@ -1677,6 +1677,7 @@ function vuePayer(params){
     + (enAttente ? "" : carteDefi())
     + (enAttente ? "" : carteSondage(m))
     + (enAttente ? "" : carteMesPoints(m))
+    + (enAttente ? "" : carteParrainage(m))
     + (enAttente ? "" : carteCertificats(m))
     + (enAttente ? "" : carteFormationMembre(m))
     + (!enAttente && (etat.settings.questions||"oui") !== "non" ? '<div class="carte"><h3>❓ Une question ?</h3><p class="mut">Posez-la au réseau, ou répondez aux questions des autres membres : les réponses validées par les validateurs du bureau sont publiées pour tous.</p><a class="btn sec" href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">Poser une question</a></div>' : '')
@@ -2318,6 +2319,22 @@ async function creerSondage(){
 async function clore(table, id, patch){ try{ await sb(table+"?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(patch) }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
 async function supprimerLigne(table, id){ if(!confirm("Supprimer définitivement ?")) return; try{ await sb(table+"?id=eq."+id, { method:"DELETE", headers:{ "Prefer":"return=minimal" } }); await chargerDonnees(); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); } }
 /* Certificats PDF : page imprimable (le navigateur propose « Enregistrer au format PDF »). */
+function lienParrainage(m){ return (etat.settings.site_public||"https://comptaconnect.org/").replace(/\/?$/,"/")+"#/adherer?parrain="+encodeURIComponent(String(m.telephone||"").replace(/\D/g,"")); }
+function filleulsDe(m){ return etat.membres.filter(x => String(x.parrain_id) === String(m.id)); }
+function carteParrainage(m){
+  if((etat.settings.parrainage||"oui") === "non" || !m.actif) return "";
+  const lien = lienParrainage(m), f = filleulsDe(m), actifs = f.filter(x => x.actif).length;
+  const txt = encodeURIComponent("Je t’invite à rejoindre "+(etat.settings.reseau||"ComptaConnect")+", le réseau des comptables et financiers : formations, entraide, questions-réponses validées. Adhésion "+fcfa(etat.settings.adhesion||etat.settings.cotisation||5000)+" F. Inscris-toi avec mon lien : "+lien);
+  const parrain = m.parrain_id ? etat.membres.find(x => String(x.id) === String(m.parrain_id)) : null;
+  return '<div class="carte"><h3>🤝 Parrainage</h3>'
+    + '<p class="mut" style="margin:0 0 8px">Invitez un confrère avec votre lien personnel : son adhésion vous rapporte '+ech(etat.settings.pts_parrainage||"10")+' points et le badge Parrain.</p>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn sm" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/?text='+txt+'">Inviter sur WhatsApp</a>'
+    + '<button class="btn sm sec" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+ech(lien)+'\').then(()=>toast(\'Lien copié.\',\'ok\'))">Copier mon lien</button></div>'
+    + '<div class="mut" style="margin-top:8px;word-break:break-all;font-size:12px">'+ech(lien)+'</div>'
+    + (f.length ? '<p style="margin:10px 0 0"><strong>'+f.length+' filleul'+(f.length>1?'s':'')+'</strong> ('+actifs+' actif'+(actifs>1?'s':'')+') : '+f.map(x => ech(x.nom)+(x.actif ? '' : ' <span class="mut">(adhésion en attente)</span>')).join(", ")+'</p>' : '')
+    + (parrain ? '<p class="mut" style="margin:6px 0 0">Vous avez été parrainé(e) par '+ech(parrain.nom)+'.</p>' : '')
+    + '</div>';
+}
 function carteCertificats(m){
   if((etat.settings.certificats||"oui") === "non") return "";
   const mois = moisCourant(), l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, mois).lignes[0];
@@ -2577,8 +2594,10 @@ function carteHistorique(m, mois){
 /* --------------------------- Adhésion --------------------------- */
 
 const PAYS_LISTE = ["Côte d’Ivoire","Burkina Faso","Togo","Bénin","Mali","Sénégal","Guinée","Niger","Cameroun","Gabon","Congo","RDC","Ghana","Nigeria","Maroc","Tunisie","France","Canada","États-Unis","Autre"];
-function vueAdherer(){
+function vueAdherer(params){
+  params = params || {};
   const montant = fcfa(etat.settings.adhesion||etat.settings.cotisation||5000);
+  const parrainTel = String(params.parrain||"").replace(/\D/g,""), parrainM = parrainTel ? trouverMembre(parrainTel) : null;
   const champ = (id, label, type, ph, req) => '<div class="champ"><span>'+label+(req?' *':'')+'</span>'
     + '<input id="'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'"></div>';
   return '<main style="max-width:560px"><div class="carte"><h3>Devenir membre de '+ech(etat.settings.reseau||"ComptaConnect")+'</h3>'
@@ -2589,7 +2608,7 @@ function vueAdherer(){
     + champ("aTel","Téléphone (mobile money)","tel","Ex. 07 07 07 07 07",true)
     + '<div class="grille g2">'+champ("aVille","Ville","text","Abidjan")+champ("aSpec","Spécialité / poste","text","Comptable, auditeur…")+'</div>'
     + champ("aEmail","Email","email","facultatif")
-    + ((etat.settings.parrainage||"oui") !== "non" ? champ("aParrain","Parrainé par (téléphone du membre qui vous a invité)","tel","facultatif") : "")
+    + ((etat.settings.parrainage||"oui") !== "non" ? (parrainM ? '<div class="alerte al-ok">🤝 Vous êtes invité(e) par <strong>'+ech(parrainM.nom)+'</strong>'+(parrainM.ville ? ' ('+ech(parrainM.ville)+')' : '')+'.</div><input type="hidden" id="aParrain" value="'+ech(parrainTel)+'">' : '<div class="champ"><span>Parrainé par (téléphone du membre qui vous a invité)</span><input id="aParrain" type="tel" placeholder="facultatif" value="'+ech(parrainTel)+'"></div>') : "")
     + '<div class="champ"><span>Pays de résidence *</span><select id="aPays">'+PAYS_LISTE.map(p => '<option'+(p==="Côte d’Ivoire"?' selected':'')+'>'+ech(p)+'</option>').join("")+'</select></div>'
     + '<div class="alerte al-info" style="font-size:13px">🌍 '+texteZone()+' Si vous résidez ailleurs, vous pourrez tout de même adhérer : la procédure de règlement par transfert vous sera indiquée après l’inscription.</div>'
     + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13.5px;margin:6px 0 10px"><input type="checkbox" id="aConsent" style="width:auto;margin-top:3px"><span>J’ai lu la Charte de la communauté et la <a href="#/legal" target="_blank">politique de confidentialité</a> ; j’accepte que mes coordonnées soient conservées par le réseau pour la gestion des cotisations et la vie du réseau. *</span></label>'
@@ -3076,9 +3095,9 @@ function vueMembres(){
         return '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px" id="filtresMembres">'+F.map(f => '<button class="btn sm '+(f[0]===(etat._filtreMembres||"")?'':'sec')+'" onclick="filtreMembres(\''+f[0]+'\')">'+f[1]+' <span class="mut">'+f[2]+'</span></button>').join("")+'</div>'; })()
     + cartePays()
     + '<div class="survol"><table class="pag" id="tabMembres">'
-    + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Pays / ville</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
+    + '<tr><th></th><th>Matricule</th><th>Nom</th><th>Téléphone</th><th>Pays / ville</th><th>Parrain</th><th>Cotis.</th><th>Situation</th><th>Reste dû</th><th></th></tr>'
     + etat.membres.map(m => '<tr data-statut="'+(m.actif ? (statutDe[m.id]||"") : "ATTENTE")+'"'+rech(m, (m.specialite||"")+" "+(m.employeur||""))+'><td>'+avatar(m,"sm")+'</td><td><span class="matricule">'+ech(m.matricule||"—")+'</span><div class="mut">code '+m.code+'</div></td><td>'+ech(m.nom)+(m.exonere?' <span class="badge b-neutre">exonéré</span>':'')+'</td><td>'+ech(m.telephone)+'</td>'
-      + '<td>'+(m.pays && m.pays !== "Côte d’Ivoire" ? '<strong>'+ech(m.pays)+'</strong>'+(m.ville ? '<div class="mut">'+ech(m.ville)+'</div>' : '') : ech(m.ville||""))+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
+      + '<td>'+(m.pays && m.pays !== "Côte d’Ivoire" ? '<strong>'+ech(m.pays)+'</strong>'+(m.ville ? '<div class="mut">'+ech(m.ville)+'</div>' : '') : ech(m.ville||""))+'</td><td class="mut" style="font-size:12px">'+(m.parrain_id && etat.membres.find(x => String(x.id) === String(m.parrain_id)) ? ech(etat.membres.find(x => String(x.id) === String(m.parrain_id)).nom) : '')+'</td><td>'+fcfa(m.cotisation)+' F</td><td>'+(m.actif ? badge(statutDe[m.id]) : '<span class="badge b-partiel">'+(m.date_adhesion && etat.paiements.some(p=>String(p.membre_id)===String(m.id)) ? 'désactivé' : 'adhésion en attente')+'</span>')+'</td>'
       + '<td>'+(m.actif && resteDe[m.id] ? '<strong style="color:#b3261e">'+fcfa(resteDe[m.id])+' F</strong><div class="mut">'+impDe[m.id]+' mois</div>' : (m.actif ? '<span class="mut">—</span>' : ''))+'</td>'
       + '<td style="white-space:nowrap"><a class="btn sm sec" href="https://wa.me/'+ech(String(m.telephone||"").replace(/\D/g,""))+'?text='+encodeURIComponent("Bonjour "+m.nom.split(" ")[0]+", voici votre lien personnel "+(etat.settings.reseau||"ComptaConnect")+" : "+lienMembreAbsolu(m)+(m.matricule ? " (matricule "+m.matricule+")" : " — vous pourrez y enregistrer le matricule de votre carte."))+'" target="_blank" rel="noopener" title="Envoyer le lien personnel sur WhatsApp">Lien</a> <button class="btn sm sec" onclick="editerMembre('+m.id+')">Modifier</button> <button class="btn sm dgr" onclick="supprimerMembre('+m.id+')">✕</button></td></tr>').join("")
     + '</table></div></div></main>';
@@ -3147,7 +3166,7 @@ function editerMembre(id){
   const m = etat.membres.find(x => String(x.id) === String(id)); if(!m) return;
   const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="e_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
   $("#editeurMembre").innerHTML = '<div class="carte" style="border:2px solid var(--or)"><div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'+avatar(m,"xl")
-    + '<div><h3 style="margin:0">Modifier — '+ech(m.nom)+'</h3><div class="mut">code interne '+m.code+'</div>'
+    + '<div><h3 style="margin:0">Modifier — '+ech(m.nom)+'</h3><div class="mut">code interne '+m.code+(m.parrain_id && etat.membres.find(x => String(x.id) === String(m.parrain_id)) ? ' · parrainé par '+ech(etat.membres.find(x => String(x.id) === String(m.parrain_id)).nom) : '')+(filleulsDe(m).length ? ' · '+filleulsDe(m).length+' filleul(s) : '+filleulsDe(m).map(x => ech(x.nom)).join(", ") : '')+'</div>'
     + '<div style="margin-top:6px"><button class="btn sm sec" onclick="photoMembreTresorier('+m.id+')">📷 Photo</button> '+(m.photo_url ? '<button class="btn sm dgr" onclick="retirerPhotoMembre('+m.id+')">Retirer la photo</button>' : '')+'</div></div></div>'
     + '<div class="grille g2">'
     + champ("matricule","N° de carte de membre (facultatif)",m.matricule) + champ("titre","Titre sur la carte (ex. Comptable senior)",m.titre)
