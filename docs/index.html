@@ -1396,7 +1396,9 @@ function entete(){
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
   } else {
-    nav = '<a href="#/">Accueil</a><a href="#/adherer">Devenir membre</a>'+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+    const moi = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
+    nav = (moi && trouverMembre(moi) ? '<a class="'+(etat.route==="payer"?"on":"")+'" href="#/payer?t='+encodeURIComponent(moi)+'" style="font-weight:800">👤 Mon espace</a>' : '')
+      + '<a href="#/">Accueil</a>'+(moi && trouverMembre(moi) ? '' : '<a href="#/adherer">Devenir membre</a>')+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1627,6 +1629,7 @@ function vuePayer(params){
   const saisie = params.m || params.t || "";
   const mois = normaliserMois(params.mois || moisCourant());
   const m = trouverMembre(saisie);
+  if(m){ try{ localStorage.setItem("cc_moi", String(m.telephone||saisie).replace(/\D/g,"")); }catch(_){} }
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
     + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="Votre numéro de téléphone" autocapitalize="characters" autocomplete="off">'
     + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matPayer\').value);if(m)aller(lienMembre(m));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">Vérifier</button></div></div>';
@@ -1658,7 +1661,8 @@ function vuePayer(params){
     + (enAttente ? '<div class="alerte al-info">Votre inscription est enregistrée avec votre numéro de téléphone <strong>'+ech(m.telephone||"")+'</strong> : c’est lui qui vous servira à revenir sur cette page. '
         + 'Réglez votre adhésion de <strong>'+fcfa(montant)+' FCFA</strong> en ligne ci-dessous : votre compte est activé immédiatement et vos accès WhatsApp et Skool apparaissent ici.</div>' : "")
     + '<div class="carte"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Bonjour '+ech(m.nom.split(" ")[0])+' 👋 — '+(enAttente ? "votre adhésion" : "ma situation")+'</h3><span style="flex:1"></span>'
-    + (enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))+'</div>'
+    + (enAttente ? '<span class="badge b-partiel">adhésion en attente de paiement</span>' : (badges[l.statut]||""))
+    + (!enAttente && etat.settings.vapid_public && pushDisponible() && !(/iphone|ipad/i.test(navigator.userAgent) && !window.matchMedia("(display-mode: standalone)").matches) && localStorage.getItem("cc_push_ok") !== String(m.id) && ("Notification" in window) && Notification.permission !== "denied" ? '<button class="btn sm" style="margin-left:auto" onclick="activerPush(\''+ech(idMembre(m))+'\')">🔔 Activer les notifications</button>' : '')+'</div>'
     + '<p class="mut" style="margin:4px 0 10px">'+(enAttente ? "Réglez votre droit d’adhésion pour activer votre compte." : "Cotisation de "+libelleMois(mois)+(l.statut==="PARTIEL" ? ' — il reste <strong>'+fcfa(l.reliquat)+' F</strong> à régler ce mois' : ""))+'</p>'
     + '<div class="grille g2 k2"><div class="kpi"><div class="t">'+(enAttente ? "Droit d’adhésion" : "Cotisation du mois")+'</div><div class="v">'+fcfa(enAttente ? adhesion : l.du)+' F</div></div>'
     + '<div class="kpi"><div class="t">Déjà réglé ce mois</div><div class="v">'+fcfa(l.verse)+' F</div></div></div>'
