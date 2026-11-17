@@ -1267,8 +1267,14 @@ drop policy if exists "settings bureau" on cc_settings;
 create policy "settings bureau" on cc_settings for all to authenticated
   using (cc_est_bureau() and cle in ('photo_groupe_url','presentation','honneur_membre_id','honneur_texte','defi_texte','temoignages','bienvenue','slogan'))
   with check (cc_est_bureau() and cle in ('photo_groupe_url','presentation','honneur_membre_id','honneur_texte','defi_texte','temoignages','bienvenue','slogan'));
-drop policy if exists "cc_photos bureau" on storage.objects;
-create policy "cc_photos bureau" on storage.objects for all to authenticated using (bucket_id = 'cc_photos' and cc_est_bureau()) with check (bucket_id = 'cc_photos' and cc_est_bureau());
+alter table cc_roles drop constraint if exists cc_roles_role_check;
+alter table cc_roles add constraint cc_roles_role_check check (role in ('tresorier','bureau','fondateur'));
+do $$ begin
+  if to_regclass('storage.objects') is not null then
+    execute 'drop policy if exists "cc_photos bureau" on storage.objects';
+    execute 'create policy "cc_photos bureau" on storage.objects for all to authenticated using (bucket_id = ''cc_photos'' and cc_est_bureau()) with check (bucket_id = ''cc_photos'' and cc_est_bureau())';
+  end if;
+end $$;
 -- Les dépenses ne sont lisibles que par le trésorier et le fondateur (pas par le bureau)
 drop policy if exists "lecture connectes cc_depenses" on cc_depenses;
 create policy "lecture connectes cc_depenses" on cc_depenses for select to authenticated using (cc_mon_role() in ('tresorier','fondateur'));
