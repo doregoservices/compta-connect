@@ -942,7 +942,7 @@ create or replace function cc_fusionner_questions(p_doublon bigint, p_cible bigi
 language plpgsql security definer set search_path = public as $$
 declare v_d record; v_c record;
 begin
-  if not cc_est_tresorier() then raise exception 'Réservé au trésorier'; end if;
+  if cc_mon_role() not in ('tresorier','bureau') then raise exception 'Réservé au trésorier ou au bureau'; end if;
   if p_doublon = p_cible then return json_build_object('ok', false, 'motif', 'identique'); end if;
   select * into v_d from cc_questions where id = p_doublon; if not found then return json_build_object('ok', false, 'motif', 'doublon_inconnu'); end if;
   select * into v_c from cc_questions where id = p_cible;   if not found then return json_build_object('ok', false, 'motif', 'cible_inconnue'); end if;
