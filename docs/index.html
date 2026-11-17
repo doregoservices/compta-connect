@@ -1383,12 +1383,15 @@ const PAGES = [
   ["parametres", "Paramètres", "vueParametres", true],
 ];
 
+const PAGES_BUREAU = [["", "Animation", "vueTableauBordBureau", true], ["reseau", "Vie du réseau", "vueReseau", true]];
+function estBureau(){ return !!(etat.session && etat.session.role === "bureau"); }
 function entete(){
   const connecte = !!etat.session;
   let nav = "";
   if(connecte){
     if(etat.session.role === "fondateur") nav += '<span class="badge b-partiel" style="align-self:center;margin-right:6px" title="Vous consultez tout l’espace trésorier ; seules les modifications sont réservées au trésorier">👁 Consultation</span>';
-    for(const [cle, titre] of PAGES){
+    if(estBureau()) nav += '<span class="badge b-paye" style="align-self:center;margin-right:6px" title="Rôle bureau : animation du réseau, sans accès aux finances">🧭 Bureau</span>';
+    for(const [cle, titre] of (estBureau() ? PAGES_BUREAU : PAGES)){
       const actif = etat.route === cle ? " on" : "";
       nav += '<a class="'+actif.trim()+'" href="#/'+cle+'">'+titre+'</a>';
     }
@@ -1429,6 +1432,7 @@ function rendu(){
     else if(route === "connexion") corps = vueConnexion();
     else if(route === "installer") corps = vueInstallation();
     else if(!etat.session) corps = vueAccueil();
+    else if(estBureau()) corps = (route === "reseau") ? vueReseau() : vueTableauBordBureau();
     else if(route === "") corps = vueTableauBord();
     else if(route === "membres") corps = vueMembres();
     else if(route === "pointage") corps = vuePointage(params);
@@ -1517,7 +1521,7 @@ function vueAccueil(){
     + colonnes([carteLeReseau(), carteDefi(), carteAgendaAccueil(), carteAnnuaireAccueil(), carteHonneur(), carteSondage(null), carteTemoignages()])
     + sectionBureau()
     + sectionAppelsOuverts(null)
-    + sectionVitrines()
+    + (estBureau() ? '' : sectionVitrines())
     + (etat.rencontres.filter(r => r.publie !== false).length ? '<div class="carte"><h3>Nos rencontres</h3>'
         + etat.rencontres.filter(r => r.publie !== false).slice(0,3).map(r => '<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--ligne)">'
           + (r.photos && r.photos[0] ? '<img src="'+ech(r.photos[0])+'" style="width:64px;height:64px;object-fit:cover;border-radius:10px" alt="">' : '<span class="avatar" style="width:64px;height:64px;border-radius:10px">📷</span>')
@@ -2866,6 +2870,31 @@ function imprimerZone(titre, html){
 function fdateFR(d){ d = String(d||""); return d.length >= 10 ? d.slice(8,10)+"/"+d.slice(5,7)+"/"+d.slice(0,4) : d; }
 
 /* --------------------------- Tableau de bord (général) --------------------------- */
+function carteHonneurAdmin(){
+  const s = etat.settings;
+  return '<div class="carte"><h3>🌟 Membre à l’honneur</h3>'
+    + '<div class="champ"><span>Membre</span><select id="b_honneur_membre_id"><option value="">— aucun —</option>'+etat.membres.filter(m => m.actif).slice().sort((a,b) => a.nom.localeCompare(b.nom)).map(m => '<option value="'+m.id+'"'+(String(s.honneur_membre_id||"") === String(m.id) ? ' selected' : '')+'>'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Portrait (3 lignes)</span><textarea id="b_honneur_texte" rows="3">'+ech(s.honneur_texte||"")+'</textarea></div>'
+    + '<button class="btn sm" onclick="enregistrerHonneur()">Enregistrer</button></div>';
+}
+async function enregistrerHonneur(){
+  try{ await enregistrerSetting("honneur_membre_id", $("#b_honneur_membre_id").value, true); await enregistrerSetting("honneur_texte", $("#b_honneur_texte").value.trim()); }
+  catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+function vueTableauBordBureau(){
+  const s = etat.settings, aj = etat.membres.filter(m => m.actif).length;
+  return '<main><div class="carte" style="background:var(--navy);color:#fff"><h3 style="color:#fff;margin:0">Bienvenue dans l’espace bureau</h3>'
+    + '<p style="margin:8px 0 0;opacity:.9">Vous animez le réseau : annonces, agenda, rencontres, formations, sondages, questions-réponses, membre à l’honneur, notifications. Les finances restent au trésorier.</p>'
+    + '<p style="margin:10px 0 0"><a class="btn sm" style="background:var(--or)" href="#/reseau">Vie du réseau → annonces, agenda, formations, Q/R</a> <span class="mut" style="color:#dfe">'+aj+' membres actifs</span></p></div>'
+    + '<div class="deux"><div class="col-main">'
+    + carteNotifAdmin()
+    + carteRevisionTresorier()
+    + '</div><div class="col-aside">'
+    + carteHonneurAdmin()
+    + carteSondagesAdmin()
+    + carteAnniversairesTresorier()
+    + '</div></div></main>';
+}
 function vueTableauBord(){
   const per = periodeDepuisParams(etat.params);
   const b = bilanPeriode(per);
@@ -3786,13 +3815,13 @@ function carteAcces(){
   const lecture = etat.session && etat.session.role === "fondateur";
   setTimeout(chargerComptes, 0);
   return '<div class="carte"><h3>Accès à l’espace trésorier</h3>'
-    + '<p class="mut">Le <strong>trésorier</strong> peut tout modifier ; le <strong>fondateur</strong> (ou un membre du bureau) consulte toutes les pages sans rien modifier. '
+    + '<p class="mut">Le <strong>trésorier</strong> peut tout modifier ; le <strong>bureau</strong> anime le réseau (annonces, agenda, rencontres, formations, sondages, Q/R, membre à l’honneur, notifications) sans voir ni toucher les finances ; le <strong>fondateur</strong> consulte toutes les pages sans rien modifier. '
     + (lecture ? 'Seul le trésorier peut créer ou modifier des accès.' : 'Vous pouvez créer un compte, changer un mot de passe, changer un rôle ou supprimer un compte : effet immédiat.')+'</p>'
     + '<div id="listeComptes"><p class="mut">Chargement des comptes…</p></div>'
     + (lecture ? '' : '<h4 style="margin:14px 0 6px">Créer un accès</h4><div class="grille g2">'
       + '<div class="champ"><span>E-mail</span><input id="ac_email" type="email" placeholder="tresorier@exemple.com"></div>'
       + '<div class="champ"><span>Nom</span><input id="ac_nom" placeholder="Prénom NOM"></div>'
-      + '<div class="champ"><span>Rôle</span><select id="ac_role"><option value="fondateur">Consultation (fondateur / bureau)</option><option value="tresorier">Trésorier (modifie tout)</option></select></div>'
+      + '<div class="champ"><span>Rôle</span><select id="ac_role"><option value="bureau">Bureau (anime le réseau, sans finances)</option><option value="fondateur">Consultation seule (fondateur)</option><option value="tresorier">Trésorier (modifie tout)</option></select></div>'
       + '<div class="champ"><span>Mot de passe (8 caractères min.)</span><div style="display:flex;gap:6px"><input id="ac_mdp" autocomplete="new-password"><button class="btn sm sec" onclick="document.querySelector(\'#ac_mdp\').value=motDePasseAleatoire()">Générer</button></div></div></div>'
       + '<button class="btn" onclick="creerCompte()">Créer le compte</button>')
     + '</div>';
@@ -3811,12 +3840,12 @@ async function chargerComptes(){
   try{
     const r = await appelAcces({ action:"liste" });
     const lecture = etat.session && etat.session.role === "fondateur";
-    const lib = { tresorier:'<span class="badge b-paye">trésorier</span>', fondateur:'<span class="badge b-partiel">consultation</span>' };
+    const lib = { tresorier:'<span class="badge b-paye">trésorier</span>', bureau:'<span class="badge b-paye" style="background:var(--or)">bureau</span>', fondateur:'<span class="badge b-partiel">consultation</span>' };
     const fd = d => d ? new Date(d).toLocaleDateString("fr-FR") : "jamais";
     z.innerHTML = '<div class="survol"><table><tr><th>E-mail</th><th>Nom</th><th>Rôle</th><th>Dernière connexion</th>'+(lecture ? '' : '<th></th>')+'</tr>'
       + r.comptes.map(c => '<tr><td>'+ech(c.email)+(c.moi ? ' <span class="mut">(vous)</span>' : '')+'</td><td>'+ech(c.nom||"")+'</td><td>'+(lib[c.role]||ech(c.role))+'</td><td class="mut">'+fd(c.derniere_connexion)+'</td>'
         + (lecture ? '' : '<td style="white-space:nowrap"><button class="btn sm sec" onclick="changerMdpCompte(\''+ech(c.email)+'\')">Mot de passe</button> '
-          + (c.moi ? '' : '<button class="btn sm sec" onclick="changerRoleCompte(\''+ech(c.email)+'\',\''+(c.role==="tresorier"?"fondateur":"tresorier")+'\',\''+ech(c.nom||"")+'\')">→ '+(c.role==="tresorier"?"consultation":"trésorier")+'</button> '
+          + (c.moi ? '' : '<select class="sm" onchange="changerRoleCompte(\''+ech(c.email)+'\',this.value,\''+ech(c.nom||"")+'\')">'+[["tresorier","Trésorier"],["bureau","Bureau"],["fondateur","Consultation"]].map(([v,l]) => '<option value="'+v+'"'+(c.role===v ? ' selected' : '')+'>'+l+'</option>').join("")+'</select> '
           + '<button class="btn sm dgr" onclick="supprimerCompte(\''+ech(c.email)+'\')">Supprimer</button>')+'</td>')+'</tr>').join("")
       + '</table></div>';
   }catch(e){ z.innerHTML = '<p class="mut">Liste indisponible : '+ech(e.message)+(etat.session && etat.session.role === "fondateur" ? ' (réservé au trésorier)' : '')+'</p>'; }

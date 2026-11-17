@@ -1246,3 +1246,29 @@ create or replace function cc_push_stats() returns json language sql security de
 $$;
 grant execute on function cc_push_stats() to authenticated;
 grant all on cc_push to service_role; grant usage, select on sequence cc_push_id_seq to service_role;
+
+-- ============================================================
+-- Rôle « bureau » : anime le réseau (annonces, agenda, rencontres, formations, sondages, Q/R,
+-- membres du bureau, photo/présentation, membre à l'honneur, notifications) — jamais l'argent.
+-- ============================================================
+create or replace function cc_est_bureau() returns boolean
+language sql stable security definer set search_path = public as $$ select cc_mon_role() in ('tresorier','bureau') $$;
+grant execute on function cc_est_bureau() to anon, authenticated;
+do $$ declare t text; begin
+  foreach t in array array['cc_annonces','cc_rencontres','cc_bureau','cc_evenements','cc_evenement_inscrits','cc_formations','cc_sondages','cc_questions','cc_reponses'] loop
+    if to_regclass(t) is null then continue; end if;
+    execute format('drop policy if exists "ecriture tresorier %1$s" on %1$I', t);
+    execute format('drop policy if exists "ecriture bureau %1$s" on %1$I', t);
+    execute format('create policy "ecriture bureau %1$s" on %1$I for all to authenticated using (cc_est_bureau()) with check (cc_est_bureau())', t);
+  end loop;
+end $$;
+-- Paramètres non financiers modifiables par le bureau
+drop policy if exists "settings bureau" on cc_settings;
+create policy "settings bureau" on cc_settings for all to authenticated
+  using (cc_est_bureau() and cle in ('photo_groupe_url','presentation','honneur_membre_id','honneur_texte','defi_texte','temoignages','bienvenue','slogan'))
+  with check (cc_est_bureau() and cle in ('photo_groupe_url','presentation','honneur_membre_id','honneur_texte','defi_texte','temoignages','bienvenue','slogan'));
+drop policy if exists "cc_photos bureau" on storage.objects;
+create policy "cc_photos bureau" on storage.objects for all to authenticated using (bucket_id = 'cc_photos' and cc_est_bureau()) with check (bucket_id = 'cc_photos' and cc_est_bureau());
+-- Les dépenses ne sont lisibles que par le trésorier et le fondateur (pas par le bureau)
+drop policy if exists "lecture connectes cc_depenses" on cc_depenses;
+create policy "lecture connectes cc_depenses" on cc_depenses for select to authenticated using (cc_mon_role() in ('tresorier','fondateur'));

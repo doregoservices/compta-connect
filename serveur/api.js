@@ -9,7 +9,7 @@ const SB = process.env.SUPABASE_URL || "http://127.0.0.1:3000", SBREST = SB.star
 /* Le porteur du jeton est-il trésorier/fondateur ? (vérifié par la base, jamais par le client) */
 async function estTresorier(tok) {
   try { const r = await fetch(SBREST + "/rpc/cc_mon_role", { method: "POST", headers: { apikey: ANON || tok, Authorization: "Bearer " + tok, "Content-Type": "application/json" }, body: "{}" });
-    if (!r.ok) return false; const role = JSON.parse(await r.text()); return ["tresorier", "fondateur", "lecture"].includes(String(role)) && String(role) !== "lecture"; } catch { return false; }
+    if (!r.ok) return false; const role = JSON.parse(await r.text()); return ["tresorier", "bureau"].includes(String(role)); } catch { return false; }
 }
 // Shim minimal de l'API Deno utilisée par les fonctions
 global.Deno = { env: { get: (k) => process.env[k] }, serve: (h) => { handlers[global.__fn] = h; } };

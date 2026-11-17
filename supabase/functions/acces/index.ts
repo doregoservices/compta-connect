@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
       }) });
     }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erreur: "E-mail invalide" }, 400);
-    const role = b.role === "tresorier" ? "tresorier" : "fondateur";
+    const role = ["tresorier","bureau","fondateur"].includes(String(b.role)) ? String(b.role) : "fondateur";
     const nom = String(b.nom || "").slice(0, 80);
     const mdp = String(b.mot_de_passe || "");
 
