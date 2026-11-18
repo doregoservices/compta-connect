@@ -1651,7 +1651,7 @@ function vuePayer(params){
   const saisie = params.m || params.t || "";
   const mois = normaliserMois(params.mois || moisCourant());
   const m = trouverMembre(saisie);
-  if(m){ try{ localStorage.setItem("cc_moi", String(m.telephone||saisie).replace(/\D/g,"")); }catch(_){} }
+  if(m){ try{ localStorage.setItem("cc_moi", String(m.telephone||saisie).replace(/\D/g,"")); }catch(_){} pushParDefaut(m); }
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
     + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="Votre numéro de téléphone" autocapitalize="characters" autocomplete="off">'
     + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matPayer\').value);if(m)aller(lienMembre(m));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">Vérifier</button></div></div>';
@@ -1728,26 +1728,37 @@ function carteNotifications(m){
   const actif = localStorage.getItem("cc_push_ok") === String(m.id);
   return '<div class="carte" id="carteNotif"><h3>🔔 Notifications</h3>'
     + (actif ? '<p class="mut">Rappels de cotisation, agenda et annonces arrivent directement sur cet appareil. ✅</p><button class="btn sm sec" onclick="desactiverPush(\''+ech(idMembre(m))+'\')">Désactiver sur cet appareil</button>'
-             : '<p class="mut">Recevez les rappels de cotisation, les événements et les annonces du bureau sur votre téléphone, sans WhatsApp ni e-mail.</p><button class="btn sm" onclick="activerPush(\''+ech(idMembre(m))+'\')">Activer les notifications</button>')
+             : '<p class="mut">Les notifications (rappels de cotisation, réponses validées, annonces, événements, nouveaux membres) s’activent automatiquement au premier toucher dans votre espace. Si ce n’est pas le cas sur cet appareil :</p><button class="btn sm" onclick="activerPush(\''+ech(idMembre(m))+'\')">Activer les notifications</button>')
     + '</div>';
 }
 function b64ToU8(b){ const p = "=".repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); }
-async function activerPush(identifiant){
+/* Notifications activées par défaut : au premier toucher du membre dans son espace, l'autorisation est demandée
+   (les navigateurs exigent un geste de l'utilisateur ; impossible sans). S'il refuse ou désactive, on ne redemande plus. */
+function pushParDefaut(m){
+  if(!m.actif || !etat.settings.vapid_public || !pushDisponible()) return;
+  if(/iphone|ipad/i.test(navigator.userAgent) && !window.matchMedia("(display-mode: standalone)").matches) return;
+  if(localStorage.getItem("cc_push_ok") === String(m.id) || localStorage.getItem("cc_push_non") === String(m.id)) return;
+  if(!("Notification" in window) || Notification.permission === "denied") return;
+  if(window._pushAuto) return; window._pushAuto = true;
+  const go = () => { document.removeEventListener("pointerdown", go, true); setTimeout(() => activerPush(idMembre(m), true), 50); };
+  document.addEventListener("pointerdown", go, true);
+}
+async function activerPush(identifiant, auto){
   const m = trouverMembre(identifiant); if(!m) return;
   try{
-    const perm = await Notification.requestPermission(); if(perm !== "granted"){ toast("Notifications refusées par le navigateur.", "err"); rendu(); return; }
+    const perm = await Notification.requestPermission(); if(perm !== "granted"){ const m2 = trouverMembre(identifiant); if(m2) localStorage.setItem("cc_push_non", String(m2.id)); if(!auto) toast("Notifications refusées par le navigateur.", "err"); rendu(); return; }
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
     if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(etat.settings.vapid_public) });
     const r = await sb("rpc/cc_push_abonner", { method:"POST", body: JSON.stringify({ p_tel: String(m.telephone||"").replace(/\D/g,""), p_sub: sub.toJSON(), p_nav: navigator.userAgent.slice(0,120) }) });
     if(!r || !r.ok) throw new Error(r && r.motif === "inconnu" ? "fiche sans téléphone : contactez le trésorier" : "enregistrement refusé");
-    localStorage.setItem("cc_push_ok", String(m.id)); toast("Notifications activées ✅", "ok"); rendu();
-  }catch(e){ toast("Activation impossible : "+e.message, "err"); }
+    localStorage.setItem("cc_push_ok", String(m.id)); localStorage.removeItem("cc_push_non"); toast(auto ? "Notifications activées : rappels, annonces et événements arrivent sur ce téléphone. Désactivables à tout moment dans « Notifications »." : "Notifications activées ✅", "ok"); rendu();
+  }catch(e){ if(!auto) toast("Activation impossible : "+e.message, "err"); }
 }
 async function desactiverPush(identifiant){
   try{ const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription();
     if(sub){ await sb("rpc/cc_push_desabonner", { method:"POST", body: JSON.stringify({ p_endpoint: sub.endpoint }) }).catch(()=>null); await sub.unsubscribe(); }
-    localStorage.removeItem("cc_push_ok"); toast("Notifications désactivées sur cet appareil.", "ok"); rendu();
+    localStorage.removeItem("cc_push_ok"); const m3 = trouverMembre(identifiant); if(m3) localStorage.setItem("cc_push_non", String(m3.id)); toast("Notifications désactivées sur cet appareil.", "ok"); rendu();
   }catch(e){ toast(e.message, "err"); }
 }
 /* Trésorier : envoi d'une notification à tous les appareils abonnés (ou aux membres ciblés) */
@@ -2220,6 +2231,7 @@ function vueAgenda(params){
       + '<div style="flex:1;min-width:220px"><strong style="font-size:16px">'+ech(e.titre)+'</strong><div class="mut">'+[e.heure, e.lieu].filter(Boolean).map(ech).join(" · ")+'</div>'
       + (e.description ? '<p style="margin:6px 0">'+ech(e.description).replace(/\n/g,"<br>")+'</p>' : '')
       + (e.lien ? '<p style="margin:4px 0"><a href="'+ech(e.lien)+'" target="_blank" rel="noopener">🔗 Lien (visio / plan / programme)</a></p>' : '')
+      + (() => { const a = e.appel_id ? etat.appels.find(x => x.id === e.appel_id) : null; return a && !passe ? '<p style="margin:6px 0"><span class="badge b-partiel">Participation : '+fcfa(a.montant)+' F</span> <a class="btn sm" href="#/appel?id='+a.id+'">💳 Payer ma participation</a></p>' : ''; })()
       + (!passe && e.inscription ? '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
           + (m ? (moi ? '<span class="badge b-paye">✔ inscrit</span><button class="btn sm sec" onclick="inscrireEvt(\''+ech(idMembre(m))+'\','+e.id+',false)">Me désinscrire</button>' : complet ? '<span class="badge b-impaye">complet</span>' : '<button class="btn sm" onclick="inscrireEvt(\''+ech(idMembre(m))+'\','+e.id+',true)">Je participe</button>')
                : '<span class="mut">Identifiez-vous (téléphone) pour vous inscrire.</span>')
@@ -2263,13 +2275,15 @@ function editerEvenement(id){
     + '<div class="champ"><span>Publication</span><select id="ev_publie"><option value="true"'+(e.publie!==false?" selected":"")+'>publié</option><option value="false"'+(e.publie===false?" selected":"")+'>brouillon</option></select></div></div>'
     + '<div class="champ"><span>Description / programme</span><textarea id="ev_description" rows="3">'+ech(e.description||"")+'</textarea></div>'
     + '<div class="champ"><span>Compte rendu (après l’événement — visible de tous dans l’agenda)</span><textarea id="ev_compte_rendu" rows="4">'+ech(e.compte_rendu||"")+'</textarea></div>'
+    + '<div class="champ"><span>Événement payant : appel à paiement lié (prix et bouton « Payer »)</span><select id="ev_appel_id"><option value="">— gratuit —</option>'+(etat.appels||[]).filter(a => a.ouvert).map(a => '<option value="'+a.id+'"'+(String(e.appel_id||"")===String(a.id)?' selected':'')+'>'+ech(a.titre)+' — '+fcfa(a.montant)+' F</option>').join("")+'</select><small class="mut">Créez d’abord l’appel dans « Appels à paiement » (ex. Brunch — 10 000 F), puis liez-le ici.</small></div>'
+    + '<div class="champ"><span>Ouvert aux non-membres (page publique Google avec bouton de paiement)</span><select id="ev_ouvert_public"><option value="false"'+(e.ouvert_public?"":" selected")+'>non — membres seulement</option><option value="true"'+(e.ouvert_public?" selected":"")+'>oui — tout public</option></select></div>'
     + '<div class="champ"><span>Galerie photos associée (rencontre)</span><select id="ev_rencontre_id"><option value="">— aucune —</option>'+etat.rencontres.map(r => '<option value="'+r.id+'"'+(String(e.rencontre_id||"")===String(r.id)?' selected':'')+'>'+ech(r.titre)+' ('+dateFR(r.date)+')</option>').join("")+'</select></div>'
     + '<button class="btn" onclick="enregistrerEvenement('+id+')">Enregistrer</button> <button class="btn sec" onclick="document.querySelector(\'#editeurEvenement\').innerHTML=\'\'">Annuler</button></div>';
   $("#editeurEvenement").scrollIntoView({ behavior:"smooth", block:"center" });
 }
 async function enregistrerEvenement(id){
   const v = k => $("#ev_"+k).value.trim();
-  const corps = { titre: v("titre"), date: v("date"), heure: v("heure"), lieu: v("lieu"), lien: v("lien"), description: v("description"), compte_rendu: v("compte_rendu"), places: parseInt(v("places"),10) || 0, inscription: v("inscription") === "true", publie: v("publie") === "true", rencontre_id: v("rencontre_id") ? parseInt(v("rencontre_id"),10) : null };
+  const corps = { titre: v("titre"), date: v("date"), heure: v("heure"), lieu: v("lieu"), lien: v("lien"), description: v("description"), compte_rendu: v("compte_rendu"), places: parseInt(v("places"),10) || 0, inscription: v("inscription") === "true", appel_id: v("appel_id") ? parseInt(v("appel_id"),10) : null, ouvert_public: v("ouvert_public") === "true", publie: v("publie") === "true", rencontre_id: v("rencontre_id") ? parseInt(v("rencontre_id"),10) : null };
   if(corps.titre.length < 3 || !/^\d{4}-\d{2}-\d{2}$/.test(corps.date)){ toast("Titre et date obligatoires.", "err"); return; }
   try{ if(id) await sb("cc_evenements?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) }); else await sb("cc_evenements", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); toast("Événement enregistré.", "ok"); rendu(); }catch(e){ toast("Refusé : "+e.message, "err"); }

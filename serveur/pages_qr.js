@@ -55,7 +55,8 @@ ${rs.map(r => `<div class="rep"><div class="mut">Réponse de <strong>${ech(nom(r
   // ---------- Pages « vie du réseau » (accueil statique indexable) ----------
   const ann = await db("cc_annonces?select=id,titre,texte,image_url,lien,lien_libelle,date,epingle&publie=is.true&order=epingle.desc,date.desc&limit=200").catch(() => []);
   const renc = await db("cc_rencontres?select=id,titre,date,lieu,description,photos&publie=is.true&order=date.desc&limit=200").catch(() => []);
-  const evts = await db("cc_evenements?select=id,titre,date,heure,lieu,description,lien&publie=is.true&order=date.asc&limit=200").catch(() => []);
+  const evts = await db("cc_evenements?select=id,titre,date,heure,lieu,description,lien,appel_id,ouvert_public,places&publie=is.true&order=date.asc&limit=200").catch(() => []);
+  const appels = await db("cc_appels?select=id,titre,montant,ouvert").catch(() => []); const appelDe = e => e.appel_id ? appels.find(a => a.id === e.appel_id) : null;
   const bureau = await db("cc_bureau?select=nom,poste,photo_url,ordre&actif=is.true&order=ordre.asc").catch(() => []);
   const temo = await db("cc_temoignages?select=membre_id,texte&publie=is.true&order=id.desc&limit=6").catch(() => []);
   const nbMembres = (await db("cc_membres?select=id&actif=is.true&limit=10000")).length;
@@ -80,9 +81,21 @@ ${rs.map(r => `<div class="rep"><div class="mut">Réponse de <strong>${ech(nom(r
     if (ecrire(`rencontres/${r.id}.html`, gabarit({ titre: r.titre.slice(0, 90) + " — " + reseau, description: (r.description || r.titre).replace(/\s+/g, " ").slice(0, 155), canon, corps, jsonld: { "@context": "https://schema.org", "@type": "Event", name: r.titre, startDate: r.date, location: r.lieu ? { "@type": "Place", name: r.lieu } : undefined, image: photos, eventStatus: "https://schema.org/EventScheduled", organizer: { "@type": "Organization", name: reseau } } }))) ecrits++;
     urls.push({ loc: canon, lastmod: r.date });
   }
+  // une page par événement (brunch, formation, AG…) avec prix éventuel
+  for (const e of evts) {
+    const a = appelDe(e), canon = `${BASE}/evenements/${e.id}`, passe = e.date < auj;
+    const corps = `<div class="carte"><div class="mut">${passe ? "Événement passé" : "Prochain événement"} · ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</div><h1>${ech(e.titre)}</h1><p>${para(e.description)}</p>
+${a ? `<p><span class="badge">Participation : ${Number(a.montant).toLocaleString("fr-FR")} F</span></p>` : `<p><span class="badge">Gratuit pour les membres</span></p>`}
+${!passe ? `<p>${a ? `<a class="btn" href="/#/appel?id=${a.id}">💳 Payer ma participation (Wave, Orange, MTN, Moov)</a> ` : ""}<a class="btn sec" href="/#/agenda">S’inscrire dans l’application</a></p>` : ""}
+${e.lien ? `<p><a href="${ech(e.lien)}">Lien (programme, visio, plan)</a></p>` : ""}</div>
+<div class="cta">${e.ouvert_public ? "<strong>Ouvert à tous</strong> — comptables, financiers, étudiants, dirigeants." : "<strong>Réservé aux membres du réseau.</strong>"} <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a> <a class="btn sec" href="/decouvrir.html">Découvrir ${ech(reseau)}</a></div>`;
+    const jsonld = { "@context": "https://schema.org", "@type": "Event", name: e.titre, description: e.description, startDate: e.date + (e.heure && /^\d{1,2}h/.test(e.heure) ? "T" + e.heure.replace("h", ":").padEnd(5, "0") : ""), eventStatus: "https://schema.org/EventScheduled", eventAttendanceMode: /ligne|visio|zoom|meet/i.test(e.lieu || "") ? "https://schema.org/OnlineEventAttendanceMode" : "https://schema.org/OfflineEventAttendanceMode", location: e.lieu ? { "@type": "Place", name: e.lieu, address: e.lieu } : undefined, organizer: { "@type": "Organization", name: reseau, url: BASE + "/" }, offers: { "@type": "Offer", price: a ? a.montant : 0, priceCurrency: "XOF", availability: "https://schema.org/InStock", url: a ? `${BASE}/#/appel?id=${a.id}` : canon, validFrom: auj } };
+    if (ecrire(`evenements/${e.id}.html`, gabarit({ titre: e.titre.slice(0, 80) + " — " + dateFR(e.date) + " — " + reseau, description: ((a ? "Participation " + a.montant + " F. " : "") + (e.description || e.titre)).replace(/\s+/g, " ").slice(0, 155), canon, corps, jsonld }))) ecrits++;
+    urls.push({ loc: canon, lastmod: auj });
+  }
   // agenda
   if (aVenir.length) {
-    const corps = `<div class="carte"><h1>Agenda du réseau</h1><div class="liste">${aVenir.map(e => `<a href="/#/agenda">${ech(e.titre)} <span class="mut">· ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</span></a>`).join("")}</div></div><div class="cta">Inscription en un clic depuis votre espace membre. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a></div>`;
+    const corps = `<div class="carte"><h1>Agenda du réseau</h1><div class="liste">${aVenir.map(e => `<a href="/evenements/${e.id}">${ech(e.titre)}${appelDe(e) ? " · " + Number(appelDe(e).montant).toLocaleString("fr-FR") + " F" : ""} <span class="mut">· ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</span></a>`).join("")}</div></div><div class="cta">Inscription en un clic depuis votre espace membre. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a></div>`;
     if (ecrire("agenda.html", gabarit({ titre: "Agenda — " + reseau, description: "Prochains événements, formations et rencontres du réseau " + reseau, canon: BASE + "/agenda.html", corps, jsonld: aVenir.map(e => ({ "@context": "https://schema.org", "@type": "Event", name: e.titre, startDate: e.date + (e.heure ? "T" + e.heure.replace("h", ":").padEnd(5, "0") : ""), location: e.lieu ? { "@type": "Place", name: e.lieu } : undefined, description: e.description, organizer: { "@type": "Organization", name: reseau } })) }))) ecrits++;
     urls.push({ loc: BASE + "/agenda.html", lastmod: auj });
   }
@@ -94,7 +107,7 @@ ${rs.map(r => `<div class="rep"><div class="mut">Réponse de <strong>${ech(nom(r
 ${S.photo_groupe_url ? `<img src="${ech(S.photo_groupe_url)}" alt="${ech(reseau)}" style="width:100%;border-radius:14px;margin-bottom:14px">` : ""}
 ${bureau.length ? `<div class="carte"><h2>Le bureau</h2>${bureau.map(b => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0">${b.photo_url ? `<img src="${ech(b.photo_url)}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover">` : ""}<div><strong>${ech(b.nom)}</strong><div class="mut">${ech(b.poste)}</div></div></div>`).join("")}</div>` : ""}
 ${ann.length ? `<div class="carte"><h2>Actualités</h2><div class="liste">${ann.slice(0, 6).map(x => `<a href="/actualites/${x.id}">${ech(x.titre)} <span class="mut">· ${dateFR(x.date)}</span></a>`).join("")}</div></div>` : ""}
-${aVenir.length ? `<div class="carte"><h2>Prochains événements</h2><div class="liste">${aVenir.slice(0, 6).map(e => `<a href="/agenda.html">${ech(e.titre)} <span class="mut">· ${dateFR(e.date)}</span></a>`).join("")}</div></div>` : ""}
+${aVenir.length ? `<div class="carte"><h2>Prochains événements</h2><div class="liste">${aVenir.slice(0, 6).map(e => `<a href="/evenements/${e.id}">${ech(e.titre)} <span class="mut">· ${dateFR(e.date)}</span></a>`).join("")}</div></div>` : ""}
 ${publiees.length ? `<div class="carte"><h2>Dernières questions-réponses</h2><div class="liste">${publiees.slice(0, 8).map(x => `<a href="/q/${x.id}">${ech(x.question)}</a>`).join("")}</div><p><a class="btn sec" href="/q/">Toute la base de connaissances</a></p></div>` : ""}
 ${renc.length ? `<div class="carte"><h2>Nos rencontres</h2><div class="liste">${renc.slice(0, 6).map(r => `<a href="/rencontres/${r.id}">${ech(r.titre)} <span class="mut">· ${dateFR(r.date)}</span></a>`).join("")}</div></div>` : ""}
 ${temo.length ? `<div class="carte"><h2>Ils parlent du réseau</h2>${temo.map(t => `<blockquote style="margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--or);background:#fffbea;border-radius:8px"><em>« ${ech(t.texte)} »</em><div class="mut">— ${ech(nomM(t.membre_id).nom || "Un membre")}${nomM(t.membre_id).specialite ? ", " + ech(nomM(t.membre_id).specialite) : ""}</div></blockquote>`).join("")}</div>` : ""}
@@ -113,7 +126,7 @@ ${Object.entries(parMois).map(([k, L]) => `<div class="carte"><h2>${k}</h2><div 
   if (ecrire("sitemap.xml", sm)) ecrits++;
   if (ecrire("robots.txt", `User-agent: *\nAllow: /\nDisallow: /rest/\nDisallow: /auth/\nDisallow: /functions/\nSitemap: ${BASE}/sitemap.xml\n`)) ecrits++;
   // nettoyage des pages dont la question a été retirée
-  for (const [sous, liste] of [["actualites", ann], ["rencontres", renc]]) { const d2 = path.join(SITE, sous); if (fs.existsSync(d2)) for (const f of fs.readdirSync(d2)) { const m = f.match(/^(\d+)\.html$/); if (m && !liste.some(x => String(x.id) === m[1])) { fs.unlinkSync(path.join(d2, f)); ecrits++; } } }
+  for (const [sous, liste] of [["actualites", ann], ["rencontres", renc], ["evenements", evts]]) { const d2 = path.join(SITE, sous); if (fs.existsSync(d2)) for (const f of fs.readdirSync(d2)) { const m = f.match(/^(\d+)\.html$/); if (m && !liste.some(x => String(x.id) === m[1])) { fs.unlinkSync(path.join(d2, f)); ecrits++; } } }
   const dir = path.join(SITE, "q"); if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) { const m = f.match(/^(\d+)\.html$/); if (m && !publiees.some(q => String(q.id) === m[1])) { fs.unlinkSync(path.join(dir, f)); ecrits++; } }
   console.log(new Date().toISOString(), `pages Q/R : ${publiees.length} question(s) publiée(s), ${ecrits} fichier(s) écrit(s)`);
 })().catch(e => { console.error("pages Q/R : échec —", e.message); process.exit(1); });

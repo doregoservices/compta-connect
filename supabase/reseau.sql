@@ -1322,3 +1322,7 @@ grant execute on function cc_mon_temoignage(text) to anon, authenticated;
 -- Nouveautés déjà notifiées aux membres (serveur/nouveautes.js)
 create table if not exists cc_notifies (cle text primary key, le timestamptz not null default now());
 insert into cc_settings (cle, valeur) values ('notif_nouveautes','oui') on conflict (cle) do nothing;
+
+-- Événement payant : rattaché à un appel à paiement (prix + lien de paiement public)
+alter table cc_evenements add column if not exists appel_id bigint references cc_appels(id) on delete set null;
+alter table cc_evenements add column if not exists ouvert_public boolean not null default false;  -- inscription/paiement ouverts aux non-membres
