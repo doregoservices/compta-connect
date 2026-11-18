@@ -14,7 +14,7 @@ const NOMS = ["janvier","février","mars","avril","mai","juin","juillet","août"
 const ecrire = (f, contenu) => { const p = path.join(SITE, f); fs.mkdirSync(path.dirname(p), { recursive: true }); if (fs.existsSync(p) && fs.readFileSync(p, "utf8") === contenu) return false; fs.writeFileSync(p, contenu); return true; };
 function gabarit({ titre, description, canon, corps, jsonld }) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${ech(titre)}</title><meta name="description" content="${ech(description)}"><link rel="canonical" href="${canon}">
+<title>${ech(titre)}</title><meta name="google-site-verification" content="-5yRCNkmG6xfJKjFYdwrRkDkO1dhpJxQJt_FGQ9MjgY"><meta name="description" content="${ech(description)}"><link rel="canonical" href="${canon}">
 <meta property="og:title" content="${ech(titre)}"><meta property="og:description" content="${ech(description)}"><meta property="og:type" content="article"><meta property="og:url" content="${canon}"><meta property="og:image" content="${BASE}/icon-512.png"><meta property="og:site_name" content="ComptaConnect">
 <link rel="icon" href="/icon-192.png"><link rel="manifest" href="/manifest.webmanifest">
 ${jsonld ? '<script type="application/ld+json">' + JSON.stringify(jsonld) + "</script>" : ""}
