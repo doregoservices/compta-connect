@@ -1410,3 +1410,4 @@ begin
 end $$;
 revoke all on function cc_poser_question(text,text,boolean,text,text,boolean,jsonb) from public;
 grant execute on function cc_poser_question(text,text,boolean,text,text,boolean,jsonb) to anon, authenticated;
+insert into cc_settings (cle, valeur) values ('salon_notif', 'instantane') on conflict (cle) do nothing;

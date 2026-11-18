@@ -43,7 +43,7 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
     }
   }
   // 💬 Salon : une notification groupée au plus toutes les 2 h quand il y a de nouveaux messages (jamais une par message)
-  if ((S.salon || "oui") !== "non") {
+  if ((S.salon || "oui") !== "non" && (S.salon_notif || "instantane") === "groupe") {
     const derniers = await db("cc_messages?select=id,membre_id,texte,cree_le&supprime=is.false&order=id.desc&limit=30").catch(() => []);
     const dernierNotif = [...vus].filter(k => k.startsWith("salon:")).map(k => parseInt(k.split(":")[1], 10)).sort((a, b) => b - a)[0] || 0;
     const nouveauxMsgs = derniers.filter(m => m.id > dernierNotif && new Date(m.cree_le) > new Date(Date.now() - 3 * 3600000));

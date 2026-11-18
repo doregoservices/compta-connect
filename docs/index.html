@@ -2321,10 +2321,21 @@ function filSalon(){
       + '<div style="font-size:12px;color:var(--vert);font-weight:700">'+ech(a ? a.nom : "Un membre")+(a && a.ville ? ' <span class="mut" style="font-weight:400">· '+ech(a.ville)+'</span>' : '')+'</div>'
       + (rep ? '<div style="border-left:3px solid var(--or);padding:4px 8px;margin:4px 0;background:#f8f9f8;font-size:13px;border-radius:6px"><strong>'+ech(ra ? ra.nom.split(" ")[0] : "Un membre")+'</strong> : '+ech(rep.texte).slice(0,100)+(rep.texte.length>100?'…':'')+'</div>' : '')
       + (x.texte ? '<div style="white-space:pre-wrap;word-break:break-word">'+lienifier(ech(x.texte))+'</div>' : '') + listePJ(x.pieces)
+      + (!rep && estQuestionTechnique(x.texte) ? '<div style="margin-top:6px;font-size:12px;background:#fff8e6;border:1px solid #f3c969;border-radius:8px;padding:5px 8px">💡 Question technique ? <a href="javascript:void(0)" onclick="salonVersQR('+x.id+')">Posez-la dans Questions/Réponses</a> : un expert la validera et elle restera retrouvable.</div>' : '')
       + '<div class="mut" style="font-size:11px;margin-top:4px;display:flex;gap:10px;align-items:center">'+heureCourte(x.cree_le)
       + (moi ? ' <a href="javascript:void(0)" onclick="salonRepondre('+x.id+')">↩ Répondre</a>' : '')
+      + (moi && (mien || estBureau) && !rep ? ' <a href="javascript:void(0)" onclick="salonVersQR('+x.id+')" title="Transférer vers Questions/Réponses">❓ En faire une Q/R</a>' : '')
       + (mien || estBureau ? ' <a href="javascript:void(0)" onclick="salonSupprimer('+x.id+')" title="Supprimer">🗑</a>' : '')+'</div></div></div>'; }).join("");
   return '<div id="salonFil" style="background:#f3f6f4;border-radius:12px;padding:10px;max-height:62vh;overflow:auto">'+(html || etatVide("💬", "Le salon est ouvert", "Soyez le premier à écrire : une question rapide, une info utile, un bonjour aux collègues."))+'</div>';
+}
+function estQuestionTechnique(t){ t = accentMin(String(t||"")); return /\?/.test(t) && t.length > 25 && /\b(tva|dsf|dgi|cnps|impot|imp[oô]t|syscohada|ohada|bilan|amortissement|provision|declaration|d[ée]claration|tsalaire|salaire|paie|facture|fne|patente|its|irc|bic|liasse|comptabilis|ecriture|journal|tresorerie|audit|fiscal|social|cotisation|retenue|acompte|exon|bail|loyer|stock|immobilisation|sage|saari|excel)\b/.test(t); }
+/* Pont vers la base de connaissances : la question part dans le formulaire Q/R, pré-remplie (avec la première réponse donnée dans le salon, s'il y en a une). */
+function salonVersQR(id){
+  const x = (etat.messages||[]).find(m => m.id === id); if(!x) return;
+  const r = (etat.messages||[]).filter(m => m.repond_a === id).sort((a,b) => a.id - b.id)[0];
+  etat._qrPrefill = { q: x.texte, r: r ? r.texte : "", pieces: [...(x.pieces||[]), ...(r ? r.pieces||[] : [])] };
+  aller("#/questions?t=" + encodeURIComponent(idMembre(etat._salonMoi)));
+  toast("Question reprise du salon : vérifiez, complétez, puis « Publier ».", "ok");
 }
 function lienifier(t){ return t.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
 function vueSalon(params){
@@ -2603,6 +2614,8 @@ function certificat(tel, type){
 /* --------------------------- Questions / Réponses (contributions des membres) --------------------------- */
 function estValidateurQR(m){ const tels = (etat.settings.qr_validateurs||"").replace(/\D/g,",").split(",").filter(Boolean); const t = String(m && m.telephone||"").replace(/\D/g,""); return !!t && tels.some(x => x === t || x === "225"+t || "225"+x === t); }
 function vueQuestions(params){
+  if(etat._qrPrefill){ const pf = etat._qrPrefill; etat._qrPrefill = null; if(pf.pieces && pf.pieces.length) etat._pj["rep_0"] = pf.pieces.slice(0,5);
+    setTimeout(() => { const d = $("#qTexte") && $("#qTexte").closest("details"); if(d) d.open = true; if($("#qTexte")){ $("#qTexte").value = pf.q; $("#qTexte").dispatchEvent(new Event("input")); } if($("#qReponse")) $("#qReponse").value = pf.r || ""; if($("#qTexte")) $("#qTexte").scrollIntoView({ behavior:"smooth", block:"center" }); }, 80); }
   const m = params.t ? trouverMembre(params.t) : null, minV = parseInt(etat.settings.qr_validations_min||"2",10) || 2;
   const qs = etat.questions||[], reps = etat.reponses||[];
   const nomDe = (id, anonyme) => { if(anonyme) return "Un membre"; const x = etat.membres.find(y => y.id === id); return x ? x.nom : "Un membre"; };
@@ -3827,6 +3840,7 @@ function vueParametres(){
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Salon de discussion (espace d’échange entre membres, type groupe WhatsApp, modéré par le bureau)</span><select id="s_salon"><option value="oui"'+((s.salon||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.salon||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Notification des messages du salon</span><select id="s_salon_notif"><option value="instantane"'+((s.salon_notif||"instantane")==="instantane"?" selected":"")+'>instantanée — chaque message, comme WhatsApp</option><option value="groupe"'+((s.salon_notif||"instantane")==="groupe"?" selected":"")+'>groupée — au plus une toutes les 2 h</option></select></div>'
     + '<div class="champ"><span>Annoncer l’anniversaire à tout le réseau (notification « C’est l’anniversaire de … ») — le membre reçoit ses vœux personnels dans tous les cas</span><select id="s_anniversaires_reseau"><option value="oui"'+((s.anniversaires_reseau||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires_reseau||"oui")==="non"?" selected":"")+'>non (vœux privés seulement)</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
@@ -3925,7 +3939,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","salon","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","salon","salon_notif","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     const lignes = cles.map(cle => ({ cle, valeur: $("#s_"+cle).value.trim() })).filter(l => (etat.settings[l.cle] ?? "") !== l.valeur);
