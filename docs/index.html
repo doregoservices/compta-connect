@@ -146,6 +146,18 @@ tr:hover td{background:#f4faf7}
 </style>
 </head>
 <body>
+<div id="progres" aria-hidden="true"><div></div><span></span></div>
+<style>
+#progres{position:fixed;top:0;left:0;right:0;z-index:9999;height:0;pointer-events:none;opacity:0;transition:opacity .2s}
+#progres.on{opacity:1}
+#progres>div{height:4px;width:0;background:linear-gradient(90deg,var(--or,#B08A38),var(--vert,#0B5A38));box-shadow:0 0 8px rgba(11,90,56,.5);transition:width .4s ease}
+#progres>span{position:absolute;top:8px;right:12px;background:#06301E;color:#fff;font-size:12px;padding:4px 10px;border-radius:999px;display:none}
+#progres.long>span{display:inline-block}
+#progres>span::before{content:"";display:inline-block;width:10px;height:10px;border:2px solid #fff;border-right-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-1px;animation:tourne .7s linear infinite}
+@keyframes tourne{to{transform:rotate(360deg)}}
+button.occupe{opacity:.6;pointer-events:none;position:relative}
+button.occupe::after{content:"";position:absolute;right:8px;top:50%;width:12px;height:12px;margin-top:-7px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:tourne .7s linear infinite}
+</style>
 <div id="app"></div>
 <div id="toast"></div>
 <script>
@@ -1215,8 +1227,28 @@ function toast(texte, type){
   clearTimeout(t._h); t._h = setTimeout(()=> t.classList.remove("on"), 4200);
 }
 
+/* Indicateur d'activité : chaque requête réseau fait avancer une barre en haut de l'écran ; au-delà d'une seconde,
+   un message « en cours… » apparaît, et le bouton qui a déclenché l'action affiche un petit cercle tournant. */
+let _enCours = 0, _progT, _progDebut = 0;
+function suivreRequete(promesse, libelle){
+  const bar = $("#progres"); if(!bar) return promesse;
+  if(_enCours++ === 0){ _progDebut = Date.now(); bar.className = "on"; bar.firstElementChild.style.width = "15%"; bar.lastElementChild.textContent = libelle || "Chargement…";
+    clearInterval(_progT); _progT = setInterval(() => { const d = bar.firstElementChild, w = parseFloat(d.style.width) || 0; d.style.width = Math.min(92, w + (92 - w) * 0.12) + "%"; if(Date.now() - _progDebut > 900) bar.classList.add("long"); }, 300); }
+  else if(libelle) bar.lastElementChild.textContent = libelle;
+  const fin = () => { if(--_enCours <= 0){ _enCours = 0; clearInterval(_progT); bar.firstElementChild.style.width = "100%"; setTimeout(() => { if(_enCours === 0){ bar.className = ""; bar.firstElementChild.style.width = "0"; } }, 350); } };
+  promesse.then(fin, fin); return promesse;
+}
+/* Marque le bouton cliqué comme occupé le temps d'une action asynchrone */
+document.addEventListener("click", e => { const b = e.target.closest("button"); if(!b || b.classList.contains("occupe")) return;
+  const attr = b.getAttribute("onclick") || ""; if(!/^\s*(enregistrer|changer|televerser|ajouter|valider|publier|supprimer|creer|envoyer|activer|inscrire|payer|repondre|poser|noter|lancer|importer|exporter|generer|soumettre|proposer|retirer|modifier|sauver|confirmer|declarer|archiver|basculer|reinit)/i.test(attr)) return;
+  b.classList.add("occupe"); const n0 = _enCours; const t = setInterval(() => { if(_enCours === 0 && Date.now() - t0 > 250){ clearInterval(t); b.classList.remove("occupe"); } }, 120); const t0 = Date.now();
+  setTimeout(() => { clearInterval(t); b.classList.remove("occupe"); }, 25000); }, true);
 async function sb(table, options, _retente){
   options = options || {};
+  if(!_retente) return suivreRequete(sb_(table, options, false), options.method && options.method !== "GET" ? "Enregistrement…" : "Chargement…");
+  return sb_(table, options, _retente);
+}
+async function sb_(table, options, _retente){
   if(etat.session && etat.session.role === "fondateur" && options.method && options.method !== "GET" && !/^rpc\/cc_(mon_role|bienvenue|paiement_en_ligne_dispo|appel_acces)/.test(table)){
     throw new Error("compte en consultation — vous pouvez tout voir, mais seul le trésorier peut modifier");
   }
@@ -1229,7 +1261,7 @@ async function sb(table, options, _retente){
     const corps = await rep.text();
     // Session trésorier expirée : on la renouvelle une fois puis on rejoue la requête
     if(rep.status === 401 && etat.session && !_retente){
-      if(await rafraichirSession()) return sb(table, options, true);
+      if(await rafraichirSession()) return sb_(table, options, true);
       deconnexion(); throw new Error("Votre session a expiré : reconnectez-vous.");
     }
     throw new Error(corps.slice(0,300));
@@ -1257,17 +1289,17 @@ async function chargerDonnees(){
     sb("cc_settings?select=*"),
   ]);
   etat.membres = membres.map(m => Object.assign({ actif:true, exonere:false }, m));
-  etat.depenses = [];
-  if(etat.session){ if(!etat.session.role) await chargerRole(); try{ etat.depenses = await sb("cc_depenses?select=*&order=date.desc,id.desc"); }catch(e){ etat.depenses = []; } }
-  etat.roles = etat.session ? await (async () => { try{ return await sb("cc_roles?select=*&order=cree_le.asc"); }catch(e){ return []; } })() : [];
+  etat.depenses = []; etat.roles = [];
+  const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
+  const pSession = etat.session ? Promise.all([etat.session.role ? null : chargerRole(), opt("cc_depenses?select=*&order=date.desc,id.desc", []), opt("cc_roles?select=*&order=cree_le.asc", [])]).then(([, d, r]) => { etat.depenses = d; etat.roles = r; }) : null;
   /* Deux caisses distinctes : les frais d'inscription (caisse='inscription') ne se mélangent jamais aux cotisations */
   etat.inscriptions = paiements.filter(p => p.caisse === "inscription");
   etat.paiements = paiements.filter(p => p.caisse !== "inscription");
   etat.settings = {};
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
-  const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes, etat.evenements, etat.evenementInscrits] = await Promise.all([
+  let _tmpIns;
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes, etat.evenements, _tmpIns, etat.temoignages] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
@@ -1280,8 +1312,9 @@ async function chargerDonnees(){
     opt("cc_votes?select=sondage_id,membre_id,choix", []),
     opt("cc_evenements?select=*&order=date.desc", []),
     opt("cc_evenement_inscrits?select=evenement_id,membre_id,date", []),
+    opt("cc_temoignages?select=*&order=id.desc", []),
   ]);
-  etat.temoignages = await opt("cc_temoignages?select=*&order=id.desc", []);
+  etat.evenementInscrits = _tmpIns; await pSession;
 }
 
 /* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
@@ -1318,7 +1351,8 @@ function compresserImage(fichier, maxPx, qualite){
     img.src = url;
   });
 }
-async function televerserPhoto(chemin, blob){
+async function televerserPhoto(chemin, blob){ return suivreRequete(televerserPhoto_(chemin, blob), "Envoi de la photo (" + Math.round(blob.size/1024) + " Ko)…"); }
+async function televerserPhoto_(chemin, blob){
   const base = etat.cfg.url.replace(/\/$/,"");
   if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
   const rep = await fetch(base + "/storage/v1/object/cc_photos/" + chemin, { method:"POST",
@@ -3300,7 +3334,7 @@ async function photoMembreTresorier(id){
   try{
     const url = await televerserPhoto("membres/" + id + ".jpg", await compresserImage(f, 400));
     await sb("cc_membres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photo_url: url }) });
-    await chargerDonnees(); rendu(); editerMembre(id); toast("Photo enregistrée.", "ok");
+    const mm = etat.membres.find(x => x.id === id); if(mm) mm.photo_url = url; rendu(); editerMembre(id); toast("Photo enregistrée.", "ok");
   }catch(e){ toast("Photo refusée : "+e.message, "err"); }
 }
 async function retirerPhotoMembre(id){
@@ -3789,13 +3823,11 @@ async function enregistrerParametres(){
     "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
-    for(const cle of cles){
-      const valeur = $("#s_"+cle).value.trim();
-      await sb("cc_settings", { method:"POST",
-        headers:{ "Prefer":"resolution=merge-duplicates" },
-        body: JSON.stringify({ cle, valeur }) });
-    }
-    await chargerDonnees(); toast("Paramètres enregistrés.", "ok"); rendu();
+    const lignes = cles.map(cle => ({ cle, valeur: $("#s_"+cle).value.trim() })).filter(l => (etat.settings[l.cle] ?? "") !== l.valeur);
+    if(!lignes.length){ toast("Aucun changement à enregistrer.", "ok"); return; }
+    await sb("cc_settings", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates,return=minimal" }, body: JSON.stringify(lignes) });
+    for(const l of lignes) etat.settings[l.cle] = l.valeur;
+    toast("Paramètres enregistrés (" + lignes.length + " modification" + (lignes.length>1?"s":"") + ").", "ok"); rendu();
   }catch(e){ toast("Enregistrement refusé : "+e.message, "err"); }
 }
 
@@ -3986,8 +4018,8 @@ async function supprimerCompte(email){
   catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function enregistrerSetting(cle, valeur){
-  try{ await sb("cc_settings", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
-    await chargerDonnees(); rendu(); toast("Enregistré.", "ok"); }catch(e){ toast(e.message, "err"); }
+  try{ await sb("cc_settings", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ cle, valeur }) });
+    etat.settings[cle] = valeur; rendu(); toast("Enregistré.", "ok"); }catch(e){ toast(e.message, "err"); }
 }
 async function changerPhotoGroupe(){
   const [f] = await choisirImage(false); if(!f) return;
@@ -4019,7 +4051,7 @@ async function photoBureau(id){
   const [f] = await choisirImage(false); if(!f) return;
   try{ const url = await televerserPhoto("bureau/" + id + ".jpg", await compresserImage(f, 400));
     await sb("cc_bureau?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photo_url: url }) });
-    await chargerDonnees(); rendu(); toast("Photo enregistrée.", "ok"); }catch(e){ toast("Photo refusée : "+e.message, "err"); }
+    const b = etat.bureau.find(x => x.id === id); if(b) b.photo_url = url; rendu(); toast("Photo enregistrée.", "ok"); }catch(e){ toast("Photo refusée : "+e.message, "err"); }
 }
 async function supprimerBureau(id){
   if(!confirm("Retirer cette personne du bureau ?")) return;
@@ -4051,11 +4083,13 @@ async function ajouterPhotosRencontre(id){
   toast("Envoi de "+fichiers.length+" photo(s)…", "ok");
   const photos = (r.photos||[]).slice();
   try{
-    for(let i = 0; i < fichiers.length && i < 30; i++){
+    const n = Math.min(fichiers.length, 30);
+    for(let i = 0; i < n; i++){
+      toast("Photo " + (i+1) + " / " + n + " en cours d’envoi…", "");
       photos.push(await televerserPhoto("rencontres/" + id + "/" + Date.now() + "_" + i + ".jpg", await compresserImage(fichiers[i], 1200, 0.8)));
     }
     await sb("cc_rencontres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photos }) });
-    await chargerDonnees(); rendu(); toast("Photos ajoutées.", "ok");
+    const r = etat.rencontres.find(x => x.id === id); if(r) r.photos = photos; rendu(); toast(n + " photo" + (n>1?"s":"") + " ajoutée" + (n>1?"s":"") + ".", "ok");
   }catch(e){ toast("Envoi interrompu : "+e.message, "err"); }
 }
 async function retirerPhotoRencontre(id, index){
@@ -4132,7 +4166,7 @@ async function photoAnnonce(id){
   const [f] = await choisirImage(false); if(!f) return;
   try{ const url = await televerserPhoto("annonces/" + id + ".jpg", await compresserImage(f, 900, 0.8));
     await sb("cc_annonces?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ image_url: url }) });
-    await chargerDonnees(); rendu(); toast("Image ajoutée.", "ok"); }catch(e){ toast("Image refusée : "+e.message, "err"); }
+    const a = etat.annonces.find(x => x.id === id); if(a) a.image_url = url; rendu(); toast("Image ajoutée.", "ok"); }catch(e){ toast("Image refusée : "+e.message, "err"); }
 }
 async function supprimerAnnonce(id){
   if(!confirm("Supprimer cette annonce ?")) return;
@@ -4233,16 +4267,16 @@ async function logoVitrine(id){
   const [f] = await choisirImage(false); if(!f) return;
   try{ const url = await televerserPhoto("vitrines/" + id + "/logo.jpg", await compresserImage(f, 400));
     await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ logo_url: url }) });
-    await chargerDonnees(); rendu(); toast("Logo enregistré.", "ok"); }catch(e){ toast("Logo refusé : "+e.message, "err"); }
+    const v2 = etat.vitrines.find(x => x.id === id); if(v2) v2.logo_url = url; rendu(); toast("Logo enregistré.", "ok"); }catch(e){ toast("Logo refusé : "+e.message, "err"); }
 }
 async function photosVitrine(id){
   const v = etat.vitrines.find(x => String(x.id) === String(id)); if(!v) return;
   const fichiers = await choisirImage(true); if(!fichiers.length) return;
   const photos = (v.photos||[]).slice();
   try{
-    for(let i = 0; i < fichiers.length && photos.length < 6; i++) photos.push(await televerserPhoto("vitrines/" + id + "/" + Date.now() + "_" + i + ".jpg", await compresserImage(fichiers[i], 1000, 0.8)));
+    for(let i = 0; i < fichiers.length && photos.length < 6; i++){ toast("Photo " + (i+1) + " / " + Math.min(fichiers.length, 6) + " en cours d’envoi…", ""); photos.push(await televerserPhoto("vitrines/" + id + "/" + Date.now() + "_" + i + ".jpg", await compresserImage(fichiers[i], 1000, 0.8))); }
     await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ photos }) });
-    await chargerDonnees(); rendu(); toast("Photos ajoutées (6 maximum par vitrine).", "ok");
+    v.photos = photos; rendu(); toast("Photos ajoutées (6 maximum par vitrine).", "ok");
   }catch(e){ toast("Envoi interrompu : "+e.message, "err"); }
 }
 async function supprimerVitrine(id){
