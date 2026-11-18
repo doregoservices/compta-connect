@@ -1469,13 +1469,12 @@ function rendu(){
    Les cartes contenant un formulaire en cours ou marquées data-ouvert restent ouvertes. */
 function plierMobile(){
   if(window.innerWidth > 720) return;
-  const cols = document.querySelectorAll("main .col-main, main .col-aside, main .colonnes, main > .grille");
-  cols.forEach(col => { Array.from(col.children).filter(c => c.classList && c.classList.contains("carte")).forEach((c, i) => {
-    const h3 = c.querySelector(":scope > h3, :scope > div > h3"); if(!h3 || c.dataset.ouvert !== undefined) return;
-    const titre = c.querySelector(":scope > h3"); if(!titre) return;
-    c.classList.add("pli"); if(i === 0 || c.querySelector(".alerte, .al-err")) c.classList.add("ouvert");
+  const cartes = Array.from(document.querySelectorAll("main .carte")).filter(c => c.querySelector(":scope > h3") && c.dataset.ouvert === undefined && !c.closest(".carte.pli"));
+  cartes.forEach((c, i) => {
+    const titre = c.querySelector(":scope > h3");
+    c.classList.add("pli"); if(i === 0 || c.querySelector(".alerte, .al-err, textarea:not(:placeholder-shown)")) c.classList.add("ouvert");
     titre.addEventListener("click", () => c.classList.toggle("ouvert"));
-  }); });
+  });
 }
 window.addEventListener("resize", () => { if(window.innerWidth > 720) document.querySelectorAll(".carte.pli").forEach(c => c.classList.remove("pli")); });
 
