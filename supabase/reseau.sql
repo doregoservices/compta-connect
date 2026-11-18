@@ -1278,3 +1278,43 @@ end $$;
 -- Les dépenses ne sont lisibles que par le trésorier et le fondateur (pas par le bureau)
 drop policy if exists "lecture connectes cc_depenses" on cc_depenses;
 create policy "lecture connectes cc_depenses" on cc_depenses for select to authenticated using (cc_mon_role() in ('tresorier','fondateur'));
+
+-- ============================================================
+-- Témoignages des membres : proposés par les membres, validés par le bureau avant publication
+-- ============================================================
+create table if not exists cc_temoignages (
+  id bigserial primary key,
+  membre_id bigint references cc_membres(id) on delete cascade,
+  texte text not null,
+  publie boolean not null default false,
+  cree_le timestamptz not null default now()
+);
+alter table cc_temoignages enable row level security;
+drop policy if exists "lecture cc_temoignages" on cc_temoignages;
+create policy "lecture cc_temoignages" on cc_temoignages for select using (publie = true or cc_est_bureau() or cc_mon_role() = 'fondateur');
+drop policy if exists "ecriture bureau cc_temoignages" on cc_temoignages;
+create policy "ecriture bureau cc_temoignages" on cc_temoignages for all to authenticated using (cc_est_bureau()) with check (cc_est_bureau());
+grant select on cc_temoignages to anon, authenticated;
+grant insert, update, delete on cc_temoignages to authenticated;
+grant usage, select on sequence cc_temoignages_id_seq to anon, authenticated;
+-- Un membre propose (ou remplace) son témoignage : repasse en attente de validation
+create or replace function cc_temoigner(p_tel text, p_texte text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_id bigint;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null or not v_m.actif then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_texte,''))) < 20 then return json_build_object('ok', false, 'motif', 'court'); end if;
+  delete from cc_temoignages where membre_id = v_m.id;
+  insert into cc_temoignages (membre_id, texte) values (v_m.id, left(trim(p_texte), 600)) returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+revoke all on function cc_temoigner(text,text) from public;
+grant execute on function cc_temoigner(text,text) to anon, authenticated;
+-- Le membre voit l'état de son propre témoignage
+create or replace function cc_mon_temoignage(p_tel text) returns json
+language sql stable security definer set search_path = public as $$
+  select coalesce((select json_build_object('texte', t.texte, 'publie', t.publie, 'cree_le', t.cree_le) from cc_temoignages t join cc_membres m on m.id = t.membre_id
+                   where regexp_replace(m.telephone,'\D','','g') in (regexp_replace(p_tel,'\D','','g'), '225'||regexp_replace(p_tel,'\D','','g')) limit 1), 'null'::json);
+$$;
+grant execute on function cc_mon_temoignage(text) to anon, authenticated;

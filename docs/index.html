@@ -1272,6 +1272,7 @@ async function chargerDonnees(){
     opt("cc_evenements?select=*&order=date.desc", []),
     opt("cc_evenement_inscrits?select=evenement_id,membre_id,date", []),
   ]);
+  etat.temoignages = await opt("cc_temoignages?select=*&order=id.desc", []);
 }
 
 /* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
@@ -1681,6 +1682,7 @@ function vuePayer(params){
     + (enAttente ? "" : carteDefi())
     + (enAttente ? "" : carteSondage(m))
     + (enAttente ? "" : carteMesPoints(m))
+    + (enAttente ? "" : carteTemoignageMembre(m))
     + (enAttente ? "" : carteParrainage(m))
     + (enAttente ? "" : carteCertificats(m))
     + (enAttente ? "" : carteFormationMembre(m))
@@ -1944,6 +1946,15 @@ function palmares(tri){ const S = scoresTous(tri); const L = Object.values(S).fi
   return { payeurs: L.filter(x => x.tri_paiement > 0).sort((a,b) => b.tri_paiement - a.tri_paiement || b.total - a.total || a.m.nom.localeCompare(b.m.nom)).slice(0,3),
     contributeurs: L.filter(x => x.tri_contrib > 0).sort((a,b) => b.tri_contrib - a.tri_contrib || b.total - a.total || a.m.nom.localeCompare(b.m.nom)).slice(0,3),
     general: L.sort((a,b) => b.total - a.total).slice(0,10), S }; }
+const LIBELLES_PTS = { reponse:["Réponse validée par un validateur","Vous répondez à la question d’un confrère et un validateur approuve"], question:["Question publiée","Vous posez une question utile, publiée dans la base"], validation:["Validation d’une réponse","Vous êtes validateur et vous vérifiez une réponse"], paiement_mois:["Cotisation réglée dans le mois","Chaque mois payé avant l’échéance"], paiement_avance:["Mois payé en avance","Chaque mois réglé avant qu’il ne commence"], fiche:["Profil complet","Photo, ville, spécialité, e-mail renseignés (une fois)"], parrainage:["Filleul qui adhère","Un confrère adhère avec votre lien de parrainage"], revision:["Réponse revérifiée","Vous confirmez chaque année qu’une réponse est toujours exacte"] };
+function carteBareme(){
+  const def = { reponse:5, question:2, validation:1, paiement_mois:3, paiement_avance:4, fiche:2, parrainage:10, revision:2 };
+  const cles = Object.keys(LIBELLES_PTS).filter(k => !(k === "parrainage" && (etat.settings.parrainage||"oui") === "non") && !(k === "revision" && (etat.settings.qr_revision||"oui") === "non"));
+  return '<div class="carte"><h3>📏 Comment gagner des points ?</h3><div class="survol"><table><tr><th>Action</th><th>Points</th><th class="mut">Détail</th></tr>'
+    + cles.map(k => '<tr><td><strong>'+LIBELLES_PTS[k][0]+'</strong></td><td style="white-space:nowrap">+'+pts(k, def[k])+'</td><td class="mut">'+LIBELLES_PTS[k][1]+'</td></tr>').join("")
+    + '</table></div><p class="mut" style="margin-top:8px">Badges : '+Object.values(BADGES).map(b => b[0]+' <strong>'+b[1]+'</strong> ('+b[2]+')').join(" · ")+'</p>'
+    + '<p class="mut">Chaque trimestre : top 3 des payeurs et top 3 des contributeurs'+(etat.settings.palmares_prime ? ' — '+ech(etat.settings.palmares_prime) : '')+'.</p></div>';
+}
 function vuePalmares(params){
   const tri = params.tri === "precedent" ? trimestrePrecedent() : trimestreDe(), P = palmares(tri), prime = etat.settings.palmares_prime || "";
   const medaille = i => ["🥇","🥈","🥉"][i] || "";
@@ -1953,14 +1964,15 @@ function vuePalmares(params){
     + '<p><a class="btn sm sec" href="#/palmares">Trimestre en cours</a> <a class="btn sm sec" href="#/palmares?tri=precedent">Trimestre précédent</a></p></div>'
     + '<div class="grille g2">'+colonne("💰 Meilleurs payeurs", P.payeurs, "tri_paiement", x => x.mois_ok+" mois réglés à temps")+colonne("🧠 Meilleurs contributeurs", P.contributeurs, "tri_contrib", x => x.rep+" réponse"+(x.rep>1?"s":"")+" · "+x.quest+" question"+(x.quest>1?"s":""))+'</div>'
     + '<div class="carte"><h3>Classement général (points cumulés)</h3><div class="survol"><table><tr><th>#</th><th>Membre</th><th>Points</th><th>Badges</th></tr>'+P.general.map((x,i) => '<tr><td>'+(i+1)+'</td><td>'+ech(x.m.nom)+'</td><td><strong>'+x.total+'</strong></td><td>'+badgesHTML(x, true)+'</td></tr>').join("")+'</table></div>'
-    + '<p class="mut" style="margin-top:8px">Barème : réponse validée +'+pts("reponse",5)+' · question publiée +'+pts("question",2)+' · validation +'+pts("validation",1)+' · cotisation dans le mois +'+pts("paiement_mois",3)+' · en avance +'+pts("paiement_avance",4)+' · profil complet +'+pts("fiche",2)+((etat.settings.parrainage||"oui") !== "non" ? ' · filleul qui adhère +'+pts("parrainage",10) : '')+'.</p>'
-    + '<p class="mut">Badges : '+Object.values(BADGES).map(b => b[0]+' '+b[1]+' ('+b[2]+')').join(" · ")+'</p></div></main>';
+    + '</div>'
+    + carteBareme()
+    + '</main>';
 }
 function carteMesPoints(m){
   if((etat.settings.palmares||"oui") === "non") return "";
   const S = scoresTous(), x = S[m.id]; if(!x) return "";
   const rang = Object.values(S).filter(y => y.m.actif && y.total > x.total).length + 1;
-  return '<div class="carte"><h3>🏅 Mes points &amp; badges</h3><p><strong>'+x.total+' points</strong> · '+rang+'ᵉ du réseau · ce trimestre : '+x.tri_paiement+' pts paiement, '+x.tri_contrib+' pts contribution</p><p>'+badgesHTML(x)+'</p>'
+  return '<div class="carte"><h3>🏅 Mes points &amp; badges <a class="mut" style="font-size:12px;font-weight:normal;margin-left:6px" href="#/palmares">comment gagner des points ?</a></h3><p><strong>'+x.total+' points</strong> · '+rang+'ᵉ du réseau · ce trimestre : '+x.tri_paiement+' pts paiement, '+x.tri_contrib+' pts contribution</p><p>'+badgesHTML(x)+'</p>'
     + '<p class="mut">Gagnez des points en payant dans le mois ou en avance, en complétant votre fiche, et en contribuant aux <a href="#/questions?t='+encodeURIComponent(m.telephone||"")+'">questions &amp; réponses</a>. <a href="#/palmares">Voir le palmarès</a>'+((etat.settings.annuaire||"oui") !== "non" ? ' · <a href="#/annuaire?t='+encodeURIComponent(idMembre(m))+'">Annuaire professionnel</a>' : '')+'</p></div>';
 }
 function cartePalmaresTresorier(){
@@ -2165,7 +2177,8 @@ function chiffresCles(){
 }
 /* Témoignages : Paramètres → une ligne par témoignage « Nom, fonction | texte » */
 function carteTemoignages(){
-  const L = (etat.settings.temoignages||"").split("\n").map(x => x.split("|")).filter(x => x.length >= 2 && x[1].trim()).slice(0,4); if(!L.length) return "";
+  const T = (etat.temoignages||[]).filter(t => t.publie).map(t => { const m = etat.membres.find(x => String(x.id) === String(t.membre_id)); return [ (m ? m.nom + (m.specialite ? ", " + m.specialite : "") : "Un membre"), t.texte ]; });
+  const L = T.concat((etat.settings.temoignages||"").split("\n").map(x => x.split("|")).filter(x => x.length >= 2 && x[1].trim())).slice(0,4); if(!L.length) return "";
   return '<div class="carte"><h3>💬 Ils parlent du réseau</h3>'+L.map(([n,t]) => '<blockquote style="margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--or);background:var(--creme);border-radius:8px"><div style="font-style:italic">« '+ech(t.trim())+' »</div><div class="mut" style="margin-top:4px">— '+ech(n.trim())+'</div></blockquote>').join("")+'</div>';
 }
 
@@ -2357,6 +2370,33 @@ function carteParrainage(m){
     + (f.length ? '<p style="margin:10px 0 0"><strong>'+f.length+' filleul'+(f.length>1?'s':'')+'</strong> ('+actifs+' actif'+(actifs>1?'s':'')+') : '+f.map(x => ech(x.nom)+(x.actif ? '' : ' <span class="mut">(adhésion en attente)</span>')).join(", ")+'</p>' : '')
     + (parrain ? '<p class="mut" style="margin:6px 0 0">Vous avez été parrainé(e) par '+ech(parrain.nom)+'.</p>' : '')
     + '</div>';
+}
+function carteTemoignageMembre(m){
+  if(!m.actif) return "";
+  const t = (etat.temoignages||[]).find(x => String(x.membre_id) === String(m.id));
+  return '<div class="carte"><h3>💬 Mon témoignage</h3>'
+    + (t ? '<p class="mut">'+(t.publie ? '✅ Publié sur la page d’accueil.' : '⏳ En attente de validation par le bureau.')+'</p><blockquote style="margin:0 0 8px;padding:8px 12px;border-left:3px solid var(--or);background:var(--creme);border-radius:8px;font-style:italic">« '+ech(t.texte)+' »</blockquote>' : '<p class="mut">Dites en quelques lignes ce que le réseau vous apporte. Après validation par le bureau, votre témoignage apparaît sur la page d’accueil avec votre nom.</p>')
+    + '<details'+(t ? '' : ' open')+'><summary class="mut" style="cursor:pointer">'+(t ? 'Modifier mon témoignage' : 'Rédiger')+'</summary><textarea id="temoTexte" rows="3" maxlength="600" placeholder="Ex. Grâce au réseau, j’ai trouvé des réponses fiables sur…">'+ech(t ? t.texte : "")+'</textarea>'
+    + '<button class="btn sm" style="margin-top:6px" onclick="envoyerTemoignage(\''+ech(idMembre(m))+'\')">Envoyer au bureau</button></details></div>';
+}
+async function envoyerTemoignage(tel){
+  const texte = ($("#temoTexte").value||"").trim(); if(texte.length < 20){ toast("Quelques mots de plus (20 caractères minimum).", "err"); return; }
+  try{ const r = await sb("rpc/cc_temoigner", { method:"POST", body: JSON.stringify({ p_tel: tel, p_texte: texte }) });
+    if(!r.ok){ toast(r.motif === "court" ? "Témoignage trop court." : "Envoi impossible.", "err"); return; }
+    await chargerDonnees(); rendu(); toast("Merci ! Votre témoignage est transmis au bureau pour validation.", "ok"); }
+  catch(e){ toast("Erreur : "+e.message, "err"); }
+}
+/* Bureau / trésorier : validation des témoignages */
+function sectionTemoignagesAdmin(){
+  const L = etat.temoignages||[], att = L.filter(t => !t.publie), pub = L.filter(t => t.publie);
+  const nom = t => { const m = etat.membres.find(x => String(x.id) === String(t.membre_id)); return m ? m.nom : "Membre #"+t.membre_id; };
+  const ligne = t => '<div style="border-top:1px solid var(--ligne);padding:8px 0"><strong>'+ech(nom(t))+'</strong> <span class="mut">· '+dateFR(String(t.cree_le).slice(0,10))+'</span><div style="font-style:italic;margin:4px 0">« '+ech(t.texte)+' »</div>'
+    + (t.publie ? '<button class="btn sm sec" onclick="clore(\'cc_temoignages\','+t.id+',{publie:false})">Retirer de l’accueil</button> ' : '<button class="btn sm" onclick="clore(\'cc_temoignages\','+t.id+',{publie:true})">✅ Publier</button> ')
+    + '<button class="btn sm dgr" onclick="supprimerLigne(\'cc_temoignages\','+t.id+')">Supprimer</button></div>';
+  return '<div class="carte"><h3>💬 Témoignages des membres'+(att.length ? ' <span class="badge b-partiel">'+att.length+' à valider</span>' : '')+'</h3>'
+    + '<p class="mut">Les membres rédigent leur témoignage depuis leur espace ; il n’apparaît sur la page d’accueil qu’après votre validation (4 affichés au maximum, les plus récents).</p>'
+    + (att.length ? '<h4 style="margin:8px 0 0">À valider</h4>'+att.map(ligne).join("") : '<p class="mut">Aucun témoignage en attente.</p>')
+    + (pub.length ? '<h4 style="margin:12px 0 0">Publiés ('+pub.length+')</h4>'+pub.map(ligne).join("") : '')+'</div>';
 }
 function carteCertificats(m){
   if((etat.settings.certificats||"oui") === "non") return "";
@@ -3618,7 +3658,7 @@ function vueParametres(){
     + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
     + '<div class="champ"><span>Palmarès trimestriel, points et badges</span><select id="s_palmares"><option value="oui"'+((s.palmares||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.palmares||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"><small class="mut">Affichée sur la page Palmarès, dans « Mes points » et dans l’annonce WhatsApp du palmarès.</small></div>'
-    + '<div class="champ"><span>Barème des points : réponse, question, validation, paiement dans le mois, en avance, profil complet</span><div style="display:flex;gap:6px;flex-wrap:wrap">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:70px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'" title="'+k+'">').join("")+'</div></div>'
+    + '<div class="champ"><span>Barème des points (affiché aux membres sur la page Palmarès)</span><div class="grille g2" style="gap:6px">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:64px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'"><span>'+LIBELLES_PTS[k][0]+'</span></label>').join("")+'</div></div>'
     + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Animation de la communauté</h3>'
@@ -3636,7 +3676,7 @@ function vueParametres(){
     + sel("agenda","Agenda des événements (inscriptions, rappels, comptes rendus)")
     + sel("qr_revision","Révision annuelle des réponses Q/R (bandeau « à revérifier » dès janvier, confirmable par tout membre)")
     + '<div class="champ"><span>Points pour une réponse revérifiée</span><input id="s_pts_revision" type="number" min="0" max="20" value="'+ech(s.pts_revision||"2")+'"></div>'
-    + '<div class="champ"><span>Témoignages (accueil) — une ligne par témoignage : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
+    + '<div class="champ"><span>Témoignages saisis par le bureau (facultatif) — les membres proposent désormais les leurs depuis leur espace, à valider dans « Vie du réseau ». Une ligne : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
     + '<div class="champ"><span>Mois de révision annuelle des cotisations en nature</span><input id="s_nature_revision_mois" type="number" min="1" max="12" value="'+ech(s.nature_revision_mois||"12")+'"></div>'
     + '<div class="champ"><span>Points au parrain quand le filleul adhère</span><input id="s_pts_parrainage" type="number" min="0" max="100" value="'+ech(s.pts_parrainage||"10")+'"></div>'
     + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Règle de cotisation et cartes de membre</h3><div class="grille g2">'
@@ -3824,6 +3864,7 @@ function vueReseau(){
     + sectionAgendaAdmin()
     + sectionFormationsAdmin()
     + sectionQuestionsAdmin()
+    + sectionTemoignagesAdmin()
     + '</div><div class="col-aside">'
     + '<div class="carte"><h3>Photo de groupe & présentation (page d’accueil)</h3>'
     + (s.photo_groupe_url ? '<img class="groupe" src="'+ech(s.photo_groupe_url)+'" alt="" style="margin-bottom:10px">' : '<p class="mut">Aucune photo de groupe pour l’instant.</p>')
