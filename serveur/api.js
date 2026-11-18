@@ -46,7 +46,7 @@ http.createServer(async (req, res) => {
     }
     if ((m = url.pathname.match(/^\/storage\/v1\/object\/cc_photos\/(.+)$/)) && req.method === "POST") {
       const tok = (req.headers.authorization || "").replace(/^Bearer\s+/i, ""); if (!jwtValide(tok)) return fin(401, { erreur: "non autorisé" });
-      const rel = decodeURIComponent(m[1]); if (!/^[a-z]+\/[A-Za-z0-9_.-]+\.(jpe?g|png|webp)$/.test(rel)) return fin(400, { erreur: "chemin refusé" });
+      const rel = decodeURIComponent(m[1]); if (!/^[a-z]+(\/[A-Za-z0-9_-]+){0,2}\/[A-Za-z0-9_.-]+\.(jpe?g|png|webp)$/.test(rel) || rel.includes("..")) return fin(400, { erreur: "chemin refusé" });
       if (corps.length > 1500000) return fin(413, { erreur: "image trop lourde" });
       const dest = path.join(PHOTOS, rel); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, corps);
       return fin(200, { Key: "cc_photos/" + rel });
