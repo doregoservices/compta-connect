@@ -70,6 +70,8 @@ main{max-width:1060px;margin:0 auto;padding:16px}
   .carte.pli.ouvert>h3::after{transform:rotate(180deg)}
   .carte.pli.ouvert>h3{margin-bottom:10px}
   .carte.pli:not(.ouvert)>*:not(h3){display:none!important}
+  .carte.sans-fond{background:none;border:0;box-shadow:none;padding:0;display:grid;gap:10px}
+  .carte.pli-sec{margin:0}
 }
 details.carte>summary{list-style:none}details.carte>summary::before{content:"▸ ";color:var(--vert)}details.carte[open]>summary::before{content:"▾ "}details.carte>summary::-webkit-details-marker{display:none}
 .vide{text-align:center;padding:34px 18px}.vide .ic{font-size:40px;line-height:1;margin-bottom:8px;filter:grayscale(.2)}.vide h3{margin:0 0 4px}.vide p{max-width:420px;margin:0 auto 10px}
@@ -1544,7 +1546,14 @@ function rendu(){
    Les cartes contenant un formulaire en cours ou marquées data-ouvert restent ouvertes. */
 function plierMobile(){
   if(window.innerWidth > 720) return;
-  const cartes = Array.from(document.querySelectorAll("main .carte")).filter(c => c.querySelector(":scope > h3") && c.dataset.ouvert === undefined && !c.closest(".carte.pli"));
+  /* Une carte qui contient plusieurs titres h3 (ex. Paramètres) est d'abord découpée en sections indépendantes : chaque titre replie sa propre section. */
+  document.querySelectorAll("main .carte").forEach(c => {
+    const titres = Array.from(c.children).filter(x => x.tagName === "H3"); if(titres.length < 2 || c.dataset.decoupe) return;
+    c.dataset.decoupe = "1"; const enfants = Array.from(c.children); let sec = null;
+    for(const el of enfants){ if(el.tagName === "H3"){ sec = document.createElement("div"); sec.className = "carte pli-sec"; c.appendChild(sec); } if(sec) sec.appendChild(el); }
+    c.classList.add("sans-fond");
+  });
+  const cartes = Array.from(document.querySelectorAll("main .carte")).filter(c => c.querySelector(":scope > h3") && c.dataset.ouvert === undefined && !c.closest(".carte.pli") && !c.dataset.decoupe);
   cartes.forEach((c, i) => {
     const titre = c.querySelector(":scope > h3");
     c.classList.add("pli"); if(i === 0 || c.querySelector(".alerte, .al-err, textarea:not(:placeholder-shown)")) c.classList.add("ouvert");
