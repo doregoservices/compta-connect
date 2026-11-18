@@ -1300,7 +1300,7 @@ async function chargerDonnees(){
   for(const s of settings) etat.settings[s.cle] = s.valeur;
   // Vie du réseau (tables créées par supabase/reseau.sql ; l'application fonctionne même si elles n'existent pas encore)
   let _tmpIns;
-  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes, etat.evenements, _tmpIns, etat.temoignages] = await Promise.all([
+  [etat.bureau, etat.rencontres, etat.appels, etat.annonces, etat.vitrines, etat.formations, etat.questions, etat.reponses, etat.sondages, etat.votes, etat.evenements, _tmpIns, etat.temoignages, etat.messages] = await Promise.all([
     opt("cc_bureau?select=*&order=ordre.asc,id.asc", []),
     opt("cc_rencontres?select=*&order=date.desc,id.desc", []),
     opt("cc_appels?select=*&order=ouvert.desc,id.desc", []),
@@ -1314,7 +1314,9 @@ async function chargerDonnees(){
     opt("cc_evenements?select=*&order=date.desc", []),
     opt("cc_evenement_inscrits?select=evenement_id,membre_id,date", []),
     opt("cc_temoignages?select=*&order=id.desc", []),
+    opt("cc_messages?select=*&supprime=is.false&order=id.desc&limit=150", []),
   ]);
+  etat._salonMaj = Date.now();
   etat.evenementInscrits = _tmpIns; await pSession;
 }
 
@@ -1360,6 +1362,42 @@ async function televerserPhoto_(chemin, blob){
     headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + (etat.session ? etat.session.token : etat.cfg.anon), "Content-Type":"image/jpeg", "x-upsert":"true" }, body: blob });
   if(!rep.ok) throw new Error((await rep.text()).slice(0,200));
   return base + "/storage/v1/object/public/cc_photos/" + chemin + "?v=" + Date.now();
+}
+/* Documents joints (PDF, Word, Excel, images…) : 8 Mo max chacun, 5 par envoi. Renvoie [{nom,url,taille}]. */
+const TYPES_DOC = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.jpg,.jpeg,.png,.webp,.zip";
+function choisirDocuments(){
+  return new Promise(ok => { const i = document.createElement("input"); i.type = "file"; i.accept = TYPES_DOC; i.multiple = true; i.onchange = () => ok(Array.from(i.files||[]).slice(0,5)); i.click(); });
+}
+async function televerserDocument(dossier, fichier){
+  if(fichier.size > 8000000) throw new Error(fichier.name + " dépasse 8 Mo");
+  const propre = fichier.name.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^A-Za-z0-9_.-]+/g,"_").slice(-80);
+  const chemin = dossier + "/" + Date.now() + "_" + propre, base = etat.cfg.url.replace(/\/$/,"");
+  if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
+  const rep = await suivreRequete(fetch(base + "/storage/v1/object/cc_docs/" + chemin, { method:"POST", headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + (etat.session ? etat.session.token : etat.cfg.anon), "Content-Type": fichier.type || "application/octet-stream" }, body: fichier }), "Envoi de " + fichier.name + " (" + Math.round(fichier.size/1024) + " Ko)…");
+  if(!rep.ok) throw new Error((await rep.text()).slice(0,160));
+  return { nom: fichier.name, url: base + "/storage/v1/object/public/cc_docs/" + chemin, taille: fichier.size };
+}
+/* Zone « pièces jointes » d'un formulaire : liste + bouton ; les fichiers sont envoyés tout de suite et mémorisés dans etat._pj[cle]. */
+etat._pj = etat._pj || {};
+function zonePJ(cle){
+  const L = etat._pj[cle] || [];
+  return '<div id="pj_'+cle+'" style="margin:6px 0"><button type="button" class="btn sm sec" onclick="ajouterPJ(\''+cle+'\')">📎 Joindre un document (PDF, Word, Excel…)</button>'
+    + (L.length ? '<div class="mut" style="margin-top:6px">'+L.map((f,i) => '<span class="badge b-avance" style="margin:2px 4px 2px 0">'+iconeDoc(f.nom)+' '+ech(f.nom)+' <a href="javascript:void(0)" onclick="etat._pj[\''+cle+'\'].splice('+i+',1);document.querySelector(\'#pj_'+cle+'\').outerHTML=zonePJ(\''+cle+'\')" title="Retirer">✕</a></span>').join("")+'</div>' : '')
+    + '</div>';
+}
+async function ajouterPJ(cle){
+  const fichiers = await choisirDocuments(); if(!fichiers.length) return;
+  etat._pj[cle] = etat._pj[cle] || [];
+  try{ for(const f of fichiers){ if(etat._pj[cle].length >= 5) break; etat._pj[cle].push(await televerserDocument(cle.split("_")[0] === "rep" ? "reponses/" + cle.split("_")[1] : "salon/" + cle.split("_")[1], f)); }
+    toast(fichiers.length + " document" + (fichiers.length>1?"s":"") + " prêt" + (fichiers.length>1?"s":"") + " — n’oubliez pas d’envoyer.", "ok"); }
+  catch(e){ toast("Document refusé : " + e.message, "err"); }
+  const z = $("#pj_"+cle); if(z) z.outerHTML = zonePJ(cle);
+}
+function iconeDoc(nom){ const e = String(nom||"").split(".").pop().toLowerCase(); return { pdf:"📕", doc:"📘", docx:"📘", xls:"📗", xlsx:"📗", csv:"📗", ppt:"📙", pptx:"📙", zip:"🗜️", jpg:"🖼️", jpeg:"🖼️", png:"🖼️", webp:"🖼️" }[e] || "📄"; }
+function tailleDoc(o){ return o > 1000000 ? (o/1000000).toFixed(1)+" Mo" : Math.max(1, Math.round(o/1000))+" Ko"; }
+function listePJ(pieces){
+  const L = Array.isArray(pieces) ? pieces : []; if(!L.length) return "";
+  return '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+L.map(f => '<a class="btn sm sec" href="'+ech(f.url)+'" target="_blank" rel="noopener" download="'+ech(f.nom)+'" style="text-decoration:none">'+iconeDoc(f.nom)+' '+ech(f.nom)+(f.taille ? ' <span class="mut">('+tailleDoc(f.taille)+')</span>' : '')+' ⬇</a>').join("")+'</div>';
 }
 function choisirImage(multiple){
   return new Promise(ok => { const i = document.createElement("input"); i.type = "file"; i.accept = "image/*"; i.multiple = !!multiple;
@@ -1443,7 +1481,7 @@ function entete(){
   } else {
     const moi = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
     nav = (moi && trouverMembre(moi) ? '<a class="'+(etat.route==="payer"?"on":"")+'" href="#/payer?t='+encodeURIComponent(moi)+'" style="font-weight:800">👤 Mon espace</a>' : '')
-      + '<a href="#/">Accueil</a>'+(moi && trouverMembre(moi) ? '' : '<a href="#/adherer">Devenir membre</a>')+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+      + '<a href="#/">Accueil</a>'+(moi && trouverMembre(moi) ? '' : '<a href="#/adherer">Devenir membre</a>')+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.salon||"oui") !== "non" ? '<a href="#/salon">💬 Salon</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b>'
@@ -1471,6 +1509,7 @@ function rendu(){
     else if(route === "annuaire") corps = vueAnnuaire(params);
     else if(route === "carte") corps = vueCarte(params);
     else if(route === "agenda") corps = vueAgenda(params);
+    else if(route === "salon") corps = vueSalon(params);
     else if(route === "legal") corps = vueLegal(params);
     else if(route === "journal" && etat.session) corps = vueJournal(params);
     else if(route === "appel") corps = vueAppelPublic(params);
@@ -1577,7 +1616,7 @@ function vueAccueil(){
     + chiffresCles() + '</div>'
     + carteAnniversairesAccueil()
     + sectionAnnonces(3)
-    + colonnes([carteLeReseau(), carteDefi(), carteAgendaAccueil(), carteAnnuaireAccueil(), carteHonneur(), carteSondage(null), carteTemoignages()])
+    + colonnes([carteLeReseau(), carteDefi(), carteSalonAccueil(), carteAgendaAccueil(), carteAnnuaireAccueil(), carteHonneur(), carteSondage(null), carteTemoignages()])
     + sectionBureau()
     + sectionAppelsOuverts(null)
     + (estBureau() ? '' : sectionVitrines())
@@ -2257,6 +2296,66 @@ function carteAgendaAccueil(){
   return '<div class="carte"><h3>📅 Prochains rendez-vous</h3>'+L.map(e => '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--ligne)"><div style="text-align:center;min-width:46px;background:var(--creme);border-radius:8px;padding:4px"><div style="font-weight:800;font-size:18px;line-height:1">'+e.date.slice(8,10)+'</div><div style="font-size:11px;text-transform:uppercase">'+MOIS_FR[parseInt(e.date.slice(5,7),10)-1].slice(0,4)+'</div></div><div><strong>'+ech(e.titre)+'</strong><div class="mut">'+(e.heure ? ech(e.heure)+' · ' : '')+ech(e.lieu||"")+(inscritsDe(e.id).length ? ' · '+inscritsDe(e.id).length+' inscrit'+(inscritsDe(e.id).length>1?'s':'') : '')+'</div></div></div>').join("")
     + '<p style="margin-top:10px"><a class="btn sm sec" href="#/agenda">Voir l’agenda et m’inscrire</a></p></div>';
 }
+/* ======================= Salon : fil d'échange entre membres ======================= */
+let _salonT = null;
+async function chargerSalon(){
+  try{ etat.messages = await sb("cc_messages?select=*&supprime=is.false&order=id.desc&limit=150"); etat._salonMaj = Date.now(); }catch(e){ etat.messages = etat.messages || []; }
+}
+function salonPoll(){ clearInterval(_salonT); _salonT = setInterval(async () => { if(etat.route !== "salon" || document.hidden){ return; } const avant = (etat.messages||[])[0] && etat.messages[0].id; await chargerSalon(); const apres = (etat.messages||[])[0] && etat.messages[0].id; if(avant !== apres){ const z = $("#salonFil"); if(z) z.outerHTML = filSalon(); } }, 15000); }
+function heureCourte(iso){ const d = new Date(iso); return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0"); }
+function jourSalon(iso){ const d = String(iso).slice(0,10), auj = aujourdhui(); if(d === auj) return "Aujourd’hui"; const h = new Date(Date.now()-86400000).toISOString().slice(0,10); return d === h ? "Hier" : dateFR(d); }
+function carteSalonAccueil(){
+  if((etat.settings.salon||"oui") === "non") return "";
+  const L = etat.messages || [];
+  return '<div class="carte"><h3>💬 Le salon</h3><p class="mut">L’espace d’échange des membres : questions rapides, entraide, opportunités, bonne humeur — comme le groupe WhatsApp, mais réservé au réseau et sans perdre le fil.</p>'
+    + (L.length ? '<div class="mut">'+L.slice(0,3).map(x => { const a = etat.membres.find(y => y.id === x.membre_id); return '<div style="margin:4px 0"><strong>'+ech(a ? a.nom.split(" ")[0] : "Un membre")+'</strong> : '+ech(x.texte).slice(0,70)+(x.texte.length>70?'…':'')+'</div>'; }).join("")+'</div>' : '')
+    + '<p style="margin-top:8px"><a class="btn sm" href="#/salon">Entrer dans le salon</a></p></div>';
+}
+function filSalon(){
+  const moi = etat._salonMoi, L = (etat.messages||[]).slice().reverse(), estBureau = moi && etat.bureau.some(b => b.actif && String(b.telephone||"").replace(/\D/g,"").slice(-10) === String(moi.telephone||"").replace(/\D/g,"").slice(-10));
+  let jour = ""; const parId = Object.fromEntries(L.map(x => [x.id, x]));
+  const html = L.map(x => { const a = etat.membres.find(y => y.id === x.membre_id), mien = moi && x.membre_id === moi.id, rep = x.repond_a ? parId[x.repond_a] : null, ra = rep ? etat.membres.find(y => y.id === rep.membre_id) : null;
+    const sep = jourSalon(x.cree_le) !== jour ? (jour = jourSalon(x.cree_le), '<div style="text-align:center;margin:10px 0"><span class="badge" style="background:#eef2f0">'+jour+'</span></div>') : "";
+    return sep + '<div style="display:flex;gap:8px;margin:6px 0;'+(mien ? 'flex-direction:row-reverse' : '')+'">'+(a ? avatar(a, 32) : '<span style="width:32px"></span>')
+      + '<div style="max-width:82%;background:'+(mien ? '#e4f3ea' : '#fff')+';border:1px solid var(--ligne);border-radius:14px;padding:8px 12px;box-shadow:0 1px 2px rgba(0,0,0,.04)">'
+      + '<div style="font-size:12px;color:var(--vert);font-weight:700">'+ech(a ? a.nom : "Un membre")+(a && a.ville ? ' <span class="mut" style="font-weight:400">· '+ech(a.ville)+'</span>' : '')+'</div>'
+      + (rep ? '<div style="border-left:3px solid var(--or);padding:4px 8px;margin:4px 0;background:#f8f9f8;font-size:13px;border-radius:6px"><strong>'+ech(ra ? ra.nom.split(" ")[0] : "Un membre")+'</strong> : '+ech(rep.texte).slice(0,100)+(rep.texte.length>100?'…':'')+'</div>' : '')
+      + (x.texte ? '<div style="white-space:pre-wrap;word-break:break-word">'+lienifier(ech(x.texte))+'</div>' : '') + listePJ(x.pieces)
+      + '<div class="mut" style="font-size:11px;margin-top:4px;display:flex;gap:10px;align-items:center">'+heureCourte(x.cree_le)
+      + (moi ? ' <a href="javascript:void(0)" onclick="salonRepondre('+x.id+')">↩ Répondre</a>' : '')
+      + (mien || estBureau ? ' <a href="javascript:void(0)" onclick="salonSupprimer('+x.id+')" title="Supprimer">🗑</a>' : '')+'</div></div></div>'; }).join("");
+  return '<div id="salonFil" style="background:#f3f6f4;border-radius:12px;padding:10px;max-height:62vh;overflow:auto">'+(html || etatVide("💬", "Le salon est ouvert", "Soyez le premier à écrire : une question rapide, une info utile, un bonjour aux collègues."))+'</div>';
+}
+function lienifier(t){ return t.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+function vueSalon(params){
+  if((etat.settings.salon||"oui") === "non") return '<main><div class="carte"><p>Le salon est fermé pour le moment.</p></div></main>';
+  const moi = params.t ? trouverMembre(params.t) : null; etat._salonMoi = moi;
+  if(!etat.messages || Date.now() - (etat._salonMaj||0) > 20000) chargerSalon().then(() => { if(etat.route === "salon"){ const z = $("#salonFil"); if(z){ z.outerHTML = filSalon(); const f = $("#salonFil"); f.scrollTop = f.scrollHeight; } } });
+  salonPoll(); setTimeout(() => { const f = $("#salonFil"); if(f) f.scrollTop = f.scrollHeight; }, 50);
+  return '<main style="max-width:760px"><div class="carte" data-ouvert="1"><h3 style="margin-top:0">💬 Le salon du réseau</h3>'
+    + '<p class="mut">Échanges entre membres, visibles par tous les membres identifiés. Restez courtois et professionnel (Charte) ; le bureau peut retirer un message. Les documents joints sont téléchargeables par tous.</p>'
+    + (moi ? '' : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input id="telSalon" placeholder="Votre numéro de téléphone pour écrire" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telSalon\').value);if(x)aller(\'#/salon?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">M’identifier</button></div>')
+    + filSalon()
+    + (moi ? '<div id="salonRep" class="mut" style="margin-top:8px"></div><div style="display:flex;gap:8px;align-items:flex-end;margin-top:6px"><textarea id="salonTexte" rows="2" placeholder="Écrire au réseau…" style="flex:1;min-height:44px" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey&&!/Mobi|Android/i.test(navigator.userAgent)){event.preventDefault();salonEnvoyer()}"></textarea><button class="btn" onclick="salonEnvoyer()">Envoyer</button></div>'+zonePJ("salon_"+moi.id) : '')
+    + '</div></main>';
+}
+function salonRepondre(id){ etat._salonRepondA = id; const x = (etat.messages||[]).find(m => m.id === id), a = x && etat.membres.find(y => y.id === x.membre_id); const z = $("#salonRep"); if(z) z.innerHTML = '↩ Réponse à <strong>'+ech(a ? a.nom : "un membre")+'</strong> : « '+ech(x ? x.texte.slice(0,80) : "")+' » <a href="javascript:void(0)" onclick="etat._salonRepondA=null;document.querySelector(\'#salonRep\').innerHTML=\'\'">✕</a>'; const t = $("#salonTexte"); if(t) t.focus(); }
+async function salonEnvoyer(){
+  const moi = etat._salonMoi; if(!moi) return; const t = ($("#salonTexte").value||"").trim(), pj = etat._pj["salon_"+moi.id] || [];
+  if(!t && !pj.length){ toast("Écrivez un message ou joignez un document.", "err"); return; }
+  try{ const r = await sb("rpc/cc_salon_poster", { method:"POST", body: JSON.stringify({ p_tel: idMembre(moi), p_texte: t, p_repond_a: etat._salonRepondA || null, p_pieces: pj }) });
+    if(!r.ok){ toast({ ferme:"Le salon est fermé.", limite:"Doucement : 6 messages par minute maximum.", vide:"Message vide.", inconnu:"Numéro inconnu." }[r.motif]||"Refusé.", "err"); return; }
+    $("#salonTexte").value = ""; etat._salonRepondA = null; delete etat._pj["salon_"+moi.id]; $("#salonRep").innerHTML = ""; const zp = $("#pj_salon_"+moi.id); if(zp) zp.outerHTML = zonePJ("salon_"+moi.id);
+    await chargerSalon(); const z = $("#salonFil"); if(z){ z.outerHTML = filSalon(); const f = $("#salonFil"); f.scrollTop = f.scrollHeight; }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
+async function salonSupprimer(id){
+  if(!confirm("Retirer ce message ?")) return;
+  try{ const r = await sb("rpc/cc_salon_supprimer", { method:"POST", body: JSON.stringify({ p_tel: idMembre(etat._salonMoi), p_id: id }) });
+    if(!r.ok){ toast(r.motif === "droit" ? "Seuls l’auteur et le bureau peuvent retirer un message." : "Refusé.", "err"); return; }
+    await chargerSalon(); const z = $("#salonFil"); if(z) z.outerHTML = filSalon(); toast("Message retiré.", "ok");
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
+}
 function vueAgenda(params){
   if((etat.settings.agenda||"oui") === "non") return '<main><div class="carte"><p>L’agenda est désactivé.</p></div></main>';
   const m = params.t ? trouverMembre(params.t) : null, auj = aujourdhui(), lienT = m ? '?t='+encodeURIComponent(idMembre(m)) : '';
@@ -2512,13 +2611,13 @@ function vueQuestions(params){
     Promise.all([ valid ? sb("rpc/cc_reponses_a_valider", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) : [], sb("rpc/cc_mes_reponses", { method:"POST", body: JSON.stringify({ p_tel: m.telephone }) }) ])
       .then(([a, b]) => { etat._qrAttente = a||[]; etat._qrMiennes = b||[]; if(etat.route === "questions") rendu(); }).catch(()=>{}); }
   const attente = m ? (etat._qrAttente||[]) : [], miennes = m ? (etat._qrMiennes||[]) : [];
-  const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+auteur(r.membre_id)+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")
+  const blocReponse = (r, q) => '<div style="border-left:3px solid var(--vert);padding-left:10px;margin-top:8px"><div class="mut">Réponse de '+auteur(r.membre_id)+' · '+dateFR(String(r.cree_le).slice(0,10))+'</div>'+ech(r.texte).replace(/\n/g,"<br>")+listePJ(r.pieces)
     + '<div style="margin-top:6px"><span class="badge b-avance">🤝 Co-contribution</span> <span class="mut">question : '+(q.anonyme ? "un membre" : auteur(q.membre_id))+(r.membre_id === q.membre_id ? ' (question et réponse)' : ' · réponse : '+auteur(r.membre_id))+'</span></div>'
     + '<div class="mut" style="margin-top:6px">✔ Validée par '+(r.validations||[]).map(v => ech(v.nom)+' ('+dateFR(v.date)+')').join(", ")+(r.verifiee_annee && !aReviser(r) ? ' · <span class="badge b-paye">vérifiée pour '+r.verifiee_annee+'</span>' : '')+((r.revisions||[]).length ? ' · revue par '+(r.revisions||[]).map(v => ech(v.nom)+' ('+v.annee+')').join(", ") : '')+'</div>'
     + (aReviser(r) ? '<div class="alerte al-info" style="margin:8px 0 0;background:#fff8e6;border-color:#f3c969">⚠️ Réponse vérifiée pour '+(r.verifiee_annee||new Date(r.cree_le).getFullYear())+' — <strong>à revérifier pour '+new Date().getFullYear()+'</strong> (textes fiscaux et sociaux susceptibles d’avoir changé). '
         + (m ? '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap"><button class="btn sm" onclick="confirmerReponse(\''+ech(m.telephone)+'\','+r.id+')">✔ Toujours valable (+'+pts("revision",2)+' pts)</button><button class="btn sm sec" onclick="(function(){const d=document.querySelector(\'#rep_'+q.id+'\');if(d){d.closest(\'details\').open=true;d.value=d.value||\'Mise à jour '+new Date().getFullYear()+' : \';d.focus();}})()">✏️ Proposer une mise à jour</button></div>' : '<div class="mut">Identifiez-vous pour la confirmer ou la mettre à jour.</div>')+'</div>' : '')+'</div>';
   const blocAttente = r => { const q = qs.find(x => x.id === r.question_id); const deja = (r.validations||[]).some(v => v.membre_id === m.id);
-    return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'
+    return '<div style="border:1px solid var(--or);border-radius:10px;padding:10px;margin-top:8px;background:#fffbea"><div class="mut">Question : '+ech(q ? q.question : "")+'</div><p style="margin:6px 0"><strong>'+ech(nomDe(r.membre_id))+'</strong> : '+ech(r.texte).replace(/\n/g,"<br>")+'</p>'+listePJ(r.pieces)
       + '<div class="mut">'+(r.validations||[]).length+' / '+minV+' validation'+(minV>1?'s':'')+(r.validations.length ? ' — '+r.validations.map(v => ech(v.nom)).join(", ") : '')+'</div>'
       + '<div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap">'+(r.membre_id === m.id ? '<span class="mut">votre propre réponse</span>' : deja ? '<span class="badge b-paye">vous avez validé</span>' : '<button class="btn sm" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'valider\')">✔ Valider</button>')
       + '<button class="btn sm dgr" onclick="validerReponse(\''+ech(m.telephone)+'\','+r.id+',\'refuser\')">Refuser (supprimer)</button></div></div>'; };
@@ -2538,6 +2637,7 @@ function vueQuestions(params){
     + (m ? '<details style="margin-top:12px"'+(params.poser?' open':'')+'><summary><strong>➕ Poser une question (et sa réponse si vous la connaissez)</strong></summary><p class="mut">Vous êtes <strong>'+ech(m.nom)+'</strong>'+(valid ? ' <span class="badge b-avance">validateur</span>' : '')+' · '+badgesHTML(scores[m.id])+'</p>'
           + '<div class="champ"><span>Question</span><textarea id="qTexte" style="min-height:60px" placeholder="Ex. : quelle est la date limite de dépôt des états financiers ?" oninput="suggererSimilaires(this.value)"></textarea></div><div id="qSimilaires"></div>'
           + '<div class="champ"><span>Réponse (facultatif — si vous la connaissez)</span><textarea id="qReponse" style="min-height:80px" placeholder="Votre réponse, avec les références (articles du CGI, SYSCOHADA…)"></textarea></div>'
+          + zonePJ("rep_0")
           + '<div class="champ"><span>Mots-clés (séparés par des virgules)</span><input id="qTags" placeholder="tva, déclaration, dgi"></div>'
           + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Publier</button></details>'
          : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour participer</button></div>')
@@ -2548,7 +2648,7 @@ function vueQuestions(params){
         return '<div class="carte"><div class="mut">'+(q.anonyme ? "Un membre" : auteur(q.membre_id))+' · '+dateFR(String(q.cree_le).slice(0,10))+(rq.length ? '' : ' · <span class="badge b-partiel">en attente de réponse</span>')+(q.tags ? ' · '+q.tags.split(",").map(t => t.trim()).filter(Boolean).map(t => '<a class="badge b-neutre" href="#/questions?q='+encodeURIComponent(t)+(m?'&t='+encodeURIComponent(m.telephone):'')+'">#'+ech(t)+'</a>').join(" ") : '')+'</div><p><strong>'+ech(q.question)+'</strong></p>'
           + rq.map(r => blocReponse(r, q)).join("")
           + (rq.length ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'+partage(q)+'</div>' : '')
-          + (m ? '<details style="margin-top:8px"><summary class="mut">Répondre à cette question</summary><div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse (sources, références…)"></textarea></div><button class="btn sm" onclick="repondreQuestion(\''+ech(m.telephone)+'\','+q.id+')">Envoyer ma réponse</button></details>' : '')
+          + (m ? '<details style="margin-top:8px"><summary class="mut">Répondre à cette question</summary><div class="champ"><textarea id="rep_'+q.id+'" style="min-height:70px" placeholder="Votre réponse (sources, références…)"></textarea></div>'+zonePJ("rep_"+q.id)+'<button class="btn sm" onclick="repondreQuestion(\''+ech(m.telephone)+'\','+q.id+')">Envoyer ma réponse</button></details>' : '')
           + '</div>'; }).join("")
        : etatVide("💬", "Soyez le premier à poser une question", "Fiscalité, OHADA, DGI, paie, logiciels… Les réponses des membres sont validées par le bureau puis publiées pour tous.", '<a class="btn sm" href="javascript:void(0)" onclick="const z=document.querySelector(\'#qTexte\');if(z){z.scrollIntoView({behavior:\'smooth\'});z.focus();}else toast(\'Identifiez-vous avec votre numéro de téléphone pour poser une question.\',\'ok\')">Poser une question</a>'))
     + '</main>';
@@ -2566,7 +2666,8 @@ function suggererSimilaires(texte){
 async function poserQuestion(tel, forcer){
   const q = ($("#qTexte").value||"").trim(), rep = ($("#qReponse").value||"").trim(); if(q.length < 10){ toast("Votre question est trop courte.", "err"); return; }
   if(rep && rep.length < 10){ toast("Réponse trop courte (ou laissez vide).", "err"); return; }
-  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked, p_reponse: rep || null, p_tags: ($("#qTags").value||"").trim(), p_forcer: !!forcer }) });
+  try{ const r = await sb("rpc/cc_poser_question", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question: q, p_anonyme: $("#qAnonyme").checked, p_reponse: rep || null, p_tags: ($("#qTags").value||"").trim(), p_forcer: !!forcer, p_pieces: rep ? (etat._pj["rep_0"] || []) : [] }) });
+    if(r && r.ok) delete etat._pj["rep_0"];
     if(!r.ok && r.motif === "identique"){ toast("Cette question existe déjà : « "+r.question+" ». Répondez-y directement.", "err"); return; }
     if(!r.ok && r.motif === "doublon"){
       $("#qSimilaires").innerHTML = '<div class="alerte al-info" style="margin:0 0 10px"><strong>Question très proche déjà posée :</strong> « '+ech(r.question)+' » <a href="#/questions?q='+encodeURIComponent(r.question.slice(0,60))+'">voir</a><div style="margin-top:8px"><button class="btn sm sec" onclick="poserQuestion(\''+ech(tel)+'\', true)">C’est une question différente, publier quand même</button></div></div>';
@@ -2577,7 +2678,8 @@ async function poserQuestion(tel, forcer){
 }
 async function repondreQuestion(tel, qid){
   const t = ($("#rep_"+qid).value||"").trim(); if(t.length < 10){ toast("Réponse trop courte.", "err"); return; }
-  try{ const r = await sb("rpc/cc_repondre", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question_id: qid, p_texte: t }) });
+  try{ const r = await sb("rpc/cc_repondre", { method:"POST", body: JSON.stringify({ p_tel: tel, p_question_id: qid, p_texte: t, p_pieces: etat._pj["rep_"+qid] || [] }) });
+    if(r && r.ok) delete etat._pj["rep_"+qid];
     if(!r.ok){ toast({ courte:"Réponse trop courte.", limite:"Trop de réponses aujourd’hui.", inconnu:"Numéro inconnu.", question:"Question introuvable." }[r.motif]||"Refusé.", "err"); return; }
     etat._qrTel = null; await chargerDonnees(); rendu(); toast("Merci ! Votre réponse sera publiée après validation.", "ok");
   }catch(e){ toast("Refusé : "+e.message, "err"); }
@@ -3724,6 +3826,7 @@ function vueParametres(){
     + '<div class="grille g3">'
     + '<div class="champ"><span>Liste des membres à jour visible par les membres</span><select id="s_liste_a_jour_visible"><option value="non"'+((s.liste_a_jour_visible||"non")==="non"?" selected":"")+'>non</option><option value="oui"'+(s.liste_a_jour_visible==="oui"?" selected":"")+'>oui — noms des membres à jour du mois (jamais les retards)</option></select></div>'
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
+    + '<div class="champ"><span>Salon de discussion (espace d’échange entre membres, type groupe WhatsApp, modéré par le bureau)</span><select id="s_salon"><option value="oui"'+((s.salon||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.salon||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Annoncer l’anniversaire à tout le réseau (notification « C’est l’anniversaire de … ») — le membre reçoit ses vœux personnels dans tous les cas</span><select id="s_anniversaires_reseau"><option value="oui"'+((s.anniversaires_reseau||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires_reseau||"oui")==="non"?" selected":"")+'>non (vœux privés seulement)</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
@@ -3822,7 +3925,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","salon","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     const lignes = cles.map(cle => ({ cle, valeur: $("#s_"+cle).value.trim() })).filter(l => (etat.settings[l.cle] ?? "") !== l.valeur);

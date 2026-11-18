@@ -42,6 +42,21 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
       await db("cc_notifies", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ cle }) }); vus.add(cle);
     }
   }
+  // 💬 Salon : une notification groupée au plus toutes les 2 h quand il y a de nouveaux messages (jamais une par message)
+  if ((S.salon || "oui") !== "non") {
+    const derniers = await db("cc_messages?select=id,membre_id,texte,cree_le&supprime=is.false&order=id.desc&limit=30").catch(() => []);
+    const dernierNotif = [...vus].filter(k => k.startsWith("salon:")).map(k => parseInt(k.split(":")[1], 10)).sort((a, b) => b - a)[0] || 0;
+    const nouveauxMsgs = derniers.filter(m => m.id > dernierNotif && new Date(m.cree_le) > new Date(Date.now() - 3 * 3600000));
+    const derniereHeure = (await db("cc_notifies?select=le&cle=like.salon:*&order=le.desc&limit=1").catch(() => []))[0];
+    if (nouveauxMsgs.length && (!derniereHeure || Date.now() - new Date(derniereHeure.le) > 2 * 3600000)) {
+      const auteurs = [...new Set(nouveauxMsgs.map(m => m.membre_id))];
+      const noms = (await db(`cc_membres?select=id,nom&id=in.(${auteurs.join(",")})`).catch(() => [])).map(x => x.nom.split(" ")[0]);
+      const m0 = nouveauxMsgs[0];
+      if (!premiere) await push.envoyer(null, { title: "💬 " + nouveauxMsgs.length + " nouveau" + (nouveauxMsgs.length > 1 ? "x messages" : " message") + " dans le salon", body: (noms.slice(0, 3).join(", ") || "Un membre") + " : " + (m0.texte || "📎 document").slice(0, 100), url: "/#/salon" }).catch(() => null);
+      await db("cc_notifies", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ cle: "salon:" + m0.id }) });
+      if (!premiere) console.log(new Date().toISOString(), "salon :", nouveauxMsgs.length, "message(s) notifiés");
+    }
+  }
   const nouveaux = file.filter(x => !vus.has(x.cle));
   let total = 0;
   for (const x of nouveaux.slice(0, 20)) {               // 20 notifications max par passage

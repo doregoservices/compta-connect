@@ -51,6 +51,14 @@ http.createServer(async (req, res) => {
       const dest = path.join(PHOTOS, rel); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, corps);
       return fin(200, { Key: "cc_photos/" + rel });
     }
+    // Documents joints (réponses Q/R, salon) : PDF, Office, images, zip — 8 Mo max, servis par Caddy sous /storage/v1/object/public/cc_docs/
+    if ((m = url.pathname.match(/^\/storage\/v1\/object\/cc_docs\/(.+)$/)) && req.method === "POST") {
+      const tok = (req.headers.authorization || "").replace(/^Bearer\s+/i, ""); if (!jwtValide(tok)) return fin(401, { erreur: "non autorisé" });
+      const rel = decodeURIComponent(m[1]); if (!/^(reponses|salon)\/[0-9]+\/[0-9]+_[A-Za-z0-9_.-]{1,80}\.(pdf|docx?|xlsx?|pptx?|csv|txt|jpe?g|png|webp|zip)$/i.test(rel) || rel.includes("..")) return fin(400, { erreur: "type de fichier ou chemin refusé" });
+      if (corps.length > 8000000) return fin(413, { erreur: "fichier trop lourd (8 Mo max)" });
+      const dest = path.join(path.dirname(PHOTOS), "docs", rel); fs.mkdirSync(path.dirname(dest), { recursive: true }); fs.writeFileSync(dest, corps);
+      return fin(200, { Key: "cc_docs/" + rel });
+    }
     if (url.pathname === "/sante") return fin(200, { ok: true, fonctions: Object.keys(handlers), push: !!push });
     fin(404, { erreur: "introuvable" });
   } catch (e) { fin(500, { erreur: String(e && e.message || e) }); }

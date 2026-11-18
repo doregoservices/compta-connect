@@ -1326,3 +1326,87 @@ insert into cc_settings (cle, valeur) values ('notif_nouveautes','oui') on confl
 -- Événement payant : rattaché à un appel à paiement (prix + lien de paiement public)
 alter table cc_evenements add column if not exists appel_id bigint references cc_appels(id) on delete set null;
 alter table cc_evenements add column if not exists ouvert_public boolean not null default false;  -- inscription/paiement ouverts aux non-membres
+
+-- ============ Pièces jointes des réponses (PDF, Word, Excel, images…) ============
+alter table cc_reponses add column if not exists pieces jsonb not null default '[]'::jsonb;   -- [{"nom":"…","url":"…","taille":12345}]
+drop function if exists cc_repondre(text, bigint, text);
+create or replace function cc_repondre(p_tel text, p_question_id bigint, p_texte text, p_pieces jsonb default '[]'::jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_texte,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if not exists (select 1 from cc_questions where id = p_question_id) then return json_build_object('ok', false, 'motif', 'question'); end if;
+  if (select count(*) from cc_reponses where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 10 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  insert into cc_reponses (question_id, membre_id, texte, pieces) values (p_question_id, v_m.id, left(trim(p_texte), 3000), coalesce(p_pieces, '[]'::jsonb));
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cc_repondre(text, bigint, text, jsonb) to anon, authenticated;
+
+-- ============ Salon : espace d'échange des membres (fil de discussion, type groupe WhatsApp) ============
+create table if not exists cc_messages (
+  id bigserial primary key,
+  membre_id bigint references cc_membres(id) on delete set null,
+  texte text not null,
+  pieces jsonb not null default '[]'::jsonb,
+  repond_a bigint references cc_messages(id) on delete set null,
+  cree_le timestamptz not null default now(),
+  supprime boolean not null default false
+);
+create index if not exists cc_messages_cree_idx on cc_messages (cree_le desc);
+alter table cc_messages enable row level security;
+drop policy if exists "lecture cc_messages" on cc_messages;
+create policy "lecture cc_messages" on cc_messages for select using (not supprime or cc_est_tresorier());
+drop policy if exists "tresorier cc_messages" on cc_messages;
+create policy "tresorier cc_messages" on cc_messages for all to authenticated using (cc_est_tresorier()) with check (cc_est_tresorier());
+grant select on cc_messages to anon, authenticated;
+grant update, delete on cc_messages to authenticated;
+insert into cc_settings (cle, valeur) values ('salon', 'oui') on conflict (cle) do nothing;
+
+create or replace function cc_salon_poster(p_tel text, p_texte text, p_repond_a bigint default null, p_pieces jsonb default '[]'::jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_id bigint;
+begin
+  if coalesce((select valeur from cc_settings where cle = 'salon'), 'oui') = 'non' then return json_build_object('ok', false, 'motif', 'ferme'); end if;
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_texte,''))) < 1 and jsonb_array_length(coalesce(p_pieces,'[]'::jsonb)) = 0 then return json_build_object('ok', false, 'motif', 'vide'); end if;
+  if (select count(*) from cc_messages where membre_id = v_m.id and cree_le > now() - interval '1 minute') >= 6 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  insert into cc_messages (membre_id, texte, repond_a, pieces) values (v_m.id, left(trim(coalesce(p_texte,'')), 2000), p_repond_a, coalesce(p_pieces,'[]'::jsonb)) returning id into v_id;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+grant execute on function cc_salon_poster(text, text, bigint, jsonb) to anon, authenticated;
+
+create or replace function cc_salon_supprimer(p_tel text, p_id bigint) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_msg cc_messages;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  select * into v_msg from cc_messages where id = p_id;
+  if v_m.id is null or v_msg.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if v_msg.membre_id <> v_m.id and not exists (select 1 from cc_bureau b where b.actif and regexp_replace(coalesce(b.telephone,''), '\D', '', 'g') <> '' and right(regexp_replace(b.telephone, '\D', '', 'g'), 10) = right(regexp_replace(v_m.telephone, '\D', '', 'g'), 10)) then return json_build_object('ok', false, 'motif', 'droit'); end if;
+  update cc_messages set supprime = true where id = p_id;
+  return json_build_object('ok', true);
+end $$;
+grant execute on function cc_salon_supprimer(text, bigint) to anon, authenticated;
+
+-- cc_poser_question : pièces jointes sur la réponse donnée avec la question
+drop function if exists cc_poser_question(text, text, boolean, text, text, boolean);
+create or replace function cc_poser_question(p_tel text, p_question text, p_anonyme boolean default false, p_reponse text default null, p_tags text default null, p_forcer boolean default false, p_pieces jsonb default '[]'::jsonb) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_m cc_membres; v_id bigint; v_d record;
+begin
+  v_m := cc_membre_par_tel(p_tel);
+  if v_m.id is null then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  if length(trim(coalesce(p_question,''))) < 10 then return json_build_object('ok', false, 'motif', 'courte'); end if;
+  if (select count(*) from cc_questions where membre_id = v_m.id and cree_le > now() - interval '1 day') >= 5 then return json_build_object('ok', false, 'motif', 'limite'); end if;
+  select * into v_d from cc_questions_similaires(p_question, 1) where similarite >= 0.6;
+  if v_d.id is not null and not coalesce(p_forcer, false) then return json_build_object('ok', false, 'motif', 'doublon', 'id', v_d.id, 'question', v_d.question); end if;
+  if v_d.id is not null and v_d.similarite >= 0.9 then return json_build_object('ok', false, 'motif', 'identique', 'id', v_d.id, 'question', v_d.question); end if;
+  insert into cc_questions (membre_id, question, anonyme, tags) values (v_m.id, left(trim(p_question), 1000), coalesce(p_anonyme, false), left(lower(trim(coalesce(p_tags,''))), 200)) returning id into v_id;
+  if length(trim(coalesce(p_reponse,''))) >= 10 then insert into cc_reponses (question_id, membre_id, texte, pieces) values (v_id, v_m.id, left(trim(p_reponse), 3000), coalesce(p_pieces, '[]'::jsonb)); end if;
+  return json_build_object('ok', true, 'id', v_id);
+end $$;
+revoke all on function cc_poser_question(text,text,boolean,text,text,boolean,jsonb) from public;
+grant execute on function cc_poser_question(text,text,boolean,text,text,boolean,jsonb) to anon, authenticated;
