@@ -1318,3 +1318,7 @@ language sql stable security definer set search_path = public as $$
                    where regexp_replace(m.telephone,'\D','','g') in (regexp_replace(p_tel,'\D','','g'), '225'||regexp_replace(p_tel,'\D','','g')) limit 1), 'null'::json);
 $$;
 grant execute on function cc_mon_temoignage(text) to anon, authenticated;
+
+-- Nouveautés déjà notifiées aux membres (serveur/nouveautes.js)
+create table if not exists cc_notifies (cle text primary key, le timestamptz not null default now());
+insert into cc_settings (cle, valeur) values ('notif_nouveautes','oui') on conflict (cle) do nothing;

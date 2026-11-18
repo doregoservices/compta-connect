@@ -52,6 +52,55 @@ ${rs.map(r => `<div class="rep"><div class="mut">Réponse de <strong>${ech(nom(r
     if (ecrire(`q/${q.id}.html`, gabarit({ titre: q.question.slice(0, 90) + " — ComptaConnect", description: desc, canon, corps, jsonld }))) ecrits++;
     urls.push({ loc: canon, lastmod: rs.map(r => r.cree_le).sort().pop().slice(0, 10) });
   }
+  // ---------- Pages « vie du réseau » (accueil statique indexable) ----------
+  const ann = await db("cc_annonces?select=id,titre,texte,image_url,lien,lien_libelle,date,epingle&publie=is.true&order=epingle.desc,date.desc&limit=200").catch(() => []);
+  const renc = await db("cc_rencontres?select=id,titre,date,lieu,description,photos&publie=is.true&order=date.desc&limit=200").catch(() => []);
+  const evts = await db("cc_evenements?select=id,titre,date,heure,lieu,description,lien&publie=is.true&order=date.asc&limit=200").catch(() => []);
+  const bureau = await db("cc_bureau?select=nom,poste,photo_url,ordre&actif=is.true&order=ordre.asc").catch(() => []);
+  const temo = await db("cc_temoignages?select=membre_id,texte&publie=is.true&order=id.desc&limit=6").catch(() => []);
+  const nbMembres = (await db("cc_membres?select=id&actif=is.true&limit=10000")).length;
+  const auj = new Date().toISOString().slice(0, 10), aVenir = evts.filter(e => e.date >= auj);
+  const para = t => ech(t || "").replace(/\n+/g, "<br>");
+  const reseau = S.reseau || "ComptaConnect", slogan = S.slogan || "Le premier réseau professionnel des comptables et financiers d’Afrique francophone";
+  const orga = { "@context": "https://schema.org", "@type": "Organization", name: reseau, url: BASE + "/", logo: BASE + "/icon-512.png", description: slogan, email: S.contact_email || undefined, telephone: S.tresorier_tel || undefined, areaServed: (S.pays_couverts || "Côte d’Ivoire").split(",").map(x => x.trim()), sameAs: [S.whatsapp_lien, S.skool_lien].filter(Boolean), numberOfEmployees: undefined, member: { "@type": "QuantitativeValue", value: nbMembres } };
+  // actualités (annonces)
+  for (const x of ann) {
+    const canon = `${BASE}/actualites/${x.id}`;
+    const corps = `<div class="carte"><div class="mut">Annonce du bureau · ${dateFR(x.date)}</div><h1>${ech(x.titre)}</h1>${x.image_url ? `<img src="${ech(x.image_url)}" alt="" style="max-width:100%;border-radius:10px;margin:10px 0">` : ""}<p>${para(x.texte)}</p>${x.lien ? `<p><a class="btn" href="${ech(x.lien)}">${ech(x.lien_libelle || "En savoir plus")}</a></p>` : ""}</div>
+<div class="cta"><strong>${ech(reseau)}</strong> — ${ech(slogan)}. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a> <a class="btn sec" href="/decouvrir.html">Découvrir le réseau</a></div>`;
+    if (ecrire(`actualites/${x.id}.html`, gabarit({ titre: x.titre.slice(0, 90) + " — " + reseau, description: (x.texte || x.titre).replace(/\s+/g, " ").slice(0, 155), canon, corps, jsonld: { "@context": "https://schema.org", "@type": "NewsArticle", headline: x.titre, datePublished: x.date, articleBody: x.texte, publisher: { "@type": "Organization", name: reseau } } }))) ecrits++;
+    urls.push({ loc: canon, lastmod: x.date });
+  }
+  if (ann.length) { if (ecrire("actualites/index.html", gabarit({ titre: "Actualités — " + reseau, description: "Annonces et actualités du réseau " + reseau, canon: BASE + "/actualites/", corps: `<div class="carte"><h1>Actualités du réseau</h1><div class="liste">${ann.map(x => `<a href="/actualites/${x.id}">${ech(x.titre)} <span class="mut">· ${dateFR(x.date)}</span></a>`).join("")}</div></div>` }))) ecrits++; urls.push({ loc: BASE + "/actualites/", lastmod: ann[0].date }); }
+  // rencontres (galerie)
+  for (const r of renc) {
+    const canon = `${BASE}/rencontres/${r.id}`, photos = (r.photos || []).slice(0, 12);
+    const corps = `<div class="carte"><div class="mut">Rencontre · ${dateFR(r.date)}${r.lieu ? " · " + ech(r.lieu) : ""}</div><h1>${ech(r.titre)}</h1><p>${para(r.description)}</p><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">${photos.map(u => `<img src="${ech(u)}" alt="${ech(r.titre)}" loading="lazy" style="width:100%;aspect-ratio:1;object-fit:cover;border-radius:10px">`).join("")}</div></div>
+<div class="cta"><strong>Rejoignez les prochaines rencontres.</strong> <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a> <a class="btn sec" href="/decouvrir.html">Découvrir le réseau</a></div>`;
+    if (ecrire(`rencontres/${r.id}.html`, gabarit({ titre: r.titre.slice(0, 90) + " — " + reseau, description: (r.description || r.titre).replace(/\s+/g, " ").slice(0, 155), canon, corps, jsonld: { "@context": "https://schema.org", "@type": "Event", name: r.titre, startDate: r.date, location: r.lieu ? { "@type": "Place", name: r.lieu } : undefined, image: photos, eventStatus: "https://schema.org/EventScheduled", organizer: { "@type": "Organization", name: reseau } } }))) ecrits++;
+    urls.push({ loc: canon, lastmod: r.date });
+  }
+  // agenda
+  if (aVenir.length) {
+    const corps = `<div class="carte"><h1>Agenda du réseau</h1><div class="liste">${aVenir.map(e => `<a href="/#/agenda">${ech(e.titre)} <span class="mut">· ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</span></a>`).join("")}</div></div><div class="cta">Inscription en un clic depuis votre espace membre. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a></div>`;
+    if (ecrire("agenda.html", gabarit({ titre: "Agenda — " + reseau, description: "Prochains événements, formations et rencontres du réseau " + reseau, canon: BASE + "/agenda.html", corps, jsonld: aVenir.map(e => ({ "@context": "https://schema.org", "@type": "Event", name: e.titre, startDate: e.date + (e.heure ? "T" + e.heure.replace("h", ":").padEnd(5, "0") : ""), location: e.lieu ? { "@type": "Place", name: e.lieu } : undefined, description: e.description, organizer: { "@type": "Organization", name: reseau } })) }))) ecrits++;
+    urls.push({ loc: BASE + "/agenda.html", lastmod: auj });
+  }
+  // découvrir : la page d'accueil en version indexable
+  const nomM = id => (ms.find(m => m.id === id) || {});
+  const decouvrir = `<div class="carte"><h1>${ech(reseau)}</h1><p><strong>${ech(slogan)}</strong></p><p>${para(S.presentation)}</p>
+<p class="mut">${nbMembres} membres · ${publiees.length} questions-réponses validées · fondé en 2026${S.fondateur ? " · fondateur : " + ech(S.fondateur) : ""}</p>
+<p><a class="btn" href="/#/adherer">Devenir membre — ${Number(S.adhesion || 5000).toLocaleString("fr-FR")} F</a> <a class="btn sec" href="/">Ouvrir l’application</a></p></div>
+${S.photo_groupe_url ? `<img src="${ech(S.photo_groupe_url)}" alt="${ech(reseau)}" style="width:100%;border-radius:14px;margin-bottom:14px">` : ""}
+${bureau.length ? `<div class="carte"><h2>Le bureau</h2>${bureau.map(b => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0">${b.photo_url ? `<img src="${ech(b.photo_url)}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover">` : ""}<div><strong>${ech(b.nom)}</strong><div class="mut">${ech(b.poste)}</div></div></div>`).join("")}</div>` : ""}
+${ann.length ? `<div class="carte"><h2>Actualités</h2><div class="liste">${ann.slice(0, 6).map(x => `<a href="/actualites/${x.id}">${ech(x.titre)} <span class="mut">· ${dateFR(x.date)}</span></a>`).join("")}</div></div>` : ""}
+${aVenir.length ? `<div class="carte"><h2>Prochains événements</h2><div class="liste">${aVenir.slice(0, 6).map(e => `<a href="/agenda.html">${ech(e.titre)} <span class="mut">· ${dateFR(e.date)}</span></a>`).join("")}</div></div>` : ""}
+${publiees.length ? `<div class="carte"><h2>Dernières questions-réponses</h2><div class="liste">${publiees.slice(0, 8).map(x => `<a href="/q/${x.id}">${ech(x.question)}</a>`).join("")}</div><p><a class="btn sec" href="/q/">Toute la base de connaissances</a></p></div>` : ""}
+${renc.length ? `<div class="carte"><h2>Nos rencontres</h2><div class="liste">${renc.slice(0, 6).map(r => `<a href="/rencontres/${r.id}">${ech(r.titre)} <span class="mut">· ${dateFR(r.date)}</span></a>`).join("")}</div></div>` : ""}
+${temo.length ? `<div class="carte"><h2>Ils parlent du réseau</h2>${temo.map(t => `<blockquote style="margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--or);background:#fffbea;border-radius:8px"><em>« ${ech(t.texte)} »</em><div class="mut">— ${ech(nomM(t.membre_id).nom || "Un membre")}${nomM(t.membre_id).specialite ? ", " + ech(nomM(t.membre_id).specialite) : ""}</div></blockquote>`).join("")}</div>` : ""}
+<div class="cta"><strong>Contact</strong> · ${ech(S.contact_email || "")} · ${ech(S.tresorier_tel || "")}${S.whatsapp_lien ? ` · <a href="${ech(S.whatsapp_lien)}">Groupe WhatsApp</a>` : ""}</div>`;
+  if (ecrire("decouvrir.html", gabarit({ titre: reseau + " — " + slogan.slice(0, 80), description: (S.presentation || slogan).replace(/\s+/g, " ").slice(0, 155), canon: BASE + "/decouvrir.html", corps: decouvrir, jsonld: orga }))) ecrits++;
+  urls.unshift({ loc: BASE + "/decouvrir.html", lastmod: auj });
   // index
   const parMois = {}; for (const q of publiees) { const d = new Date(q.cree_le), k = NOMS[d.getMonth()] + " " + d.getFullYear(); (parMois[k] = parMois[k] || []).push(q); }
   const index = `<div class="carte"><h1>Questions &amp; réponses des comptables</h1><p class="mut">${publiees.length} question${publiees.length > 1 ? "s" : ""} avec réponse validée par les experts du réseau — fiscalité, SYSCOHADA, DGI, CNPS, paie, logiciels. Consultation libre.</p>
@@ -64,6 +113,7 @@ ${Object.entries(parMois).map(([k, L]) => `<div class="carte"><h2>${k}</h2><div 
   if (ecrire("sitemap.xml", sm)) ecrits++;
   if (ecrire("robots.txt", `User-agent: *\nAllow: /\nDisallow: /rest/\nDisallow: /auth/\nDisallow: /functions/\nSitemap: ${BASE}/sitemap.xml\n`)) ecrits++;
   // nettoyage des pages dont la question a été retirée
+  for (const [sous, liste] of [["actualites", ann], ["rencontres", renc]]) { const d2 = path.join(SITE, sous); if (fs.existsSync(d2)) for (const f of fs.readdirSync(d2)) { const m = f.match(/^(\d+)\.html$/); if (m && !liste.some(x => String(x.id) === m[1])) { fs.unlinkSync(path.join(d2, f)); ecrits++; } } }
   const dir = path.join(SITE, "q"); if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) { const m = f.match(/^(\d+)\.html$/); if (m && !publiees.some(q => String(q.id) === m[1])) { fs.unlinkSync(path.join(dir, f)); ecrits++; } }
   console.log(new Date().toISOString(), `pages Q/R : ${publiees.length} question(s) publiée(s), ${ecrits} fichier(s) écrit(s)`);
 })().catch(e => { console.error("pages Q/R : échec —", e.message); process.exit(1); });
