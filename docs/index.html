@@ -61,6 +61,14 @@ main{max-width:1060px;margin:0 auto;padding:16px}
 .grille{display:grid;gap:12px}
 .deux{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:14px;align-items:start}.deux>div{min-width:0}
 @media(max-width:900px){.deux{grid-template-columns:1fr}}
+/* Mobile : les cartes secondaires se replient (titre seul) pour raccourcir les pages ; un toucher les ouvre */
+@media(max-width:720px){
+  .carte.pli>h3{margin:0;cursor:pointer;display:flex;align-items:center;gap:8px}
+  .carte.pli>h3::after{content:"▾";margin-left:auto;color:var(--or);font-size:18px;transition:transform .15s}
+  .carte.pli.ouvert>h3::after{transform:rotate(180deg)}
+  .carte.pli.ouvert>h3{margin-bottom:10px}
+  .carte.pli:not(.ouvert)>*:not(h3){display:none!important}
+}
 details.carte>summary{list-style:none}details.carte>summary::before{content:"▸ ";color:var(--vert)}details.carte[open]>summary::before{content:"▾ "}details.carte>summary::-webkit-details-marker{display:none}
 .vide{text-align:center;padding:34px 18px}.vide .ic{font-size:40px;line-height:1;margin-bottom:8px;filter:grayscale(.2)}.vide h3{margin:0 0 4px}.vide p{max-width:420px;margin:0 auto 10px}
 .pag-btn{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}.pag-btn:empty{display:none}
@@ -1455,8 +1463,21 @@ function rendu(){
     + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
-  paginer();
+  paginer(); plierMobile();
 }
+/* Sur téléphone : dans chaque colonne, la première carte reste ouverte, les suivantes se replient sur leur titre.
+   Les cartes contenant un formulaire en cours ou marquées data-ouvert restent ouvertes. */
+function plierMobile(){
+  if(window.innerWidth > 720) return;
+  const cols = document.querySelectorAll("main .col-main, main .col-aside, main .colonnes, main > .grille");
+  cols.forEach(col => { Array.from(col.children).filter(c => c.classList && c.classList.contains("carte")).forEach((c, i) => {
+    const h3 = c.querySelector(":scope > h3, :scope > div > h3"); if(!h3 || c.dataset.ouvert !== undefined) return;
+    const titre = c.querySelector(":scope > h3"); if(!titre) return;
+    c.classList.add("pli"); if(i === 0 || c.querySelector(".alerte, .al-err")) c.classList.add("ouvert");
+    titre.addEventListener("click", () => c.classList.toggle("ouvert"));
+  }); });
+}
+window.addEventListener("resize", () => { if(window.innerWidth > 720) document.querySelectorAll(".carte.pli").forEach(c => c.classList.remove("pli")); });
 
 /* --------------------------- Vues publiques --------------------------- */
 /* Un membre du bureau est aussi membre du réseau : sa photo de profil (fiche membre, même téléphone) est utilisée en priorité, toujours à jour. */
@@ -3658,7 +3679,7 @@ function vueParametres(){
     + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
     + '<div class="champ"><span>Palmarès trimestriel, points et badges</span><select id="s_palmares"><option value="oui"'+((s.palmares||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.palmares||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"><small class="mut">Affichée sur la page Palmarès, dans « Mes points » et dans l’annonce WhatsApp du palmarès.</small></div>'
-    + '<div class="champ"><span>Barème des points (affiché aux membres sur la page Palmarès)</span><div class="grille g2" style="gap:6px">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche"].map(k => '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="s_pts_'+k+'" type="number" min="0" max="50" style="width:64px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2}[k])+'"><span>'+LIBELLES_PTS[k][0]+'</span></label>').join("")+'</div></div>'
+    + '<div class="champ"><span>Barème des points (affiché aux membres sur la page Palmarès)</span><div class="grille g2" style="gap:6px">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche","parrainage","revision"].map(k => '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="s_pts_'+k+'" type="number" min="0" max="100" style="width:64px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2,parrainage:10,revision:2}[k])+'"><span>'+LIBELLES_PTS[k][0]+'</span></label>').join("")+'</div></div>'
     + '<div class="champ"><span>Nombre de validations requises pour publier une réponse</span><input id="s_qr_validations_min" type="number" min="1" max="5" value="'+ech(s.qr_validations_min||"2")+'"></div>'
     + '<div class="champ"><span>Paiement en avance (plusieurs mois)</span><select id="s_paiement_avance"><option value="oui"'+((s.paiement_avance||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.paiement_avance||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Animation de la communauté</h3>'
@@ -3675,10 +3696,8 @@ function vueParametres(){
     + sel("annuaire","Annuaire professionnel (chaque membre choisit d’y figurer)")
     + sel("agenda","Agenda des événements (inscriptions, rappels, comptes rendus)")
     + sel("qr_revision","Révision annuelle des réponses Q/R (bandeau « à revérifier » dès janvier, confirmable par tout membre)")
-    + '<div class="champ"><span>Points pour une réponse revérifiée</span><input id="s_pts_revision" type="number" min="0" max="20" value="'+ech(s.pts_revision||"2")+'"></div>'
     + '<div class="champ"><span>Témoignages saisis par le bureau (facultatif) — les membres proposent désormais les leurs depuis leur espace, à valider dans « Vie du réseau ». Une ligne : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
     + '<div class="champ"><span>Mois de révision annuelle des cotisations en nature</span><input id="s_nature_revision_mois" type="number" min="1" max="12" value="'+ech(s.nature_revision_mois||"12")+'"></div>'
-    + '<div class="champ"><span>Points au parrain quand le filleul adhère</span><input id="s_pts_parrainage" type="number" min="0" max="100" value="'+ech(s.pts_parrainage||"10")+'"></div>'
     + '</div><hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0"><h3>Règle de cotisation et cartes de membre</h3><div class="grille g2">'
     + '<div class="champ"><span>Jour de tolérance (règle « mois dans le mois »)</span><input type="number" min="0" max="28" id="s_cotisation_tolerance" value="'+ech(s.cotisation_tolerance||"10")+'"><small class="mut">La cotisation d’un mois se règle pendant ce mois. Elle n’est comptée « en retard » (relances, badges rouges) qu’après ce jour du mois suivant. Avant, elle est « à payer ».</small></div>'
     + '<div class="champ"><span>Début de comptage des cotisations (optionnel)</span><input type="month" id="s_debut_cotisations" value="'+ech(s.debut_cotisations||"")+'"><small class="mut">Règle : chaque membre doit sa cotisation à partir du mois suivant son adhésion. Si vous indiquez un mois ici, aucun mois antérieur n’est réclamé (utile pour les anciens membres).</small></div>'
