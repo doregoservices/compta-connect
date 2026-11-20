@@ -3289,7 +3289,21 @@ function copierMessageGroupe(){
   const n = b.lignes.filter(l => l.statut === "IMPAYE" || l.statut === "PARTIEL").length;
   const site = String(etat.settings.site_public || location.href.split("#")[0]);
   const texte = "📢 *"+(etat.settings.reseau||"ComptaConnect")+" — rappel des cotisations*\n\nChers membres, "+n+" d’entre nous ont encore des mois de cotisation (5 000 F/mois) à régulariser pour la période "+libellePeriode(per)+".\n\nPour voir votre situation et payer en ligne (Wave, Orange Money, MTN, Moov) : "+site+"\n👉 tapez simplement votre numéro de téléphone.\n\nMerci à tous ceux qui sont déjà à jour 🙏\n— Le trésorier";
-  (navigator.clipboard ? navigator.clipboard.writeText(texte) : Promise.reject()).then(() => toast("Message copié : collez-le dans le groupe WhatsApp.", "ok"), () => prompt("Copiez ce message :", texte));
+  afficherMessageWA("Message pour le groupe WhatsApp", texte);
+}
+/* Fenêtre « message prêt à envoyer » : texte visible, ouverture directe de WhatsApp, ou copie */
+function afficherMessageWA(titre, texte){
+  const anc = document.getElementById("voileMsg"); if(anc) anc.remove();
+  const o = document.createElement("div"); o.id = "voileMsg";
+  o.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:14px";
+  o.innerHTML = '<div class="carte" style="max-width:520px;width:100%;max-height:90vh;overflow:auto"><h3 style="margin-top:0">'+ech(titre)+'</h3>'
+    + '<textarea id="txtMsgWA" style="width:100%;min-height:220px;padding:10px;border:1px solid #e3e8e6;border-radius:9px;font:inherit;font-size:14px">'+ech(texte)+'</textarea>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><a class="btn" style="background:#25D366" target="_blank" rel="noopener" href="https://wa.me/?text='+encodeURIComponent(texte)+'">📲 Ouvrir WhatsApp</a>'
+    + '<button class="btn sec" onclick="(navigator.clipboard?navigator.clipboard.writeText(document.getElementById(\'txtMsgWA\').value):Promise.reject()).then(()=>toast(\'Message copié.\',\'ok\'),()=>{document.getElementById(\'txtMsgWA\').select();document.execCommand(\'copy\');toast(\'Message copié.\',\'ok\')})">Copier</button>'
+    + '<button class="btn sec" onclick="document.getElementById(\'voileMsg\').remove()">Fermer</button></div>'
+    + '<p class="mut" style="margin:8px 0 0">« Ouvrir WhatsApp » vous laisse choisir le groupe ; le message est pré-rempli, vous pouvez le modifier avant d’envoyer.</p></div>';
+  o.addEventListener("click", e => { if(e.target === o) o.remove(); });
+  document.body.appendChild(o);
 }
 /* Net encaissé = montant payé par le membre − commission de la plateforme de paiement (Chariow hier, CinetPay demain) */
 function netDe(p){ return parseInt(p.montant,10) - (parseInt(p.frais,10) || 0); }
