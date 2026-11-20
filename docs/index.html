@@ -1205,7 +1205,7 @@ if(typeof module !== "undefined" && module.exports){
 /* ==LOGIQUE-FIN== */
 
 /* ---------------------------------------------------------------- */
-/* Application : Supabase + navigation                               */
+/* Application : base de données + navigation                               */
 /* ---------------------------------------------------------------- */
 
 const $ = s => document.querySelector(s);
@@ -1341,7 +1341,7 @@ function avatar(m, taille){
 }
 function anneeAdhesion(m){ const a = String(m.date_adhesion||"").slice(0,4); return /^\d{4}$/.test(a) ? a : (m.matricule ? "20" + m.matricule.slice(3,5) : ""); }
 
-/* ---------- Photos : compression dans le navigateur puis dépôt dans Supabase Storage (bucket cc_photos) ---------- */
+/* ---------- Photos : compression dans le navigateur puis dépôt sur le serveur (photos) ---------- */
 function compresserImage(fichier, maxPx, qualite){
   return new Promise((ok, ko) => {
     const img = new Image(); const url = URL.createObjectURL(fichier);
@@ -3038,7 +3038,7 @@ async function faireConnexion(){
 function vueInstallation(){
   return '<main style="max-width:560px"><div class="carte"><h3>Base de données (administrateur)</h3>'
     + '<div class="alerte al-info">Réglage technique réservé à l’administrateur : l’application est déjà reliée à sa base. '
-    + 'Ne modifiez ces valeurs que pour changer de projet Supabase (tables préfixées « cc_ »).</div>'
+    + 'Ne modifiez ces valeurs que pour changer de serveur de base de données.</div>'
     + '<div class="champ"><span>URL du projet</span><input id="sbUrl" placeholder="https://comptaconnect.org" value="'+ech(etat.cfg?etat.cfg.url:"")+'"></div>'
     + '<div class="champ"><span>Clé anon (publique)</span><input id="sbAnon" placeholder="eyJhbGciOi..." value="'+ech(etat.cfg?etat.cfg.anon:"")+'"></div>'
     + '<button class="btn blk" onclick="enregistrerCfg()">Enregistrer</button> <button class="btn sec" style="margin-top:8px" onclick="localStorage.removeItem(\'cc_cfg\');cfgCharger();toast(\'Connexion par défaut rétablie.\',\'ok\');aller(\'#/\')">Rétablir la connexion par défaut</button>'
@@ -3762,7 +3762,7 @@ async function ajouterDepense(){
       body: JSON.stringify({ date: $("#dDate").value || new Date().toISOString().slice(0,10), montant, libelle,
         categorie: $("#dCat").value, beneficiaire: $("#dBen").value.trim(), note: $("#dNote").value.trim() }) });
     await chargerDonnees(); toast("Dépense enregistrée.", "ok"); rendu();
-  }catch(e){ toast("Refusé : "+e.message+(/cc_depenses/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function supprimerDepense(id){
   if(!confirm("Supprimer cette dépense ?")) return;
@@ -3917,7 +3917,7 @@ function vueParametres(){
     + '<a href="javascript:void(0)" onclick="purgerSimulation()">purger les paiements de simulation</a>.</p>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
     + '<p class="mut">Connecté en tant que : '+ech(etat.session?etat.session.email:"")
-    + ' · <a href="#/installer">Base de données (administrateur)</a></p>'
+    + '</p>'
     + '</div>' + carteAcces() + '</main>';
 }
 async function enregistrerClesCinetPay(){
@@ -3927,7 +3927,7 @@ async function enregistrerClesCinetPay(){
     for(const [cle, valeur] of [["cinetpay_api_key", api],["cinetpay_site_id", site]])
       await sb("cc_secrets", { method:"POST", headers:{ "Prefer":"resolution=merge-duplicates" }, body: JSON.stringify({ cle, valeur }) });
     toast("Clés CinetPay enregistrées (table privée).", "ok"); $("#k_api").value = ""; etatCles();
-  }catch(e){ toast("Refusé : "+e.message+(/cc_secrets/.test(e.message)?" — exécutez supabase/tresorerie.sql dans Supabase.":""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function enregistrerBrevo(){
   const k = $("#k_brevo").value.trim(), e = $("#k_brevo_exp").value.trim();
@@ -4041,7 +4041,7 @@ async function enregistrerAppel(id){
     if(id) await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     else await sb("cc_appels", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(Object.assign({ ouvert:true }, corps)) });
     await chargerDonnees(); rendu(); toast(id ? "Appel modifié." : "Appel créé — partagez son lien sur le groupe.", "ok");
-  }catch(e){ toast("Refusé : "+e.message+(/cc_appels/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function basculerAppel(id, ouvert){
   try{ await sb("cc_appels?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ ouvert }) });
@@ -4185,7 +4185,7 @@ async function enregistrerBureau(id){
     if(id) await sb("cc_bureau?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     else await sb("cc_bureau", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); rendu(); toast("Bureau mis à jour.", "ok");
-  }catch(e){ toast("Refusé : "+e.message+(/cc_bureau/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function photoBureau(id){
   const [f] = await choisirImage(false); if(!f) return;
@@ -4215,7 +4215,7 @@ async function enregistrerRencontre(id){
     if(id) await sb("cc_rencontres?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     else await sb("cc_rencontres", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); rendu(); toast("Rencontre enregistrée.", "ok");
-  }catch(e){ toast("Refusé : "+e.message+(/cc_rencontres/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function ajouterPhotosRencontre(id){
   const r = etat.rencontres.find(x => String(x.id) === String(id)); if(!r) return;
@@ -4300,7 +4300,7 @@ async function enregistrerAnnonce(id){
     if(id) await sb("cc_annonces?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     else await sb("cc_annonces", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); rendu(); toast("Annonce enregistrée.", "ok");
-  }catch(e){ toast("Refusé : "+e.message+(/cc_annonces/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function photoAnnonce(id){
   const [f] = await choisirImage(false); if(!f) return;
@@ -4388,7 +4388,7 @@ async function enregistrerVitrine(id){
     if(id) await sb("cc_vitrines?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     else await sb("cc_vitrines", { method:"POST", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify(corps) });
     await chargerDonnees(); rendu(); toast("Vitrine enregistrée.", "ok");
-  }catch(e){ toast("Refusé : "+e.message+(/cc_vitrines/.test(e.message) ? " — exécutez supabase/reseau.sql dans Supabase." : ""), "err"); }
+  }catch(e){ toast("Refusé : "+e.message, "err"); }
 }
 async function prolongerVitrine(id){
   const v = etat.vitrines.find(x => String(x.id) === String(id)); if(!v) return;
