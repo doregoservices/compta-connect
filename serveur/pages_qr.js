@@ -63,7 +63,7 @@ ${rs.map(r => `<div class="rep"><div class="mut">Réponse de <strong>${ech(nom(r
   const auj = new Date().toISOString().slice(0, 10), aVenir = evts.filter(e => e.date >= auj);
   const para = t => ech(t || "").replace(/\n+/g, "<br>");
   const reseau = S.reseau || "ComptaConnect", slogan = S.slogan || "Le premier réseau professionnel des comptables et financiers d’Afrique francophone";
-  const orga = { "@context": "https://schema.org", "@type": "Organization", name: reseau, url: BASE + "/", logo: BASE + "/icon-512.png", description: slogan, email: S.contact_email || undefined, telephone: S.tresorier_tel || undefined, areaServed: (S.pays_couverts || "Côte d’Ivoire").split(",").map(x => x.trim()), sameAs: [S.whatsapp_lien, S.skool_lien].filter(Boolean), numberOfEmployees: undefined, member: { "@type": "QuantitativeValue", value: nbMembres } };
+  const orga = { "@context": "https://schema.org", "@type": "Organization", name: reseau, url: BASE + "/", logo: BASE + "/icon-512.png", description: slogan, email: S.contact_email || undefined, telephone: S.tresorier_tel || undefined, areaServed: (S.pays_couverts || "Côte d’Ivoire").split(",").map(x => x.trim()), sameAs: [S.skool_lien].filter(Boolean), numberOfEmployees: undefined, member: { "@type": "QuantitativeValue", value: nbMembres } };
   // actualités (annonces)
   for (const x of ann) {
     const canon = `${BASE}/actualites/${x.id}`;
@@ -111,7 +111,7 @@ ${aVenir.length ? `<div class="carte"><h2>Prochains événements</h2><div class=
 ${publiees.length ? `<div class="carte"><h2>Dernières questions-réponses</h2><div class="liste">${publiees.slice(0, 8).map(x => `<a href="/q/${x.id}">${ech(x.question)}</a>`).join("")}</div><p><a class="btn sec" href="/q/">Toute la base de connaissances</a></p></div>` : ""}
 ${renc.length ? `<div class="carte"><h2>Nos rencontres</h2><div class="liste">${renc.slice(0, 6).map(r => `<a href="/rencontres/${r.id}">${ech(r.titre)} <span class="mut">· ${dateFR(r.date)}</span></a>`).join("")}</div></div>` : ""}
 ${temo.length ? `<div class="carte"><h2>Ils parlent du réseau</h2>${temo.map(t => `<blockquote style="margin:0 0 10px;padding:8px 12px;border-left:3px solid var(--or);background:#fffbea;border-radius:8px"><em>« ${ech(t.texte)} »</em><div class="mut">— ${ech(nomM(t.membre_id).nom || "Un membre")}${nomM(t.membre_id).specialite ? ", " + ech(nomM(t.membre_id).specialite) : ""}</div></blockquote>`).join("")}</div>` : ""}
-<div class="cta"><strong>Contact</strong> · ${ech(S.contact_email || "")} · ${ech(S.tresorier_tel || "")}${S.whatsapp_lien ? ` · <a href="${ech(S.whatsapp_lien)}">Groupe WhatsApp</a>` : ""}</div>`;
+<div class="cta"><strong>Contact</strong> · ${ech(S.contact_email || "")} · ${ech(S.tresorier_tel || "")} · <a href="/#/adherer">Rejoindre le réseau</a></div>`;
   if (ecrire("decouvrir.html", gabarit({ titre: reseau + " — " + slogan.slice(0, 80), description: (S.presentation || slogan).replace(/\s+/g, " ").slice(0, 155), canon: BASE + "/decouvrir.html", corps: decouvrir, jsonld: orga }))) ecrits++;
   urls.unshift({ loc: BASE + "/decouvrir.html", lastmod: auj });
   // index
