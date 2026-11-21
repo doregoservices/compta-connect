@@ -107,6 +107,9 @@ th{font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--muet)
 td{padding:8px 9px;border-bottom:1px solid var(--ligne);vertical-align:middle}
 tr:hover td{background:#f4faf7}
 .survol{overflow-x:auto}
+.selm{position:relative}.selm-liste{position:absolute;left:0;right:0;top:100%;z-index:60;background:#fff;border:1px solid #e3e8e6;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:260px;overflow:auto;display:none}.selm-liste.on{display:block}.selm-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid #f1f3f2;font-size:14px}.selm-item:last-child{border-bottom:0}.selm-item:hover,.selm-item.act{background:#f3f5f4}.selm-item .mut{font-size:12px}.selm-x{position:absolute;right:8px;top:50%;transform:translateY(-50%);border:0;background:none;cursor:pointer;color:#888;font-size:16px}.selm input.selm-q{padding-right:28px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:#eef6f1;border:1px solid #cfe5d8;font-size:13px}.chip a{color:#a33;text-decoration:none;font-weight:700}
+#bandeauHL{position:sticky;top:0;z-index:70;background:#5b4a1a;color:#fff;padding:8px 14px;font-size:13.5px;text-align:center}#bandeauHL a{color:#ffe08a}
 .badge{display:inline-block;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:800;
   text-transform:uppercase;letter-spacing:.3px}
 .b-paye{background:var(--vert-eau);color:var(--vert-fonce)}
@@ -1258,8 +1261,9 @@ async function sb_(table, options, _retente){
   if(etat.session && etat.session.expire && Date.now() > etat.session.expire - 60000) await rafraichirSession();
   const entetes = Object.assign({ "apikey": etat.cfg.anon, "Content-Type":"application/json",
     "Authorization": "Bearer " + (etat.session ? etat.session.token : etat.cfg.anon) }, options.headers||{});
-  const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/rest/v1/" + table,
-    Object.assign({}, options, { headers: entetes }));
+  let rep;
+  try{ rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/rest/v1/" + table, Object.assign({}, options, { headers: entetes })); }
+  catch(e){ etat.horsLigne = true; if(!document.getElementById("bandeauHL")) setTimeout(rendu, 0); throw new Error("Vous êtes hors connexion : cette action demande internet."); }
   if(!rep.ok){
     const corps = await rep.text();
     // Session trésorier expirée : on la renouvelle une fois puis on rejoue la requête
@@ -1320,7 +1324,88 @@ async function chargerDonnees(){
   ]);
   etat._salonMaj = Date.now();
   etat.evenementInscrits = _tmpIns; await pSession;
+  etat.horsLigne = false; cacheEcrire();
 }
+
+/* ---------- Sélecteur de membre : on tape un nom (ou téléphone, matricule, ville), la liste se filtre, on clique ---------- */
+const normTxt = t => String(t||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+etat._selm = etat._selm || {};
+function selecteurMembre(id, o){
+  o = o || {}; etat._selm[id] = o;
+  const m = o.valeur ? (etat.membres||[]).find(x => String(x.id) === String(o.valeur)) : null;
+  return '<div class="selm" id="selm_'+id+'"><input type="hidden" id="'+id+'" value="'+(m ? m.id : "")+'">'
+    + '<input class="selm-q" id="'+id+'_q" autocomplete="off" placeholder="'+ech(o.placeholder||"Tapez un nom…")+'" value="'+(m ? ech(m.nom) : "")+'"'
+    + ' oninput="selmFiltrer(\''+id+'\')" onfocus="selmFiltrer(\''+id+'\')" onkeydown="selmClavier(event,\''+id+'\')" onblur="setTimeout(function(){selmFermer(\''+id+'\')},200)">'
+    + '<button type="button" class="selm-x" title="Effacer" onclick="selmChoisir(\''+id+'\',null)">×</button>'
+    + '<div class="selm-liste" id="'+id+'_l"></div></div>';
+}
+function selmCandidats(id, q){
+  const o = etat._selm[id] || {}; const mots = normTxt(q).split(/\s+/).filter(Boolean); const chiffres = q.replace(/\D/g,"");
+  let L = (etat.membres||[]).filter(m => (o.filtre ? o.filtre(m) : m.actif !== false));
+  if(!mots.length) return [];
+  L = L.filter(m => { const h = normTxt([m.nom, m.ville, m.specialite, m.matricule, m.code, m.entreprise].join(" ")); const t = String(m.telephone||"").replace(/\D/g,"");
+    return mots.every(w => h.includes(w)) || (chiffres.length >= 4 && t.includes(chiffres)); });
+  L.sort((a,b) => { const qa = normTxt(a.nom).startsWith(mots[0]) ? 0 : 1, qb = normTxt(b.nom).startsWith(mots[0]) ? 0 : 1; return qa - qb || a.nom.localeCompare(b.nom); });
+  return L.slice(0, 8);
+}
+function selmFiltrer(id){
+  const q = $("#"+id+"_q").value, l = $("#"+id+"_l"), L = selmCandidats(id, q);
+  if(!q.trim()){ l.classList.remove("on"); l.innerHTML = ""; return; }
+  l.innerHTML = L.length ? L.map((m,i) => '<div class="selm-item'+(i===0?" act":"")+'" data-id="'+m.id+'" onmousedown="event.preventDefault();selmChoisir(\''+id+'\','+m.id+')">'+ech(m.nom)+' <span class="mut">'+[m.matricule||m.code, m.ville, m.telephone].filter(Boolean).map(ech).join(" · ")+'</span></div>').join("")
+    : '<div class="selm-item mut">Aucun membre ne correspond</div>';
+  l.classList.add("on");
+}
+function selmClavier(e, id){
+  const l = $("#"+id+"_l"); if(!l.classList.contains("on")) return; const items = Array.from(l.querySelectorAll(".selm-item[data-id]")); if(!items.length) return;
+  let i = items.findIndex(x => x.classList.contains("act"));
+  if(e.key === "ArrowDown"){ e.preventDefault(); if(i>=0) items[i].classList.remove("act"); items[(i+1)%items.length].classList.add("act"); }
+  else if(e.key === "ArrowUp"){ e.preventDefault(); if(i>=0) items[i].classList.remove("act"); items[(i-1+items.length)%items.length].classList.add("act"); }
+  else if(e.key === "Enter"){ e.preventDefault(); selmChoisir(id, parseInt(items[i>=0?i:0].dataset.id,10)); }
+  else if(e.key === "Escape"){ selmFermer(id); }
+}
+function selmFermer(id){ const l = $("#"+id+"_l"); if(l) l.classList.remove("on"); const h = $("#"+id), q = $("#"+id+"_q"); if(h && q && !h.value && q.value) q.value = ""; }
+function selmChoisir(id, mid){
+  const h = $("#"+id), q = $("#"+id+"_q"); const m = mid ? (etat.membres||[]).find(x => String(x.id) === String(mid)) : null;
+  h.value = m ? m.id : ""; q.value = m ? m.nom : ""; selmFermer(id);
+  const o = etat._selm[id] || {}; if(o.onchoix) o.onchoix(m);
+  if(o.garderVide){ h.value = ""; q.value = ""; }
+}
+/* Liste de téléphones (validateurs, numéros de test…) : puces + recherche par nom. Le champ caché garde « 0102389926, 0502657392 ». */
+function selecteurTelephones(id, csv, placeholder){
+  const tels = String(csv||"").split(",").map(x => x.trim()).filter(Boolean);
+  const o = { placeholder, garderVide:true, onchoix: m => { if(!m) return; const t = String(m.telephone||"").replace(/\D/g,"").slice(-10); if(!t){ toast("Ce membre n’a pas de téléphone enregistré.", "err"); return; }
+    const h = $("#"+id); const L = h.value.split(",").map(x => x.trim()).filter(Boolean); if(!L.includes(t)) L.push(t); h.value = L.join(", "); selTelRendre(id); } };
+  setTimeout(() => selTelRendre(id), 0);
+  return '<input type="hidden" id="'+id+'" value="'+ech(tels.join(", "))+'"><div class="chips" id="'+id+'_chips"></div>' + selecteurMembre("tl_"+id, o);
+}
+function selTelRendre(id){
+  const h = $("#"+id), c = $("#"+id+"_chips"); if(!h || !c) return;
+  const L = h.value.split(",").map(x => x.trim()).filter(Boolean);
+  c.innerHTML = L.map(t => { const m = trouverMembre(t); return '<span class="chip">'+ech(m ? m.nom : t)+(m ? ' <span class="mut">'+ech(t)+'</span>' : '')+' <a href="javascript:void(0)" onclick="selTelRetirer(\''+id+'\',\''+t+'\')" title="Retirer">✕</a></span>'; }).join("") || '<span class="mut">Personne pour l’instant — tapez un nom ci-dessous.</span>';
+}
+function selTelRetirer(id, t){ const h = $("#"+id); h.value = h.value.split(",").map(x => x.trim()).filter(x => x && x !== t).join(", "); selTelRendre(id); }
+
+/* ---------- Hors connexion : dernière situation connue mémorisée, bandeau explicite, pas de fausses informations ---------- */
+const CLES_CACHE = ["membres","paiements","inscriptions","settings","bureau","rencontres","appels","annonces","vitrines","formations","questions","reponses","sondages","votes","evenements","evenementInscrits","temoignages"];
+function cacheEcrire(){ try{ const o = { quand: Date.now() }; for(const k of CLES_CACHE) o[k] = etat[k]; localStorage.setItem("cc_cache", JSON.stringify(o)); }catch(e){ /* quota dépassé : on continue sans cache */ } }
+function cacheLire(){ try{ const o = JSON.parse(localStorage.getItem("cc_cache")||"null"); if(!o || !o.settings) return false; for(const k of CLES_CACHE) etat[k] = o[k] || (k === "settings" ? {} : []); etat.messages = []; etat.depenses = etat.depenses || []; etat.roles = etat.roles || []; etat.cacheQuand = o.quand; return true; }catch(e){ return false; } }
+function bandeauHorsLigne(){
+  if(!etat.horsLigne) return "";
+  let quand = etat.cacheQuand; if(!quand){ try{ quand = (JSON.parse(localStorage.getItem("cc_cache")||"null")||{}).quand; }catch(e){} }
+  const q = quand ? new Date(quand) : null;
+  return '<div id="bandeauHL">📴 Vous êtes hors connexion'+(q ? ' — informations du '+q.toLocaleDateString("fr-FR")+' à '+q.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) : '')+'. Paiements, messages et mises à jour reprendront dès le retour du réseau. <a href="javascript:void(0)" onclick="reconnecter()">Réessayer</a></div>';
+}
+function vueHorsLigneVide(){
+  return '<main style="max-width:560px"><div class="carte" style="text-align:center"><div style="font-size:42px">📴</div><h3>Vous êtes hors connexion</h3><p class="mut">L’application a besoin d’internet la première fois pour charger vos informations. Reconnectez-vous puis réessayez.</p><button class="btn" onclick="reconnecter()">Réessayer</button></div></main>';
+}
+let _reconnexion = false;
+async function reconnecter(silencieux){ if(_reconnexion) return; _reconnexion = true;
+  try{ await chargerDonnees(); etat.horsLigne = false; rendu(); toast("Connexion rétablie — informations à jour.", "ok"); }
+  catch(e){ etat.horsLigne = true; if(!silencieux){ rendu(); toast("Toujours hors connexion.", "err"); } }
+  finally{ _reconnexion = false; } }
+window.addEventListener("online", () => { if(etat.horsLigne) reconnecter(true); });
+setInterval(() => { if(etat.horsLigne && navigator.onLine) reconnecter(true); }, 20000);
+window.addEventListener("offline", () => { etat.horsLigne = true; rendu(); });
 
 /* ---------- Identification d'un membre : matricule de carte (ou ancien code à 3 chiffres) ---------- */
 function trouverMembre(saisie){
@@ -1501,6 +1586,7 @@ function rendu(){
   let corps = "";
   try{
     if(!etat.cfg) corps = vueInstallation();
+    else if(etat.horsLigne && !(etat.membres||[]).length && route !== "carte") corps = vueHorsLigneVide();
     else if(route === "payer") corps = vuePayer(params);
     else if(route === "adherer") corps = vueAdherer(params);
     else if(route === "simulation") corps = vueSimulation(params);
@@ -1536,7 +1622,7 @@ function rendu(){
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
   }
-  app.innerHTML = entete() + corps
+  app.innerHTML = bandeauHorsLigne() + (etat.horsLigne && !(etat.membres||[]).length ? "" : entete()) + corps
     + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="/decouvrir.html" style="color:inherit">Découvrir le réseau</a> · <a href="/q/" style="color:inherit">Base de connaissances</a> · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
@@ -3152,7 +3238,7 @@ function fdateFR(d){ d = String(d||""); return d.length >= 10 ? d.slice(8,10)+"/
 function carteHonneurAdmin(){
   const s = etat.settings;
   return '<div class="carte"><h3>🌟 Membre à l’honneur</h3>'
-    + '<div class="champ"><span>Membre</span><select id="b_honneur_membre_id"><option value="">— aucun —</option>'+etat.membres.filter(m => m.actif).slice().sort((a,b) => a.nom.localeCompare(b.nom)).map(m => '<option value="'+m.id+'"'+(String(s.honneur_membre_id||"") === String(m.id) ? ' selected' : '')+'>'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Membre</span>'+selecteurMembre("b_honneur_membre_id",{ valeur:s.honneur_membre_id, placeholder:"Tapez le nom du membre…" })+'</div>'
     + '<div class="champ"><span>Portrait (3 lignes)</span><textarea id="b_honneur_texte" rows="3">'+ech(s.honneur_texte||"")+'</textarea></div>'
     + '<button class="btn sm" onclick="enregistrerHonneur()">Enregistrer</button></div>';
 }
@@ -3573,8 +3659,7 @@ function vuePaiements(params){
     + '<div class="champ"><span>Date</span><input id="pDate" type="date" value="'+aujourdhui()+'"></div>'
     + '<div class="champ"><span>Montant</span><input id="pMont" inputmode="numeric" value="5000"></div>'
     + '<div class="champ"><span>Canal</span><select id="pCanal"><option>Wave</option><option>Orange Money</option><option>MTN MoMo</option><option>Espèces</option><option>Autre</option></select></div>'
-    + '<div class="champ"><span>Membre</span><select id="pMembre"><option value="">— détection auto —</option>'
-      + etat.membres.map(m => '<option value="'+m.id+'">'+m.code+' · '+ech(m.nom)+'</option>').join("") + '</select></div>'
+    + '<div class="champ"><span>Membre</span>'+selecteurMembre("pMembre",{ placeholder:"Détection auto — ou tapez un nom", filtre:()=>true })+'</div>'
     + '</div><div class="grille g2">'
     + '<div class="champ"><span>Expéditeur</span><input id="pExp"></div>'
     + '<div class="champ"><span>Motif (référence)</span><input id="pLib" placeholder="CC'+moisCourt(mois)+'042"></div></div>'
@@ -3855,6 +3940,7 @@ function vueParametres(){
     + champ("reseau","Nom du réseau") + champ("slogan","Slogan")
     + champ("cotisation","Cotisation mensuelle (FCFA)","number") + champ("jour_echeance","Jour d'échéance","number")
     + champ("tresorier","Nom du trésorier (affiché aux membres : page membre, accès WhatsApp, messages)") + champ("tresorier_tel","Téléphone / WhatsApp du trésorier (affiché aux membres)","tel")
+    + '<div class="champ"><span>Choisir le trésorier parmi les membres (remplit le nom et le téléphone)</span>'+selecteurMembre("s_tresorier_pick",{ placeholder:"Tapez un nom…", garderVide:true, onchoix:m=>{ if(!m) return; $("#s_tresorier").value=m.nom; $("#s_tresorier_tel").value=m.telephone||""; toast(m.nom+" — pensez à enregistrer.", "ok"); } })+'</div>' 
     + champ("contact_email","Email de contact","email") + champ("site_web","Site web")
     + champ("adhesion","Droit d'adhésion nouveau membre (FCFA)","number")
     + '<div class="champ"><span>Commission CinetPay retenue sur chaque encaissement (%) — 4,45 = 2,5 % à l’encaissement + 2 % au retrait, anticipés</span><input id="s_cinetpay_commission" type="number" step="0.1" min="0" max="20" value="'+ech(s.cinetpay_commission||"2.5")+'"><small class="mut">Le membre est crédité du montant payé ; la caisse reçoit le net (montant − commission). Mettez le taux négocié avec CinetPay (2,5 % tarif CinetPay 2026 ; 0 si la commission est facturée au payeur).</small></div>'
@@ -3871,14 +3957,14 @@ function vueParametres(){
     + '<div class="champ"><span>Anniversaires (vœux sur l’accueil, la page du membre et rappel au bureau)</span><select id="s_anniversaires"><option value="oui"'+((s.anniversaires||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Hors concours au palmarès (non classés, gardent leurs badges)</span><input type="hidden" id="s_palmares_hors_concours" value="'+ech(listeHorsConcours().join(","))+'"><div style="display:flex;flex-direction:column;gap:4px;margin-top:4px">'
       + (etat.bureau||[]).filter(b => b.actif && b.telephone).map(b => { const t = String(b.telephone).replace(/\D/g,"").slice(-10); return '<label style="font-weight:normal"><input type="checkbox" value="'+t+'"'+(listeHorsConcours().includes(t)?" checked":"")+' onchange="majHorsConcours()"> '+ech(b.nom)+' <span class="mut">— '+ech(b.poste)+'</span></label>'; }).join("")
-      + '<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><input id="hc_autre" placeholder="Autre membre : téléphone" inputmode="tel" style="width:auto;min-width:200px"><button type="button" class="btn sm sec" onclick="(function(){const m=trouverMembre(document.querySelector(\'#hc_autre\').value);if(!m){toast(\'Numéro inconnu.\',\'err\');return;}const h=document.querySelector(\'#s_palmares_hors_concours\');const L=h.value.split(\',\').filter(Boolean);const t=String(m.telephone).replace(/\\D/g,\'\').slice(-10);if(!L.includes(t))L.push(t);h.value=L.join(\',\');toast(m.nom+\' ajouté — enregistrez.\',\'ok\');})()">Ajouter</button></div>'
+      + '<div style="display:flex;gap:6px;align-items:center;margin-top:4px"><div style="flex:1;min-width:220px">'+selecteurMembre("hc_autre",{ placeholder:"Autre membre : tapez son nom…" })+'</div><button type="button" class="btn sm sec" onclick="(function(){const m=etat.membres.find(x=>String(x.id)===document.querySelector(\'#hc_autre\').value);if(!m){toast(\'Choisissez d’abord un membre dans la liste.\',\'err\');return;}const h=document.querySelector(\'#s_palmares_hors_concours\');const L=h.value.split(\',\').filter(Boolean);const t=String(m.telephone).replace(/\\D/g,\'\').slice(-10);if(!L.includes(t))L.push(t);h.value=L.join(\',\');toast(m.nom+\' ajouté — enregistrez.\',\'ok\');})()">Ajouter</button></div>'
       + (listeHorsConcours().filter(t => !(etat.bureau||[]).some(b => b.actif && String(b.telephone||"").replace(/\D/g,"").slice(-10) === t)).map(t => { const m = trouverMembre(t); return '<span class="badge b-avance">'+ech(m ? m.nom : t)+' <a href="javascript:void(0)" onclick="(function(){const h=document.querySelector(\'#s_palmares_hors_concours\');h.value=h.value.split(\',\').filter(x=>x!==\''+t+'\').join(\',\');toast(\'Retiré — enregistrez.\',\'ok\');})()">✕</a></span>'; }).join(" "))
       + '</div></div>'
     + '<div class="champ"><span>Salon de discussion (espace d’échange entre membres, type groupe WhatsApp, modéré par le bureau)</span><select id="s_salon"><option value="oui"'+((s.salon||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.salon||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Notification des messages du salon</span><select id="s_salon_notif"><option value="instantane"'+((s.salon_notif||"instantane")==="instantane"?" selected":"")+'>instantanée — chaque message, comme WhatsApp</option><option value="groupe"'+((s.salon_notif||"instantane")==="groupe"?" selected":"")+'>groupée — au plus une toutes les 2 h</option></select></div>'
     + '<div class="champ"><span>Annoncer l’anniversaire à tout le réseau (notification « C’est l’anniversaire de … ») — le membre reçoit ses vœux personnels dans tous les cas</span><select id="s_anniversaires_reseau"><option value="oui"'+((s.anniversaires_reseau||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.anniversaires_reseau||"oui")==="non"?" selected":"")+'>non (vœux privés seulement)</option></select></div>'
     + '<div class="champ"><span>Questions / Réponses des membres</span><select id="s_questions"><option value="oui"'+((s.questions||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.questions||"oui")==="non"?" selected":"")+'>non</option></select></div>'
-    + '<div class="champ"><span>Validateurs des réponses (téléphones des membres, séparés par des virgules)</span><input id="s_qr_validateurs" value="'+ech(s.qr_validateurs||"")+'" placeholder="0102389926, 0502657392"><small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
+    + '<div class="champ"><span>Validateurs des réponses</span>'+selecteurTelephones("s_qr_validateurs", s.qr_validateurs, "Ajouter un validateur : tapez son nom…")+'<small class="mut">Membres de confiance désignés par le bureau ; la validation d’un seul d’entre eux suffit (modifiable ci-dessous). Ils valident depuis la page Questions après identification.</small></div>'
     + '<div class="champ"><span>Palmarès trimestriel, points et badges</span><select id="s_palmares"><option value="oui"'+((s.palmares||"oui")!=="non"?" selected":"")+'>oui</option><option value="non"'+((s.palmares||"oui")==="non"?" selected":"")+'>non</option></select></div>'
     + '<div class="champ"><span>Prime du trimestre (texte annoncé aux membres)</span><input id="s_palmares_prime" value="'+ech(s.palmares_prime||"")+'" placeholder="Ex. : 1 mois de cotisation offert + diplôme d’honneur"><small class="mut">Affichée sur la page Palmarès, dans « Mes points » et dans l’annonce WhatsApp du palmarès.</small></div>'
     + '<div class="champ"><span>Barème des points (affiché aux membres sur la page Palmarès)</span><div class="grille g2" style="gap:6px">'+["reponse","question","validation","paiement_mois","paiement_avance","fiche","parrainage","revision"].map(k => '<label style="display:flex;align-items:center;gap:8px;font-size:13px"><input id="s_pts_'+k+'" type="number" min="0" max="100" style="width:64px" value="'+ech(s["pts_"+k]||{reponse:5,question:2,validation:1,paiement_mois:3,paiement_avance:4,fiche:2,parrainage:10,revision:2}[k])+'"><span>'+LIBELLES_PTS[k][0]+'</span></label>').join("")+'</div></div>'
@@ -3890,7 +3976,7 @@ function vueParametres(){
     + '<div class="champ"><span>Objectif du défi : % de membres à jour avant le jour</span><div style="display:flex;gap:6px"><input id="s_defi_objectif" type="number" min="10" max="100" style="width:90px" value="'+ech(s.defi_objectif||"80")+'"> %<input id="s_defi_jour" type="number" min="1" max="31" style="width:80px" value="'+ech(s.defi_jour||"25")+'"></div></div>'
     + '<div class="champ"><span>Texte libre du défi (facultatif, remplace le texte automatique)</span><input id="s_defi_texte" value="'+ech(s.defi_texte||"")+'" placeholder="Ex. : Tous à jour avant la rencontre du 28 !"></div>'
     + sel("honneur","Membre à l’honneur (portrait du mois sur l’accueil)")
-    + '<div class="champ"><span>Membre à l’honneur ce mois-ci</span><select id="s_honneur_membre_id"><option value="">— aucun —</option>'+etat.membres.filter(m => m.actif).slice().sort((a,b) => a.nom.localeCompare(b.nom)).map(m => '<option value="'+m.id+'"'+(String(s.honneur_membre_id||"")===String(m.id)?' selected':'')+'>'+ech(m.nom)+(m.ville?' — '+ech(m.ville):'')+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Membre à l’honneur ce mois-ci</span>'+selecteurMembre("s_honneur_membre_id",{ valeur:s.honneur_membre_id, placeholder:"Tapez le nom du membre…" })+'</div>'
     + '<div class="champ"><span>Portrait (3 lignes rédigées par le bureau)</span><textarea id="s_honneur_texte" rows="3" placeholder="Parcours, engagement dans le réseau, mot du bureau…">'+ech(s.honneur_texte||"")+'</textarea></div>'
     + sel("sondages","Sondages rapides du bureau (création depuis le tableau de bord)")
     + sel("certificats","Certificats PDF téléchargeables par les membres (« Membre à jour », « Contributeur de l’année »)")
@@ -3912,7 +3998,7 @@ function vueParametres(){
     + '<div class="grille g2"><div class="champ"><span>Clé API (sk_test_… en test, sk_live_… en production)</span><input id="k_api" type="password" placeholder="sk_live_••••••••" autocomplete="off"></div>'
     + '<div class="champ"><span>Mot de passe API (nouveau panneau) — ou Site ID (ancienne API)</span><input id="k_site" type="password" placeholder="••••••••" autocomplete="off"></div></div>'
     + '<p class="mut">Les deux valeurs se trouvent dans votre espace CinetPay (panel.cinetpay.net) → <strong>Ressources → API &amp; Sécurité</strong>. Une clé <code>sk_test_</code> fait fonctionner le paiement en bac à sable (aucun argent réel) ; remplacez-la par la clé <code>sk_live_</code> une fois le compte validé.</p>'
-    + '<div class="champ"><span>Numéros autorisés à payer pendant la phase de test (clé sk_test_), séparés par des virgules</span><input id="s_cinetpay_test_tel" value="'+ech(s.cinetpay_test_tel||"")+'" placeholder="0502657392, 0102389926"><small class="mut">Tant que la clé est une clé de test, les autres membres voient « paiement en ligne en cours d’activation ». Les paiements test sont marqués SIMULATION et se purgent d’un clic ci-dessous.</small></div>'
+    + '<div class="champ"><span>Membres autorisés à payer pendant la phase de test (clé sk_test_)</span>'+selecteurTelephones("s_cinetpay_test_tel", s.cinetpay_test_tel, "Ajouter un testeur : tapez son nom…")+'<small class="mut">Tant que la clé est une clé de test, les autres membres voient « paiement en ligne en cours d’activation ». Les paiements test sont marqués SIMULATION et se purgent d’un clic ci-dessous.</small></div>'
     + '<div id="k_etat" class="mut"></div>'
     + '<button class="btn" onclick="enregistrerClesCinetPay()">Enregistrer les clés</button>'
     + '<hr style="border:none;border-top:1px solid var(--ligne);margin:14px 0">'
@@ -4184,8 +4270,7 @@ function editerBureau(id){
   const b = etat.bureau.find(x => String(x.id) === String(id)) || { nom:"", poste:"", telephone:"", ordre: (etat.bureau.length+1)*10, actif:true, photo_url:"" };
   const champ = (k, label, val, type) => '<div class="champ"><span>'+label+'</span><input id="bu_'+k+'" type="'+(type||"text")+'" value="'+ech(val==null?"":val)+'"></div>';
   $("#editeurBureau").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
-    + '<div class="champ"><span>Reprendre un membre du réseau (facultatif)</span><select id="bu_membre" onchange="(function(s){const m=etat.membres.find(x=>String(x.id)===s.value);if(m){document.querySelector(\'#bu_nom\').value=m.nom;document.querySelector(\'#bu_telephone\').value=m.telephone||\'\';document.querySelector(\'#bu_photo_url\').value=m.photo_url||\'\';}})(this)"><option value="">—</option>'
-      + etat.membres.map(m => '<option value="'+m.id+'">'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Reprendre un membre du réseau (facultatif)</span>'+selecteurMembre("bu_membre",{ placeholder:"Tapez le nom du membre…", filtre:()=>true, onchoix:m=>{ if(!m) return; $("#bu_nom").value=m.nom; $("#bu_telephone").value=m.telephone||""; $("#bu_photo_url").value=m.photo_url||""; } })+'</div>'
     + champ("nom","Nom complet",b.nom) + champ("poste","Poste (Président, Trésorier…)",b.poste) + champ("telephone","Téléphone (facultatif)",b.telephone,"tel")
     + champ("ordre","Ordre d’affichage",b.ordre,"number") + '<input id="bu_photo_url" type="hidden" value="'+ech(b.photo_url||"")+'">'
     + '<div class="champ"><span>Affichage</span><select id="bu_actif"><option value="true"'+(b.actif!==false?' selected':'')+'>Visible sur l’accueil</option><option value="false"'+(b.actif===false?' selected':'')+'>Masqué</option></select></div>'
@@ -4381,7 +4466,7 @@ function editerVitrine(id){
   const prods = (Array.isArray(v.produits) ? v.produits : []).map(p => p.nom + (p.prix ? " ; " + p.prix : "")).join("\n");
   $("#editeurVitrine").innerHTML = '<div style="border:1px solid var(--ligne);border-radius:12px;padding:12px;margin:10px 0"><div class="grille g2">'
     + champ("nom","Nom de la vitrine",v.nom,"text","Cabinet XY — Formations Excel")
-    + '<div class="champ"><span>Membre du réseau (facultatif)</span><select id="vi_membre" onchange="(function(s){const m=etat.membres.find(x=>String(x.id)===s.value);if(m){document.querySelector(\'#vi_proprietaire\').value=m.nom;document.querySelector(\'#vi_telephone\').value=m.telephone||\'\';}})(this)"><option value="">— externe —</option>'+etat.membres.map(m => '<option value="'+m.id+'"'+(String(v.membre_id)===String(m.id)?' selected':'')+'>'+ech(m.nom)+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Membre du réseau (facultatif)</span>'+selecteurMembre("vi_membre",{ valeur:v.membre_id, placeholder:"Externe — ou tapez le nom d’un membre", filtre:()=>true, onchoix:m=>{ if(!m) return; $("#vi_proprietaire").value=m.nom; $("#vi_telephone").value=m.telephone||""; } })+'</div>'
     + champ("proprietaire","Vendeur (nom affiché)",v.proprietaire) + champ("telephone","WhatsApp du vendeur",v.telephone,"tel","07 00 00 00 00")
     + champ("categorie","Catégorie",v.categorie,"text","Formation, Logiciel, Papeterie…") + champ("loyer_mensuel","Loyer mensuel (FCFA)",v.loyer_mensuel,"number")
     + champ("fin_location","Fin de location (vide = illimitée)",v.fin_location||"","date")
@@ -4453,7 +4538,7 @@ async function installerApp(){ if(!_installPrompt){ toast("Sur iPhone : Partager
   cfgCharger(); sessionCharger();
   if(etat.cfg){
     try{ await chargerDonnees(); etat.horsLigne = false; }
-    catch(e){ console.warn("chargement:", e.message); etat.horsLigne = true; }
+    catch(e){ console.warn("chargement:", e.message); etat.horsLigne = true; if(!cacheLire()){ etat.settings = etat.settings || {}; etat.membres = etat.membres || []; etat.paiements = etat.paiements || []; } }
   }
   rendu();
 })();
