@@ -95,8 +95,8 @@ ${e.lien ? `<p><a href="${ech(e.lien)}">Lien (programme, visio, plan)</a></p>` :
     urls.push({ loc: canon, lastmod: auj });
   }
   // agenda
-  if (aVenir.length) {
-    const corps = `<div class="carte"><h1>Agenda du réseau</h1><div class="liste">${aVenir.map(e => `<a href="/evenements/${e.id}">${ech(e.titre)}${appelDe(e) ? " · " + Number(appelDe(e).montant).toLocaleString("fr-FR") + " F" : ""} <span class="mut">· ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</span></a>`).join("")}</div></div><div class="cta">Inscription en un clic depuis votre espace membre. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a></div>`;
+  { // toujours générée : le menu public pointe dessus
+    const corps = `<div class="carte"><h1>Agenda du réseau</h1>${aVenir.length ? "" : `<p class="mut">Aucun événement n'est programmé pour l'instant. Les formations et rencontres à venir seront annoncées ici et aux membres par WhatsApp.</p>`}<div class="liste">${aVenir.map(e => `<a href="/evenements/${e.id}">${ech(e.titre)}${appelDe(e) ? " · " + Number(appelDe(e).montant).toLocaleString("fr-FR") + " F" : ""} <span class="mut">· ${dateFR(e.date)}${e.heure ? " à " + ech(e.heure) : ""}${e.lieu ? " · " + ech(e.lieu) : ""}</span></a>`).join("")}</div></div><div class="cta">Inscription en un clic depuis votre espace membre. <a class="btn" style="margin-left:6px" href="/#/adherer">Devenir membre</a></div>`;
     if (ecrire("agenda.html", gabarit({ titre: "Agenda — " + reseau, description: "Prochains événements, formations et rencontres du réseau " + reseau, canon: BASE + "/agenda.html", corps, jsonld: aVenir.map(e => ({ "@context": "https://schema.org", "@type": "Event", name: e.titre, startDate: e.date + (e.heure ? "T" + e.heure.replace("h", ":").padEnd(5, "0") : ""), location: e.lieu ? { "@type": "Place", name: e.lieu } : undefined, description: e.description, organizer: { "@type": "Organization", name: reseau } })) }))) ecrits++;
     urls.push({ loc: BASE + "/agenda.html", lastmod: auj });
   }
