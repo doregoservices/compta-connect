@@ -1,7 +1,7 @@
 /* ComptaConnect — service worker : l'application s'installe et s'ouvre hors ligne (carte de membre, dernière situation connue).
    Coquille (index, logo, icônes) : réseau d'abord, cache en secours — la page reste toujours à jour quand le réseau est là. */
-const CACHE = "cc-v1";
-const COQUILLE = ["./", "./index.html", "./logo.jpg", "./logomark.png", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png"];
+const CACHE = "cc-v2";
+const COQUILLE = ["./", "./index.html", "./logo.jpg", "./manifest.webmanifest", "./icon-192.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(COQUILLE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", e => {
