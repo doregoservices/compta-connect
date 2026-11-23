@@ -1,6 +1,6 @@
 /* ComptaConnect — service worker : l'application s'ouvre instantanément (coquille servie depuis le cache) et se met à jour en arrière-plan ;
    quand une nouvelle version arrive, la page affiche « Nouvelle version disponible · Actualiser ». Données (API, photos) : jamais mises en cache ici. */
-const CACHE = "cc-v3";
+const CACHE = "cc-v4";
 const COQUILLE = ["./", "./index.html", "./logo.jpg", "./manifest.webmanifest", "./icon-192.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(COQUILLE)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
@@ -9,7 +9,8 @@ self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);
   if(e.request.method !== "GET" || u.origin !== location.origin) return;
   if(/^\/(rest|auth|functions|storage|photos|relais)\//.test(u.pathname)) return;
-  const coquille = e.request.mode === "navigate" || /\/(index\.html)?$/.test(u.pathname);
+  // Seule la racine (l'application) est servie depuis le cache ; les pages publiques (decouvrir.html, agenda.html, q/, actualites/…) passent par le réseau
+  const coquille = u.pathname === "/" || u.pathname === "/index.html";
   if(coquille){
     const cle = "./index.html";
     e.respondWith((async () => {

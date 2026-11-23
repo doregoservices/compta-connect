@@ -178,7 +178,7 @@ html[data-theme="sombre"] .ico{background:#1d2e3f;color:var(--menthe)}
 .pied{text-align:center;color:var(--muet);font-size:12.5px;padding:14px;line-height:1.7}
 .onglets{display:none}
 @media(max-width:900px){
-  body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  body:has(.onglets){padding-bottom:calc(64px + env(safe-area-inset-bottom))}
   .onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;position:fixed;left:0;right:0;bottom:0;z-index:85;background:var(--carte);border-top:1px solid var(--ligne);padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -6px 20px rgba(10,28,45,.08)}
   .onglets a{display:flex;flex-direction:column;align-items:center;gap:3px;text-decoration:none;color:var(--muet);font-size:10.5px;font-weight:700;padding:4px 2px;border-radius:12px;min-width:0}
   .onglets a svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
