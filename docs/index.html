@@ -176,6 +176,19 @@ html[data-theme="sombre"] .ico{background:#1d2e3f;color:var(--menthe)}
   pointer-events:none;z-index:99;max-width:90%}
 #toast.ok{background:var(--vert-fonce)}#toast.err{background:var(--rouge)}#toast.on{opacity:1}
 .pied{text-align:center;color:var(--muet);font-size:12.5px;padding:14px;line-height:1.7}
+.onglets{display:none}
+@media(max-width:900px){
+  body{padding-bottom:calc(64px + env(safe-area-inset-bottom))}
+  .onglets{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;position:fixed;left:0;right:0;bottom:0;z-index:85;background:var(--carte);border-top:1px solid var(--ligne);padding:6px 4px calc(6px + env(safe-area-inset-bottom));box-shadow:0 -6px 20px rgba(10,28,45,.08)}
+  .onglets a{display:flex;flex-direction:column;align-items:center;gap:3px;text-decoration:none;color:var(--muet);font-size:10.5px;font-weight:700;padding:4px 2px;border-radius:12px;min-width:0}
+  .onglets a svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+  .onglets a span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .onglets a.on{color:var(--vert)}.onglets a.on svg{stroke-width:2.4}
+  .onglets a .pt{position:absolute;margin-left:18px;margin-top:-2px;width:8px;height:8px;border-radius:50%;background:var(--or)}
+  html[data-theme="sombre"] .onglets{background:#121f2b;border-color:#2a3a4a}
+  #toast{bottom:calc(76px + env(safe-area-inset-bottom))}
+}
+.suite .lire{color:var(--vert);font-weight:700;text-decoration:none;white-space:nowrap}.suite .reste{display:inline}
 .avatar{width:44px;height:44px;border-radius:99px;object-fit:cover;background:var(--vert-eau);color:var(--vert-fonce);
   display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;flex-shrink:0;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
 .avatar.xl{width:84px;height:84px;font-size:28px}.avatar.sm{width:30px;height:30px;font-size:11px}
@@ -1619,6 +1632,31 @@ function entete(){
     + '</div></div>';
 }
 
+/* Barre d'onglets mobile (≤ 900 px) : 4 raccourcis + Menu, selon le profil (visiteur / membre identifié / bureau / trésorier) */
+const ICO_ONGLET = {
+  accueil:'<path d="m3 11 9-8 9 8"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>',
+  moi:'<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  questions:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  palmares:'<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
+  adherer:'<circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/><path d="M19 8v6M22 11h-6"/>',
+  menu:'<path d="M4 6h16M4 12h16M4 18h16"/>',
+  tableau:'<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
+  membres:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  paiements:'<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/>',
+  pointage:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
+  reseau:'<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>',
+  annuaire:'<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'
+};
+function ongletsMobile(){
+  const moi = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
+  const mm = moi ? trouverMembre(moi) : null; let T;
+  if(etat.session && !estBureau()) T = [["", "tableau", "Tableau"], ["membres", "membres", "Membres"], ["paiements", "paiements", "Paiements"], ["pointage", "pointage", "Pointage"]];
+  else if(etat.session) T = [["", "tableau", "Animation"], ["reseau", "reseau", "Vie du réseau"], ["questions", "questions", "Questions"], ["palmares", "palmares", "Palmarès"]];
+  else T = [["", "accueil", "Accueil"], mm ? ["payer?t="+encodeURIComponent(moi), "moi", "Mon espace"] : ["adherer", "adherer", "Adhérer"], ["questions", "questions", "Questions"], ((etat.settings.palmares||"oui") !== "non") ? ["palmares", "palmares", "Palmarès"] : ["annuaire", "annuaire", "Annuaire"]];
+  const route = etat.route || "";
+  return '<nav class="onglets" aria-label="Navigation rapide">'+T.map(([h, ic, l]) => { const r = h.split("?")[0]; return '<a href="#/'+h+'" class="'+(route === r ? "on" : "")+'"><svg viewBox="0 0 24 24" aria-hidden="true">'+ICO_ONGLET[ic]+'</svg><span>'+l+'</span></a>'; }).join("")
+    + '<a href="javascript:void(0)" onclick="etat.menuOuvert=true;document.querySelector(\'.topwrap\').classList.add(\'menu\');window.scrollTo({top:0,behavior:\'smooth\'})"><svg viewBox="0 0 24 24" aria-hidden="true">'+ICO_ONGLET.menu+'</svg><span>Menu</span></a></nav>';
+}
 function rendu(){
   etat.menuOuvert = false;
   const [route, params] = routeActuelle();
@@ -1665,7 +1703,7 @@ function rendu(){
   }catch(e){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
   }
-  app.innerHTML = bandeauHorsLigne() + (etat.horsLigne && !(etat.membres||[]).length ? "" : entete()) + corps
+  app.innerHTML = bandeauHorsLigne() + (etat.horsLigne && !(etat.membres||[]).length ? "" : entete()) + corps + (etat.cfg && (etat.membres||[]).length ? ongletsMobile() : "")
     + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="/decouvrir.html" style="color:inherit">Découvrir le réseau</a> · <a href="/q/" style="color:inherit">Base de connaissances</a> · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
@@ -1775,10 +1813,10 @@ function colonnes(cartes){ const L = cartes.filter(Boolean); if(!L.length) retur
 function carteLeReseau(){
   const s = etat.settings; if(!(s.presentation || s.charte_lien || s.skool_lien || s.photo_groupe_url)) return "";
   const txt = String(s.presentation||"").trim(); let court = txt, reste = "";
-  if(txt.length > 240){ const i = txt.indexOf(". ", 180); let cut = i > 0 && i < 320 ? i + 1 : 240; if(cut === 240){ const sp = txt.lastIndexOf(" ", 240); if(sp > 150) cut = sp; } court = txt.slice(0, cut).trim(); reste = txt.slice(cut).trim(); if(reste && !/[.!?…]$/.test(court)) court += "…"; }
+  if(txt.length > 240){ const i = txt.indexOf(". ", 180); let cut = i > 0 && i < 320 ? i + 1 : 240; if(cut === 240){ const sp = txt.lastIndexOf(" ", 240); if(sp > 150) cut = sp; } court = txt.slice(0, cut).trim(); reste = txt.slice(cut).trim(); }
   const html = t => ech(t).replace(/\n/g,"<br>");
   return '<div class="carte">'
-    + '<h3>Le réseau</h3>'+(court ? '<p>'+html(court)+(reste ? '<details style="display:inline"><summary style="display:inline;cursor:pointer;color:var(--vert);font-weight:700"> Lire la suite</summary><span> '+html(reste)+'</span></details>' : '')+'</p>' : '')
+    + '<h3>Le réseau</h3>'+(court ? '<p>'+html(court)+(reste ? '<span class="suite"><span class="pts">'+(/[.!?]$/.test(court) ? '' : '…')+'</span> <a href="javascript:void(0)" class="lire" onclick="const s=this.closest(\'.suite\');s.querySelector(\'.reste\').hidden=false;s.querySelector(\'.pts\').hidden=true;this.remove()">Lire la suite</a><span class="reste" hidden>'+(/[.!?]$/.test(court) ? ' ' : ' ')+html(reste)+'</span></span>' : '')+'</p>' : '')
     + ressourcesOfficielles(false)+'</div>';
 }
 /* État vide élégant : icône, titre, explication, action éventuelle */
@@ -4623,7 +4661,10 @@ function appliquerTheme(){ const t = localStorage.getItem("cc_theme") || (matchM
 function basculerTheme(){ const t = (document.documentElement.dataset.theme === "sombre") ? "clair" : "sombre"; localStorage.setItem("cc_theme", t); appliquerTheme(); }
 appliquerTheme();
 /* Application installable (PWA) : service worker + invitation à installer */
-if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){ navigator.serviceWorker.register("sw.js").catch(() => {}); }
+if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("message", e => { if(e.data && e.data.type === "maj" && !etat._majProposee){ etat._majProposee = true; const t = $("#toast"); t.innerHTML = 'Nouvelle version disponible · <a href="javascript:location.reload()" style="color:#fff;text-decoration:underline">Actualiser</a>'; t.className = "ok on"; clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 12000); } });
+}
 let _installPrompt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); _installPrompt = e; const b = $("#btnInstaller"); if(b) b.style.display = ""; });
 async function installerApp(){ if(!_installPrompt){ toast("Sur iPhone : Partager → « Sur l’écran d’accueil ». Sur Android : menu ⋮ → « Installer l’application ».", "ok"); return; } _installPrompt.prompt(); await _installPrompt.userChoice; _installPrompt = null; }
