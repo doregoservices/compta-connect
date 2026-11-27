@@ -75,6 +75,31 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
     // phase stagiaires (une candidature pendant la phase membres fige l'offre : pas de suite) ; emplois/missions : aperçu sans contact, invitation à rejoindre le réseau
     if (o.phase !== "membres") file.push({ cle: "offre:" + o.id + ":stg", cible: "stagiaires", msg: o.apercu ? { ...msg, body: msg.body.slice(0, 60) + " · réservée aux membres : rejoignez le réseau pour postuler" } : msg });
   }
+  // Gels expirés : la diffusion reprend seule après offres_gel_h sans décision du recruteur
+  try { const n = await db("rpc/cc_offres_lever_gels", { method: "POST", body: "{}" }); if (n) console.log(new Date().toISOString(), "offres : " + n + " pause(s) levée(s) automatiquement"); } catch (e) { console.warn("lever gels :", e.message); }
+  // Nouvelles candidatures : prévenir le recruteur (entreprise : e-mail ; membre : push + e-mail) avec nom et téléphone du candidat
+  try {
+    const C = await db("cc_candidatures?select=id,offre_id,nom,telephone,email,origine,quand&notifie=is.false&order=id.asc&limit=50");
+    for (const c of C) {
+      const [o] = await db(`cc_offres?select=id,titre,entreprise_id,membre_id,fige_phase&id=eq.${c.offre_id}`);
+      if (o) {
+        const lien = o.entreprise_id ? "/#/entreprises" : "/#/entreprises#partageMembre";
+        const orig = { membre: "membre du réseau", stagiaire: "stagiaire inscrit", public: "candidat" }[c.origine] || c.origine;
+        const corps = `<p>Bonjour,</p><p>Nouvelle candidature pour votre offre <b>${o.titre}</b> :</p><p><b>${c.nom}</b> (${orig})<br>Téléphone : <a href="https://wa.me/225${String(c.telephone).replace(/\D/g, "").slice(-10)}">${c.telephone}</a>${c.email ? `<br>E-mail : ${c.email}` : ""}</p>` +
+          (o.fige_phase ? `<p>La diffusion de l'offre est <b>en pause</b> pour laisser la priorité à ce candidat. Dans votre espace, indiquez <b>« Pourvue »</b> si le poste est pris ou <b>« Poursuivre »</b> pour continuer la diffusion ; sans réponse sous ${S.offres_gel_h || 72} h, elle reprend automatiquement.</p>` : "") +
+          `<p><a href="${(S.site_public || "https://comptaconnect.org/").replace(/\/$/, "")}${lien}">Ouvrir mon espace</a></p>`;
+        if (!premiere) {
+          if (o.entreprise_id) { const [e] = await db(`cc_entreprises?select=nom,email&id=eq.${o.entreprise_id}`); if (e && /@/.test(e.email || "")) await email(e.email, e.nom, "Nouvelle candidature — " + o.titre, corps).catch(() => null); }
+          else if (o.membre_id) {
+            await push.envoyer([o.membre_id], { title: "👤 Nouvelle candidature", body: c.nom + " a postulé à « " + o.titre.slice(0, 50) + " »", url: lien }).catch(() => null);
+            const [mb] = await db(`cc_membres?select=nom,email&id=eq.${o.membre_id}`); if (mb && /@/.test(mb.email || "")) await email(mb.email, mb.nom, "Nouvelle candidature — " + o.titre, corps).catch(() => null);
+          }
+        }
+      }
+      await db(`cc_candidatures?id=eq.${c.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ notifie: true }) });
+    }
+    if (C.length && !premiere) console.log(new Date().toISOString(), "candidatures : " + C.length + " recruteur(s) prévenu(s)");
+  } catch (e) { console.warn("candidatures :", e.message); }
   // Annuaire des stagiaires « vivant » : après 30 jours sans confirmation, rappel (push + e-mail) ; sans réponse sous 45 jours la fiche est masquée
   try {
     const aRappeler = await db(`cc_stagiaires?select=id,nom,telephone,email,membre_id,confirme_le&publie=is.true&trouve=is.false&confirme_le=lt.${new Date(Date.now() - 30 * 86400000).toISOString()}&or=(rappele_le.is.null,rappele_le.lt.${new Date(Date.now() - 30 * 86400000).toISOString()})&limit=100`);
