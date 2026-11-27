@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
       const [s] = await db(`cc_stagiaires?select=*&id=eq.${Number(stagiaire) || 0}&membre_id=is.null`) as Record<string, unknown>[];
       if (!s || String(s.telephone || "") !== telN || telN.length < 8) return json({ erreur: "Fiche stagiaire introuvable" }, 404);
       stagiaireId = Number(s.id);
-      aPayer = Number(cfg.stagiaires_tarif || 2000);
+      aPayer = Number((s.domaine === "autre" && cfg.stagiaires_tarif_autre) || cfg.stagiaires_tarif || 2000);
       if (aPayer % 5 !== 0 || aPayer < 100) return json({ erreur: "Montant invalide" }, 400);
       libelle = "annuaire stagiaires";
       m = { id: null, code: "000", nom: s.nom, telephone: s.telephone, email: s.email, ville: s.ville, actif: true, matricule: "" };

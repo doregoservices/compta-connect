@@ -86,6 +86,16 @@ begin
 end $$;
 revoke all on function cc_membre_a_jour(bigint) from public;
 
+-- Tarif d'inscription publique selon le domaine (autres filières : stagiaires_tarif_autre, sinon stagiaires_tarif)
+create or replace function cc_stagiaires_tarif(p_domaine text)
+returns int language sql stable security definer set search_path = public as $$
+  select coalesce(
+    case when p_domaine = 'autre' then nullif((select valeur from cc_settings where cle = 'stagiaires_tarif_autre'), '')::int end,
+    nullif((select valeur from cc_settings where cle = 'stagiaires_tarif'), '')::int, 2000);
+$$;
+revoke all on function cc_stagiaires_tarif(text) from public;
+grant execute on function cc_stagiaires_tarif(text) to anon, authenticated;
+
 -- Enregistrer / mettre à jour sa fiche (membre identifié par son téléphone, ou étudiant du public)
 create or replace function cc_stagiaire_enregistrer(p_tel text, p_fiche json)
 returns json language plpgsql security definer set search_path = public as $$
@@ -100,7 +110,7 @@ begin
   select id, nom, actif into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
   -- étudiants hors comptabilité/finance : toujours liste publique payante, même si le numéro est connu
   v_type := case when found and v_m.actif and v_dom = 'compta' then 'membre' else 'public' end;
-  v_tarif := coalesce((select valeur::int from cc_settings where cle = 'stagiaires_tarif'), 2000);
+  v_tarif := cc_stagiaires_tarif(v_dom);
 
   if v_type = 'membre' then
     select * into v_s from cc_stagiaires where membre_id = v_m.id;
@@ -145,7 +155,7 @@ begin
     where s.telephone = v_tel or s.membre_id in (select id from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel))
     order by (s.membre_id is not null) desc limit 1;
   if v_s.id is null then return json_build_object('ok', false); end if;
-  v_tarif := coalesce((select valeur::int from cc_settings where cle = 'stagiaires_tarif'), 2000);
+  v_tarif := cc_stagiaires_tarif(v_s.domaine);
   return json_build_object('ok', true, 'fiche', row_to_json(v_s),
     'a_jour', case when v_s.membre_id is not null then cc_membre_a_jour(v_s.membre_id) else null end,
     'a_payer', case when v_s.type = 'public' and coalesce(v_s.paye_jusqu < current_date, true) then v_tarif else 0 end);
@@ -204,6 +214,27 @@ end $$;
 revoke all on function cc_stagiaire_activer(bigint) from public;
 grant execute on function cc_stagiaire_activer(bigint) to authenticated;
 
-insert into cc_settings (cle, valeur) values ('stagiaires', 'oui'), ('stagiaires_tarif', '2000'), ('stagiaires_duree_mois', '6')
+-- Notifications push : les stagiaires inscrits (non membres) reçoivent aussi les annonces, formations et événements envoyés à tous
+alter table cc_push add column if not exists stagiaire_id bigint references cc_stagiaires(id) on delete cascade;
+create or replace function cc_push_abonner(p_tel text, p_sub json, p_nav text default '')
+returns json language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_s record; v_end text := p_sub->>'endpoint';
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  if v_end is null or length(v_end) < 20 or p_sub->'keys'->>'p256dh' is null or p_sub->'keys'->>'auth' is null then return json_build_object('ok', false, 'motif', 'abonnement'); end if;
+  select * into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if found then
+    insert into cc_push (membre_id, endpoint, p256dh, auth, navigateur) values (v_m.id, v_end, p_sub->'keys'->>'p256dh', p_sub->'keys'->>'auth', left(coalesce(p_nav,''), 120))
+      on conflict (endpoint) do update set membre_id = excluded.membre_id, stagiaire_id = null, p256dh = excluded.p256dh, auth = excluded.auth, actif = true, navigateur = excluded.navigateur;
+    return json_build_object('ok', true);
+  end if;
+  select * into v_s from cc_stagiaires where membre_id is null and telephone = v_tel limit 1;
+  if not found then return json_build_object('ok', false, 'motif', 'inconnu'); end if;
+  insert into cc_push (membre_id, stagiaire_id, endpoint, p256dh, auth, navigateur) values (null, v_s.id, v_end, p_sub->'keys'->>'p256dh', p_sub->'keys'->>'auth', left(coalesce(p_nav,''), 120))
+    on conflict (endpoint) do update set stagiaire_id = excluded.stagiaire_id, p256dh = excluded.p256dh, auth = excluded.auth, actif = true, navigateur = excluded.navigateur;
+  return json_build_object('ok', true, 'stagiaire', true);
+end $$;
+
+insert into cc_settings (cle, valeur) values ('stagiaires', 'oui'), ('stagiaires_tarif', '2000'), ('stagiaires_duree_mois', '6'), ('stagiaires_tarif_autre', ''), ('stagiaires_contact_tel', '')
   on conflict (cle) do nothing;
 notify pgrst, 'reload schema';

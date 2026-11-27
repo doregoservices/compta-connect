@@ -2471,6 +2471,8 @@ function vueAnnuaire(params){
 /* --------------------------- Annuaire des stagiaires --------------------------- */
 const STAGE_TYPES = { benevole:"Stage bénévole", prise_en_charge:"Stage avec prise en charge (transport, repas)", remunere:"Stage rémunéré" };
 const STAGE_NIVEAUX = ["BTS / DUT","Licence","Master","DSCG / Expertise","Jeune diplômé(e)","Autre"];
+function contactStagiairesTel(){ return etat.settings.stagiaires_contact_tel || etat.settings.tresorier_tel || ""; }
+function tarifStagiaire(dom){ return parseInt((dom === "autre" && etat.settings.stagiaires_tarif_autre) || etat.settings.stagiaires_tarif || "2000", 10); }
 function stagiaireAJour(x){
   if(x.type !== "membre") return true;
   const m = (etat.membres||[]).find(mm => String(mm.id) === String(x.membre_id)); if(!m || !m.actif) return false;
@@ -2488,12 +2490,12 @@ function vueStagiaires(params){
     + 'Les coordonnées sont remises aux <strong>membres du réseau à jour de cotisation</strong>, qui contactent directement le stagiaire.</p>'
     + '<div class="grille g2" style="gap:10px">'
     + '<div class="alerte al-ok" style="margin:0"><strong>Vous êtes membre du réseau ?</strong> Votre fiche stagiaire est <strong>gratuite</strong> et apparaît en tête de liste tant que vous êtes à jour de cotisation.</div>'
-    + '<div class="alerte al-info" style="margin:0"><strong>Vous n’êtes pas membre ?</strong> Inscription publique à <strong>'+tarif+' F</strong>, fiche visible pendant '+ech(duree)+' mois, après les membres. <a href="#/adherer">Devenir membre</a> est plus avantageux.</div></div>'
+    + '<div class="alerte al-info" style="margin:0"><strong>Vous n’êtes pas membre ?</strong> Inscription publique à <strong>'+tarif+' F</strong>'+(tarifStagiaire("autre") !== tarifStagiaire("compta") ? ' ('+fcfa(tarifStagiaire("autre"))+' F pour les autres filières)' : '')+', fiche visible pendant '+ech(duree)+' mois, après les membres. <a href="#/adherer">Devenir membre</a> est plus avantageux.</div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" onclick="ouvrirFicheStagiaire()">✍️ Créer ou modifier ma fiche</button>'
     + '<input id="qStg" value="'+ech(params.q||"")+'" placeholder="Rechercher : école, ville, logiciel, filière…" style="flex:1;min-width:200px" onkeydown="if(event.key===\'Enter\')aller(\'#/stagiaires?q=\'+encodeURIComponent(this.value))"><button class="btn sec" onclick="aller(\'#/stagiaires?q=\'+encodeURIComponent(document.querySelector(\'#qStg\').value))">Rechercher</button></div>'
     + '<p style="margin-top:10px"><a class="badge b-neutre" style="text-decoration:none;margin:2px;'+((params.d||"compta")==="compta"?"background:var(--vert);color:#fff":"")+'" href="#/stagiaires?d=compta">Comptabilité · finance · audit</a> <a class="badge b-neutre" style="text-decoration:none;margin:2px;'+(params.d==="autre"?"background:var(--vert);color:#fff":"")+'" href="#/stagiaires?d=autre">Autres filières (informatique, droit, marketing, RH…)</a></p>'
     + (m ? '' : '<p class="mut" style="margin-top:8px">Membre du réseau ? <a href="#/">Identifiez-vous avec votre téléphone</a> pour voir les coordonnées.</p>')
-    + '<p class="mut" style="font-size:13px">🏢 <strong>Entreprise ?</strong> Repérez un profil et demandez ses coordonnées au réseau'+(etat.settings.tresorier_tel ? ' par WhatsApp' : '')+' : le bouton figure sur chaque fiche.</p>'
+    + '<p class="mut" style="font-size:13px">🏢 <strong>Entreprise ?</strong> Repérez un profil et demandez ses coordonnées au réseau'+(contactStagiairesTel() ? ' par WhatsApp' : '')+' : le bouton figure sur chaque fiche.</p>'
     + '</div><div id="ficheStg"></div><div id="listeStg"><div class="carte"><p class="mut">Chargement…</p></div></div></main>';
 }
 async function chargerStagiaires(params){
@@ -2520,7 +2522,7 @@ function carteStagiaire(x, m){
     + '<div style="font-size:13.5px"><strong>'+pret+'</strong>'+(x.duree ? ' · '+ech(x.duree) : '')+(x.disponible_le ? ' · dès le '+new Date(x.disponible_le).toLocaleDateString("fr-FR") : '')+(x.a_cv ? ' · 📄 CV' : '')+'</div>'
     + (x.message ? '<p class="mut" style="font-size:13px;margin:6px 0 0">'+ech(x.message)+'</p>' : '')
     + '<div id="ctc'+x.id+'" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+(m ? '<button class="btn sec" onclick="contacterStagiaire('+x.id+',\''+ech(idMembre(m))+'\')">📱 Voir les coordonnées</button>' : '<span class="mut" style="font-size:13px">Coordonnées réservées aux membres à jour.</span>')
-    + (etat.settings.tresorier_tel ? '<a class="btn sec" style="padding:6px 10px;font-size:13px" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(etat.settings.tresorier_tel)+'?text='+encodeURIComponent("Bonjour, nous sommes une entreprise et souhaitons obtenir les coordonnées du stagiaire « "+x.nom+" » (fiche n° "+x.id+") de l’annuaire "+(etat.settings.reseau||"ComptaConnect")+".")+'">🏢 Entreprise : demander le contact</a>' : '')+'</div></div>';
+    + (contactStagiairesTel() ? '<a class="btn sec" style="padding:6px 10px;font-size:13px" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(contactStagiairesTel())+'?text='+encodeURIComponent("Bonjour, nous sommes une entreprise et souhaitons obtenir les coordonnées du stagiaire « "+x.nom+" » (fiche n° "+x.id+") de l’annuaire "+(etat.settings.reseau||"ComptaConnect")+".")+'">🏢 Entreprise : demander le contact</a>' : '')+'</div></div>';
 }
 async function contacterStagiaire(id, tel){
   const z = $("#ctc"+id); if(!z) return;
@@ -2547,7 +2549,7 @@ async function formulaireStagiaire(){
   const champ = (id, label, ph, val, type) => '<div class="champ"><span>'+label+'</span><input id="stg_'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'" value="'+ech(val==null?"":String(val))+'"></div>';
   z.innerHTML = '<div class="carte"><h3>Ma fiche stagiaire</h3>'
     + (m ? '<div class="alerte al-ok">Membre du réseau reconnu : <strong>'+ech(m.nom)+'</strong>. Fiche gratuite (domaine comptabilité · finance), visible tant que vous êtes à jour de cotisation.</div>'
-         : '<div class="alerte al-info">Numéro non membre : inscription publique à <strong>'+fcfa(etat.settings.stagiaires_tarif||2000)+' F</strong> ('+ech(etat.settings.stagiaires_duree_mois||6)+' mois de visibilité), à régler après l’enregistrement. <a href="#/adherer">Devenir membre</a> vous donnerait aussi l’accès aux formations et aux offres.</div>')
+         : '<div class="alerte al-info">Numéro non membre : inscription publique à <strong>'+fcfa(tarifStagiaire(f.domaine))+' F</strong>'+(tarifStagiaire("autre") !== tarifStagiaire("compta") ? ' ('+fcfa(tarifStagiaire("autre"))+' F pour les autres filières)' : '')+' ('+ech(etat.settings.stagiaires_duree_mois||6)+' mois de visibilité), à régler après l’enregistrement. <a href="#/adherer">Devenir membre</a> vous donnerait aussi l’accès aux formations et aux offres.</div>')
     + '<input type="hidden" id="stg_tel" value="'+ech(tel)+'">'
     + champ("nom","Nom et prénoms *","Ex. KONAN Aya", f.nom || (m ? m.nom : ""))
     + '<div class="grille g2">'+champ("ecole","École / université","Ex. INP-HB, UFHB, ESCA…", f.ecole)
@@ -2585,11 +2587,24 @@ async function enregistrerStagiaire(){
       apprendre: $("#stg_apprendre").checked, competences:v("competences"), type_stage:v("type_stage"), montant: parseInt(v("montant"),10)||0, email:v("email"), message:v("message"), cv_url };
     const r = await sb("rpc/cc_stagiaire_enregistrer", { method:"POST", body: JSON.stringify({ p_tel: v("tel"), p_fiche: fiche }) });
     etat.stagiaires = null;
+    activerPushStagiaire(v("tel"));
     if(r.type === "membre"){ toast(r.a_jour ? "Fiche publiée ✅ Elle apparaît en tête de l’annuaire." : "Fiche enregistrée. Elle sera visible dès que votre cotisation sera à jour.", "ok"); if(!r.a_jour){ const m = trouverMembre(v("tel")); if(m) aller(lienMembre(m)); return; } }
     else if(r.a_payer > 0){ toast("Fiche enregistrée. Réglez l’inscription pour la publier.", "ok"); await payerStagiaire(r.id, v("tel")); return; }
     else toast("Fiche mise à jour ✅", "ok");
     aller("#/stagiaires?t="+encodeURIComponent(v("tel").replace(/\D/g,""))); 
   }catch(e){ toast(e.message, "err"); }finally{ b.disabled = false; }
+}
+/* Notifications pour les stagiaires (membres ou non) : formations, séminaires, annonces du réseau arrivent sur leur téléphone */
+async function activerPushStagiaire(tel){
+  try{
+    if(!pushDisponible()) return; if(/iphone|ipad/i.test(navigator.userAgent) && !window.matchMedia("(display-mode: standalone)").matches) return;
+    if(!("Notification" in window) || Notification.permission === "denied") return;
+    const perm = await Notification.requestPermission(); if(perm !== "granted") return;
+    const reg = await navigator.serviceWorker.ready; let sub = await reg.pushManager.getSubscription();
+    if(!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(etat.settings.vapid_public) });
+    const r = await sb("rpc/cc_push_abonner", { method:"POST", body: JSON.stringify({ p_tel: String(tel).replace(/\D/g,""), p_sub: sub.toJSON(), p_nav: navigator.userAgent.slice(0,120) }) });
+    if(r && r.ok) toast("Notifications activées : formations, séminaires et annonces du réseau arriveront sur ce téléphone.", "ok");
+  }catch(_){}
 }
 async function stagiaireTrouve(oui){
   try{ await sb("rpc/cc_stagiaire_trouve", { method:"POST", body: JSON.stringify({ p_tel: $("#stg_tel").value, p_oui: oui }) }); etat.stagiaires = null; toast(oui ? "Félicitations ! Votre fiche est retirée." : "Fiche remise en ligne.", "ok"); aller("#/stagiaires"); }catch(e){ toast(e.message, "err"); }
@@ -2633,7 +2648,7 @@ function vueStagiairesAdmin(params){
         + '</tbody></table></div>' : '<p class="mut">Aucune fiche pour le moment.</p>';
     }catch(e){ z.innerHTML = '<p class="mut">'+ech(e.message)+'</p>'; }
   }, 0);
-  return '<main><div class="carte"><h3>🎓 Annuaire des stagiaires</h3><p class="mut">Fiches des membres (gratuites, visibles si à jour) et du public (inscription '+fcfa(etat.settings.stagiaires_tarif||2000)+' F, '+ech(etat.settings.stagiaires_duree_mois||6)+' mois). « Activer » sert quand un non-membre a réglé par transfert ; le paiement en ligne active automatiquement. Les coordonnées ne sont jamais publiques : « Contacts » compte les membres qui les ont demandées.</p><div id="stgAdmin"><p class="mut">Chargement…</p></div></div></main>';
+  return '<main><div class="carte"><h3>🎓 Annuaire des stagiaires</h3><p class="mut">Fiches des membres (gratuites, visibles si à jour) et du public (inscription '+fcfa(tarifStagiaire("compta"))+' F'+(tarifStagiaire("autre") !== tarifStagiaire("compta") ? ' / '+fcfa(tarifStagiaire("autre"))+' F autres filières' : '')+', '+ech(etat.settings.stagiaires_duree_mois||6)+' mois). « Activer » sert quand un non-membre a réglé par transfert ; le paiement en ligne active automatiquement. Les coordonnées ne sont jamais publiques : « Contacts » compte les membres qui les ont demandées.</p><div id="stgAdmin"><p class="mut">Chargement…</p></div></div></main>';
 }
 async function stagiaireAdmin(id, action){
   try{
@@ -4292,6 +4307,8 @@ function vueParametres(){
     + sel("stagiaires","Annuaire des stagiaires (membres à jour gratuitement ; public sur inscription payante)")
     + '<div class="champ"><span>Inscription publique à l’annuaire des stagiaires (F, non-membres)</span><input id="s_stagiaires_tarif" type="number" min="0" step="5" value="'+ech(s.stagiaires_tarif||"2000")+'"></div>'
     + '<div class="champ"><span>Durée de visibilité d’une inscription publique (mois)</span><input id="s_stagiaires_duree_mois" type="number" min="1" max="24" value="'+ech(s.stagiaires_duree_mois||"6")+'"></div>'
+    + '<div class="champ"><span>Tarif « Autres filières » (F) — vide = même tarif</span><input id="s_stagiaires_tarif_autre" type="number" min="0" step="5" value="'+ech(s.stagiaires_tarif_autre||"")+'" placeholder="'+ech(s.stagiaires_tarif||"2000")+'"></div>'
+    + '<div class="champ"><span>Numéro WhatsApp recevant les demandes des entreprises — vide = trésorier</span><input id="s_stagiaires_contact_tel" value="'+ech(s.stagiaires_contact_tel||"")+'" placeholder="'+ech(s.tresorier_tel||"")+'"></div>'
     + sel("agenda","Agenda des événements (inscriptions, rappels, comptes rendus)")
     + sel("qr_revision","Révision annuelle des réponses Q/R (bandeau « à revérifier » dès janvier, confirmable par tout membre)")
     + '<div class="champ"><span>Témoignages saisis par le bureau (facultatif) — les membres proposent désormais les leurs depuis leur espace, à valider dans « Vie du réseau ». Une ligne : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
@@ -4370,7 +4387,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","palmares_hors_concours","stagiaires","stagiaires_tarif","stagiaires_duree_mois","salon","salon_notif","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","palmares_hors_concours","stagiaires","stagiaires_tarif","stagiaires_duree_mois","stagiaires_tarif_autre","stagiaires_contact_tel","salon","salon_notif","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     const lignes = cles.map(cle => ({ cle, valeur: $("#s_"+cle).value.trim() })).filter(l => (etat.settings[l.cle] ?? "") !== l.valeur);
