@@ -14,7 +14,8 @@ create table if not exists cc_stagiaires (
   email         text not null default '',
   ecole         text not null default '',
   niveau        text not null default '',                  -- BTS, Licence, Master, DSCG, jeune diplômé…
-  filiere       text not null default '',                  -- comptabilité, finance, audit, fiscalité…
+  domaine       text not null default 'compta',            -- compta (comptabilité/finance/audit/fiscalité) | autre (toutes autres filières : toujours liste publique payante)
+  filiere       text not null default '',                  -- comptabilité, finance, audit, fiscalité… ou filière libre si domaine = autre
   ville         text not null default '',
   pays          text not null default '',
   logiciels     text not null default '',                  -- SAARI, Excel, FNE… (texte libre)
@@ -55,12 +56,15 @@ create policy "tresorier cc_stagiaires_contacts" on cc_stagiaires_contacts for s
 grant select on cc_stagiaires_contacts to authenticated;
 revoke all on cc_stagiaires_contacts from anon;
 
+alter table cc_stagiaires add column if not exists domaine text not null default 'compta';
+
 -- Transactions CinetPay : rattachement éventuel à une fiche stagiaire (inscription publique)
 alter table cc_transactions add column if not exists stagiaire_id bigint references cc_stagiaires(id) on delete set null;
 
 -- Vue publique SANS coordonnées (lecture anonyme) : membres = publiés et non trouvés ; public = payés et dans la validité
-create or replace view cc_stagiaires_public as
-  select s.id, s.membre_id, s.type, s.nom, s.ecole, s.niveau, s.filiere, s.ville, s.pays, s.logiciels, s.apprendre, s.competences,
+drop view if exists cc_stagiaires_public;
+create view cc_stagiaires_public as
+  select s.id, s.membre_id, s.type, s.nom, s.ecole, s.niveau, s.domaine, s.filiere, s.ville, s.pays, s.logiciels, s.apprendre, s.competences,
          s.type_stage, s.montant, s.duree, s.disponible_le, (s.cv_url <> '') as a_cv, s.message, s.paye_jusqu, s.cree_le, s.maj_le
   from cc_stagiaires s
   where s.publie and not s.trouve
@@ -87,13 +91,15 @@ create or replace function cc_stagiaire_enregistrer(p_tel text, p_fiche json)
 returns json language plpgsql security definer set search_path = public as $$
 declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_id bigint; v_type text; v_tarif int; v_s record;
         v_nom text := trim(coalesce(p_fiche->>'nom','')); v_type_stage text := coalesce(p_fiche->>'type_stage','prise_en_charge');
+        v_dom text := case when coalesce(p_fiche->>'domaine','compta') = 'autre' then 'autre' else 'compta' end;
 begin
   if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
   if length(v_tel) < 8 then raise exception 'Numéro de téléphone invalide'; end if;
   if length(v_nom) < 3 then raise exception 'Nom trop court'; end if;
   if v_type_stage not in ('benevole','prise_en_charge','remunere') then v_type_stage := 'prise_en_charge'; end if;
   select id, nom, actif into v_m from cc_membres where regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
-  v_type := case when found and v_m.actif then 'membre' else 'public' end;
+  -- étudiants hors comptabilité/finance : toujours liste publique payante, même si le numéro est connu
+  v_type := case when found and v_m.actif and v_dom = 'compta' then 'membre' else 'public' end;
   v_tarif := coalesce((select valeur::int from cc_settings where cle = 'stagiaires_tarif'), 2000);
 
   if v_type = 'membre' then
@@ -103,17 +109,17 @@ begin
   end if;
 
   if v_s.id is null then
-    insert into cc_stagiaires (membre_id, type, nom, telephone, email, ecole, niveau, filiere, ville, pays, logiciels, apprendre, competences,
+    insert into cc_stagiaires (membre_id, type, nom, telephone, email, ecole, niveau, domaine, filiere, ville, pays, logiciels, apprendre, competences,
                                type_stage, montant, duree, disponible_le, cv_url, message)
     values (case when v_type = 'membre' then v_m.id end, v_type, v_nom, v_tel, coalesce(p_fiche->>'email',''), coalesce(p_fiche->>'ecole',''),
-            coalesce(p_fiche->>'niveau',''), coalesce(p_fiche->>'filiere',''), coalesce(p_fiche->>'ville',''), coalesce(p_fiche->>'pays',''),
+            coalesce(p_fiche->>'niveau',''), v_dom, coalesce(p_fiche->>'filiere',''), coalesce(p_fiche->>'ville',''), coalesce(p_fiche->>'pays',''),
             coalesce(p_fiche->>'logiciels',''), coalesce((p_fiche->>'apprendre')::boolean, false), coalesce(p_fiche->>'competences',''),
             v_type_stage, greatest(0, coalesce((p_fiche->>'montant')::int, 0)), coalesce(p_fiche->>'duree',''),
             nullif(p_fiche->>'disponible_le','')::date, coalesce(p_fiche->>'cv_url',''), left(coalesce(p_fiche->>'message',''), 600))
     returning id into v_id;
   else
     update cc_stagiaires set nom = v_nom, email = coalesce(p_fiche->>'email',''), ecole = coalesce(p_fiche->>'ecole',''), niveau = coalesce(p_fiche->>'niveau',''),
-      filiere = coalesce(p_fiche->>'filiere',''), ville = coalesce(p_fiche->>'ville',''), pays = coalesce(p_fiche->>'pays',''), logiciels = coalesce(p_fiche->>'logiciels',''),
+      domaine = v_dom, filiere = coalesce(p_fiche->>'filiere',''), ville = coalesce(p_fiche->>'ville',''), pays = coalesce(p_fiche->>'pays',''), logiciels = coalesce(p_fiche->>'logiciels',''),
       apprendre = coalesce((p_fiche->>'apprendre')::boolean, false), competences = coalesce(p_fiche->>'competences',''), type_stage = v_type_stage,
       montant = greatest(0, coalesce((p_fiche->>'montant')::int, 0)), duree = coalesce(p_fiche->>'duree',''), disponible_le = nullif(p_fiche->>'disponible_le','')::date,
       cv_url = case when coalesce(p_fiche->>'cv_url','') <> '' then p_fiche->>'cv_url' else cv_url end, message = left(coalesce(p_fiche->>'message',''), 600),

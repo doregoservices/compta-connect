@@ -2491,7 +2491,9 @@ function vueStagiaires(params){
     + '<div class="alerte al-info" style="margin:0"><strong>Vous n’êtes pas membre ?</strong> Inscription publique à <strong>'+tarif+' F</strong>, fiche visible pendant '+ech(duree)+' mois, après les membres. <a href="#/adherer">Devenir membre</a> est plus avantageux.</div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" onclick="ouvrirFicheStagiaire()">✍️ Créer ou modifier ma fiche</button>'
     + '<input id="qStg" value="'+ech(params.q||"")+'" placeholder="Rechercher : école, ville, logiciel, filière…" style="flex:1;min-width:200px" onkeydown="if(event.key===\'Enter\')aller(\'#/stagiaires?q=\'+encodeURIComponent(this.value))"><button class="btn sec" onclick="aller(\'#/stagiaires?q=\'+encodeURIComponent(document.querySelector(\'#qStg\').value))">Rechercher</button></div>'
+    + '<p style="margin-top:10px"><a class="badge '+((params.d||"compta")==="compta"?"b-ok":"b-neutre")+'" style="text-decoration:none;margin:2px" href="#/stagiaires?d=compta">Comptabilité · finance · audit</a> <a class="badge '+(params.d==="autre"?"b-ok":"b-neutre")+'" style="text-decoration:none;margin:2px" href="#/stagiaires?d=autre">Autres filières (informatique, droit, marketing, RH…)</a></p>'
     + (m ? '' : '<p class="mut" style="margin-top:8px">Membre du réseau ? <a href="#/">Identifiez-vous avec votre téléphone</a> pour voir les coordonnées.</p>')
+    + '<p class="mut" style="font-size:13px">🏢 <strong>Entreprise ?</strong> Repérez un profil et demandez ses coordonnées au réseau'+(etat.settings.tresorier_tel ? ' par WhatsApp' : '')+' : le bouton figure sur chaque fiche.</p>'
     + '</div><div id="ficheStg"></div><div id="listeStg"><div class="carte"><p class="mut">Chargement…</p></div></div></main>';
 }
 async function chargerStagiaires(params){
@@ -2501,10 +2503,11 @@ async function chargerStagiaires(params){
     const q = accentMin(params.q||"");
     const moi = params.t || (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
     const m = moi ? trouverMembre(moi) : null;
-    const L = etat.stagiaires.filter(stagiaireAJour).filter(x => !q || accentMin([x.nom,x.ecole,x.niveau,x.filiere,x.ville,x.pays,x.logiciels,x.competences].join(" ")).includes(q))
+    const dom = params.d === "autre" ? "autre" : "compta";
+    const L = etat.stagiaires.filter(stagiaireAJour).filter(x => (x.domaine||"compta") === dom).filter(x => !q || accentMin([x.nom,x.ecole,x.niveau,x.filiere,x.ville,x.pays,x.logiciels,x.competences].join(" ")).includes(q))
       .sort((a,b) => (a.type === "membre" ? 0 : 1) - (b.type === "membre" ? 0 : 1) || String(b.maj_le).localeCompare(String(a.maj_le)));
     zone.innerHTML = L.length ? '<div class="grille g2">'+L.map(x => carteStagiaire(x, m)).join("")+'</div>'
-      : '<div class="carte"><p class="mut">Aucun stagiaire'+(q ? ' pour « '+ech(params.q)+' »' : ' inscrit pour le moment')+'.</p></div>';
+      : '<div class="carte"><p class="mut">Aucun stagiaire'+(dom === "autre" ? ' hors comptabilité' : '')+(q ? ' pour « '+ech(params.q)+' »' : ' inscrit pour le moment')+'.</p></div>';
   }catch(e){ zone.innerHTML = '<div class="carte"><p class="mut">Liste indisponible : '+ech(e.message)+'</p></div>'; }
 }
 function carteStagiaire(x, m){
@@ -2516,7 +2519,8 @@ function carteStagiaire(x, m){
     + '<div style="margin:6px 0;font-size:13.5px">'+(x.apprendre ? '<span class="badge b-neutre">Débutant · veut apprendre</span> ' : '')+(x.logiciels ? '💻 '+ech(x.logiciels) : '')+(x.competences ? '<div>'+ech(x.competences)+'</div>' : '')+'</div>'
     + '<div style="font-size:13.5px"><strong>'+pret+'</strong>'+(x.duree ? ' · '+ech(x.duree) : '')+(x.disponible_le ? ' · dès le '+new Date(x.disponible_le).toLocaleDateString("fr-FR") : '')+(x.a_cv ? ' · 📄 CV' : '')+'</div>'
     + (x.message ? '<p class="mut" style="font-size:13px;margin:6px 0 0">'+ech(x.message)+'</p>' : '')
-    + '<div id="ctc'+x.id+'" style="margin-top:8px">'+(m ? '<button class="btn sec" onclick="contacterStagiaire('+x.id+',\''+ech(idMembre(m))+'\')">📱 Voir les coordonnées</button>' : '<span class="mut" style="font-size:13px">Coordonnées réservées aux membres à jour.</span>')+'</div></div>';
+    + '<div id="ctc'+x.id+'" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+(m ? '<button class="btn sec" onclick="contacterStagiaire('+x.id+',\''+ech(idMembre(m))+'\')">📱 Voir les coordonnées</button>' : '<span class="mut" style="font-size:13px">Coordonnées réservées aux membres à jour.</span>')
+    + (etat.settings.tresorier_tel ? '<a class="btn sec" style="padding:6px 10px;font-size:13px" target="_blank" rel="noopener" href="https://wa.me/'+telephoneNormalise(etat.settings.tresorier_tel)+'?text='+encodeURIComponent("Bonjour, nous sommes une entreprise et souhaitons obtenir les coordonnées du stagiaire « "+x.nom+" » (fiche n° "+x.id+") de l’annuaire "+(etat.settings.reseau||"ComptaConnect")+".")+'">🏢 Entreprise : demander le contact</a>' : '')+'</div></div>';
 }
 async function contacterStagiaire(id, tel){
   const z = $("#ctc"+id); if(!z) return;
@@ -2542,12 +2546,13 @@ async function formulaireStagiaire(){
   const m = trouverMembre(tel);
   const champ = (id, label, ph, val, type) => '<div class="champ"><span>'+label+'</span><input id="stg_'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'" value="'+ech(val==null?"":String(val))+'"></div>';
   z.innerHTML = '<div class="carte"><h3>Ma fiche stagiaire</h3>'
-    + (m ? '<div class="alerte al-ok">Membre du réseau reconnu : <strong>'+ech(m.nom)+'</strong>. Fiche gratuite, visible tant que vous êtes à jour de cotisation.</div>'
+    + (m ? '<div class="alerte al-ok">Membre du réseau reconnu : <strong>'+ech(m.nom)+'</strong>. Fiche gratuite (domaine comptabilité · finance), visible tant que vous êtes à jour de cotisation.</div>'
          : '<div class="alerte al-info">Numéro non membre : inscription publique à <strong>'+fcfa(etat.settings.stagiaires_tarif||2000)+' F</strong> ('+ech(etat.settings.stagiaires_duree_mois||6)+' mois de visibilité), à régler après l’enregistrement. <a href="#/adherer">Devenir membre</a> vous donnerait aussi l’accès aux formations et aux offres.</div>')
     + '<input type="hidden" id="stg_tel" value="'+ech(tel)+'">'
     + champ("nom","Nom et prénoms *","Ex. KONAN Aya", f.nom || (m ? m.nom : ""))
     + '<div class="grille g2">'+champ("ecole","École / université","Ex. INP-HB, UFHB, ESCA…", f.ecole)
     + '<div class="champ"><span>Niveau</span><select id="stg_niveau">'+STAGE_NIVEAUX.map(x => '<option'+(f.niveau===x?' selected':'')+'>'+x+'</option>').join("")+'</select></div>'
+    + '<div class="champ"><span>Domaine *</span><select id="stg_domaine" onchange="document.querySelector(\'#stg_filiere\').placeholder=this.value===\'autre\'?\'Ex. informatique, droit, marketing, RH, logistique…\':\'Comptabilité, finance, audit, fiscalité…\'"><option value="compta"'+((f.domaine||"compta")==="compta"?' selected':'')+'>Comptabilité · finance · audit · fiscalité</option><option value="autre"'+(f.domaine==="autre"?' selected':'')+'>Autre filière (liste publique, inscription payante)</option></select></div>'
     + champ("filiere","Filière","Comptabilité, finance, audit, fiscalité…", f.filiere)
     + champ("ville","Ville","Abidjan", f.ville || (m ? m.ville : ""))
     + '<div class="champ"><span>Pays</span><select id="stg_pays">'+PAYS_LISTE.map(p => '<option'+((f.pays || (m && m.pays) || "Côte d’Ivoire")===p?' selected':'')+'>'+ech(p)+'</option>').join("")+'</select></div>'
@@ -2576,7 +2581,7 @@ async function enregistrerStagiaire(){
   try{
     let cv_url = "";
     const fic = ($("#stg_cv")||{}).files; if(fic && fic[0]){ const d = await televerserDocument("stagiaires", fic[0]); cv_url = d.url; }
-    const fiche = { nom:v("nom").trim(), ecole:v("ecole"), niveau:v("niveau"), filiere:v("filiere"), ville:v("ville"), pays:v("pays"), duree:v("duree"), disponible_le:v("disponible_le"), logiciels:v("logiciels"),
+    const fiche = { nom:v("nom").trim(), ecole:v("ecole"), niveau:v("niveau"), domaine:v("domaine"), filiere:v("filiere"), ville:v("ville"), pays:v("pays"), duree:v("duree"), disponible_le:v("disponible_le"), logiciels:v("logiciels"),
       apprendre: $("#stg_apprendre").checked, competences:v("competences"), type_stage:v("type_stage"), montant: parseInt(v("montant"),10)||0, email:v("email"), message:v("message"), cv_url };
     const r = await sb("rpc/cc_stagiaire_enregistrer", { method:"POST", body: JSON.stringify({ p_tel: v("tel"), p_fiche: fiche }) });
     etat.stagiaires = null;
@@ -2622,7 +2627,7 @@ function vueStagiairesAdmin(params){
       const auj = new Date().toISOString().slice(0,10);
       z.innerHTML = L.length ? '<div style="overflow:auto"><table><thead><tr><th>Nom</th><th>Type</th><th>Niveau · filière</th><th>Ville</th><th>Prétention</th><th>Téléphone</th><th>Statut</th><th>Contacts</th><th></th></tr></thead><tbody>'
         + L.map(x => { const visible = x.publie && !x.trouve && (x.type === "membre" ? stagiaireAJour(x) : (x.paye_jusqu && x.paye_jusqu >= auj));
-          return '<tr><td><strong>'+ech(x.nom)+'</strong>'+(x.cv_url ? ' <a href="'+ech(x.cv_url)+'" target="_blank">📄</a>' : '')+'</td><td>'+(x.type === "membre" ? '<span class="badge b-ok">Membre</span>' : '<span class="badge b-neutre">Public</span>')+'</td><td>'+ech([x.niveau,x.filiere].filter(Boolean).join(" · "))+'</td><td>'+ech(x.ville)+'</td><td>'+ech(STAGE_TYPES[x.type_stage]||x.type_stage)+(x.montant ? ' · '+fcfa(x.montant)+' F' : '')+'</td><td>'+ech(x.telephone)+'</td>'
+          return '<tr><td><strong>'+ech(x.nom)+'</strong>'+(x.cv_url ? ' <a href="'+ech(x.cv_url)+'" target="_blank">📄</a>' : '')+'</td><td>'+(x.type === "membre" ? '<span class="badge b-ok">Membre</span>' : '<span class="badge b-neutre">Public</span>')+'</td><td>'+(x.domaine === "autre" ? '<span class="badge b-neutre">Autre filière</span> ' : '')+ech([x.niveau,x.filiere].filter(Boolean).join(" · "))+'</td><td>'+ech(x.ville)+'</td><td>'+ech(STAGE_TYPES[x.type_stage]||x.type_stage)+(x.montant ? ' · '+fcfa(x.montant)+' F' : '')+'</td><td>'+ech(x.telephone)+'</td>'
           + '<td>'+(x.trouve ? '🎉 Stage trouvé' : !x.publie ? '<span class="badge b-err">Retirée</span>' : visible ? '<span class="badge b-ok">Visible</span>' : x.type === "membre" ? '<span class="badge b-warn">Membre pas à jour</span>' : '<span class="badge b-warn">Paiement attendu</span>')+(x.type === "public" && x.paye_jusqu ? '<div class="mut" style="font-size:12px">jusqu’au '+new Date(x.paye_jusqu).toLocaleDateString("fr-FR")+'</div>' : '')+'</td><td>'+(nb[x.id]||0)+'</td>'
           + '<td style="white-space:nowrap">'+(x.type === "public" ? '<button class="btn sec" style="padding:4px 8px" onclick="stagiaireAdmin('+x.id+',\'activer\')" title="Paiement reçu hors ligne : activer / prolonger">💰 Activer</button> ' : '')+'<button class="btn sec" style="padding:4px 8px" onclick="stagiaireAdmin('+x.id+',\''+(x.publie ? 'retirer' : 'remettre')+'\')">'+(x.publie ? 'Retirer' : 'Remettre')+'</button></td></tr>'; }).join("")
         + '</tbody></table></div>' : '<p class="mut">Aucune fiche pour le moment.</p>';
