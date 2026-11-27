@@ -16,10 +16,10 @@ Deno.serve(async (req) => {
       const [en] = await db(`cc_entreprises?select=*&id=eq.${Number(entreprise) || 0}&telephone=eq.${encodeURIComponent(telN)}&code=eq.${encodeURIComponent(String(code_acces || "").toUpperCase().trim())}`) as Record<string, unknown>[];
       if (!en) return json({ erreur: "Entreprise introuvable ou code incorrect" }, 404);
       entrepriseId = Number(en.id);
-      objetTx = objet === "contact" ? "contact" : "abonnement";
-      aPayer = objetTx === "contact" ? Number(cfg.entreprises_contact_tarif || 5000) : Number(cfg.entreprises_tarif || 150000);
+      objetTx = ["contact", "pack3", "pack10"].includes(String(objet)) ? String(objet) : "abonnement";
+      aPayer = objetTx === "contact" ? Number(cfg.entreprises_contact_tarif || 5000) : objetTx === "pack3" ? Number(cfg.entreprises_pack3_tarif || 12000) : objetTx === "pack10" ? Number(cfg.entreprises_pack10_tarif || 30000) : Number(cfg.entreprises_tarif || 150000);
       if (aPayer % 5 !== 0 || aPayer < 100) return json({ erreur: "Montant invalide" }, 400);
-      libelle = objetTx === "contact" ? "contact annuaire (entreprise)" : "abonnement entreprise partenaire";
+      libelle = objetTx === "contact" ? "contact annuaire (entreprise)" : objetTx === "pack3" ? "pack 3 contacts (entreprise)" : objetTx === "pack10" ? "pack 10 contacts (entreprise)" : "abonnement entreprise partenaire";
       m = { id: null, code: "000", nom: en.contact_nom || en.nom, telephone: en.telephone, email: en.email, ville: en.ville, actif: true, matricule: "" };
     } else if (stagiaire) {
       // Inscription à l'annuaire public des stagiaires (non-membre) : montant fixe, aucun mois de cotisation, caisse « stagiaires »

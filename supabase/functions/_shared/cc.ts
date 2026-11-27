@@ -88,7 +88,7 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   const entreprise = t.caisse === "entreprises" || !!t.entreprise_id;           // entreprises : abonnement ou contact à l'unité
   const stagiaire = !entreprise && (t.caisse === "stagiaires" || !!t.stagiaire_id);              // annuaire public des stagiaires (non-membre) : caisse séparée
   const inscription = !stagiaire && !entreprise && (t.caisse === "inscription" || (!t.mois && !t.appel_id));   // droit d'adhésion : caisse séparée, aucun mois de cotisation
-  let detail = entreprise ? (t.objet === "contact" ? "ENTREPRISE CONTACT" : "ENTREPRISE ABONNEMENT") : stagiaire ? "ANNUAIRE STAGIAIRES" : inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
+  let detail = entreprise ? (t.objet === "contact" ? "ENTREPRISE CONTACT" : t.objet === "pack3" ? "ENTREPRISE PACK 3 CONTACTS" : t.objet === "pack10" ? "ENTREPRISE PACK 10 CONTACTS" : "ENTREPRISE ABONNEMENT") : stagiaire ? "ANNUAIRE STAGIAIRES" : inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
   if (t.appel_id) {
     const [a] = await db(`cc_appels?select=titre&id=eq.${t.appel_id}`) as { titre: string }[];
     detail = "APPEL " + (a?.titre || t.appel_id);
@@ -102,7 +102,7 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
     caisse: entreprise ? "entreprises" : stagiaire ? "stagiaires" : inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id, frais,
   }) });
   if (entreprise && t.entreprise_id) {
-    try { await db("rpc/cc_entreprise_activer", { method: "POST", body: JSON.stringify({ p_id: t.entreprise_id, p_objet: t.objet === "contact" ? "contact" : "abonnement", p_nb: 1 }) }); } catch { /* activation manuelle possible */ }
+    try { await db("rpc/cc_entreprise_activer", { method: "POST", body: JSON.stringify({ p_id: t.entreprise_id, p_objet: ["contact", "pack3", "pack10"].includes(String(t.objet)) ? "contact" : "abonnement", p_nb: t.objet === "pack3" ? 3 : t.objet === "pack10" ? 10 : 1 }) }); } catch { /* activation manuelle possible */ }
   }
   if (stagiaire && t.stagiaire_id) {
     // Active (ou prolonge) la fiche dans la liste publique — jamais bloquant
