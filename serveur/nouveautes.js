@@ -88,7 +88,9 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
   const nouveaux = file.filter(x => !vus.has(x.cle));
   let total = 0;
   for (const x of nouveaux.slice(0, 20)) {               // 20 notifications max par passage
-    if (!premiere) { const r = await push.envoyer(null, x.msg); total += r.envoyes || 0; console.log(new Date().toISOString(), x.cle, "→", r.envoyes, "appareil(s)"); }
+    if (!premiere) { const r = await push.envoyer(null, x.msg); total += r.envoyes || 0; console.log(new Date().toISOString(), x.cle, "→", r.envoyes, "appareil(s)");
+      // Publications publiques (annonces, événements, offres) : aussi par e-mail, groupées dans le courriel quotidien (courriels.js)
+      if (/^(annonce|evenement|offre):/.test(x.cle)) await db("cc_courriels_file", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ cle: x.cle, titre: x.msg.title, corps: x.msg.body, url: x.msg.url }) }).catch(() => null); }
     await db("cc_notifies", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ cle: x.cle }) });
   }
   if (premiere) console.log("première exécution : " + nouveaux.length + " élément(s) existants marqués comme déjà notifiés");
