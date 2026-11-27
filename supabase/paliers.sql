@@ -16,7 +16,7 @@ create view cc_offres_tout as
     select b.*,
            case when now() < b.fin1 then 'membres' when now() < b.fin2 then 'stagiaires' else 'web' end as phase_temps,
            (b.palier_examine < 1 and exists (select 1 from cc_candidatures c where c.offre_id = b.id and c.quand < b.fin1)) as bloque1,
-           (b.palier_examine < 2 and exists (select 1 from cc_candidatures c where c.offre_id = b.id and c.quand < b.fin2)) as bloque2
+           (b.palier_examine < 2 and exists (select 1 from cc_candidatures c where c.offre_id = b.id and c.quand >= b.fin1 and c.quand < b.fin2)) as bloque2   -- candidats arrivés pendant le palier 2
     from b)
   select p.id, p.entreprise_id, p.membre_id,
          coalesce(e.nom, nullif(p.organisme, ''), '') as entreprise, coalesce(e.secteur, '') as secteur,
