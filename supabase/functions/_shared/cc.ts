@@ -77,7 +77,7 @@ export async function verifierTransaction(transaction_id: string, montantAttendu
 }
 
 /** Enregistre le paiement (idempotent) : une transaction CinetPay acceptée = une ligne cc_paiements. */
-export async function enregistrerPaiement(t: { id: number; transaction_id: string; membre_id: number; code: string; mois: string; appel_id?: number | null; caisse?: string | null; montant: number; telephone: string; nom: string }, verif: { montant: number; methode: string; operateur: string }) {
+export async function enregistrerPaiement(t: { id: number; transaction_id: string; membre_id: number; code: string; mois: string; appel_id?: number | null; caisse?: string | null; stagiaire_id?: number | null; montant: number; telephone: string; nom: string }, verif: { montant: number; methode: string; operateur: string }) {
   const deja = await db(`cc_paiements?select=id&reference_externe=eq.${encodeURIComponent(t.transaction_id)}`) as unknown[];
   if (deja.length) return { deja: true };
   const montant = verif.montant || t.montant;
@@ -85,8 +85,9 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   const cfg = await settings();
   const pct = Number(String(cfg.cinetpay_commission ?? "3.5").replace(",", ".")) || 0;
   const frais = Math.round(montant * pct / 100);
-  const inscription = t.caisse === "inscription" || (!t.mois && !t.appel_id);   // droit d'adhésion : caisse séparée, aucun mois de cotisation
-  let detail = inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
+  const stagiaire = t.caisse === "stagiaires" || !!t.stagiaire_id;              // annuaire public des stagiaires (non-membre) : caisse séparée
+  const inscription = !stagiaire && (t.caisse === "inscription" || (!t.mois && !t.appel_id));   // droit d'adhésion : caisse séparée, aucun mois de cotisation
+  let detail = stagiaire ? "ANNUAIRE STAGIAIRES" : inscription ? "FRAIS D'INSCRIPTION" : t.mois ? reference(t.mois, t.code) : "";
   if (t.appel_id) {
     const [a] = await db(`cc_appels?select=titre&id=eq.${t.appel_id}`) as { titre: string }[];
     detail = "APPEL " + (a?.titre || t.appel_id);
@@ -96,13 +97,18 @@ export async function enregistrerPaiement(t: { id: number; transaction_id: strin
   await db("cc_paiements", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
     date: new Date().toISOString().slice(0, 10), montant, canal: (test ? "SIMULATION CinetPay test" : "CinetPay") + (verif.methode ? " · " + verif.methode : ""),
     expediteur: t.nom, telephone: t.telephone, libelle: "CinetPay " + t.transaction_id + " · " + detail,
-    mois: t.appel_id || inscription ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id, statut: "RAPPROCHE", methode: "cinetpay",
-    caisse: inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id, frais,
+    mois: t.appel_id || inscription || stagiaire ? "" : t.mois, appel_id: t.appel_id || null, membre_id: t.membre_id || null, statut: "RAPPROCHE", methode: "cinetpay",
+    caisse: stagiaire ? "stagiaires" : inscription ? "inscription" : "cotisation", reference_externe: t.transaction_id, frais,
   }) });
+  if (stagiaire && t.stagiaire_id) {
+    // Active (ou prolonge) la fiche dans la liste publique — jamais bloquant
+    try { await db("rpc/cc_stagiaire_activer", { method: "POST", body: JSON.stringify({ p_id: t.stagiaire_id }) }); } catch { /* le trésorier peut activer à la main */ }
+  }
   await db(`cc_transactions?id=eq.${t.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" },
     body: JSON.stringify({ statut: "ACCEPTEE", maj_le: new Date().toISOString(), montant_recu: montant, operateur: verif.operateur }) });
   // Reçu automatique par e-mail (si le membre a une adresse et que Brevo est configuré) — jamais bloquant
   try {
+    if (!t.membre_id) throw new Error("pas de membre");
     const [mb] = await db(`cc_membres?select=nom,email,telephone,matricule&id=eq.${t.membre_id}`) as { nom: string; email: string; telephone: string; matricule: string }[];
     if (mb && /@/.test(mb.email || "") && (cfg.recu_email || "oui") !== "non") {
       const objet = inscription ? "Droit d'adhésion" : t.appel_id ? detail.replace(/^APPEL /, "") : "Cotisation " + moisLibelle(t.mois);

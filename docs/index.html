@@ -1601,6 +1601,7 @@ const PAGES = [
   ["solde", "Solde", "vueSolde", true],
   ["appels", "Appels à paiement", "vueAppels", true],
   ["reseau", "Vie du réseau", "vueReseau", true],
+  ["stagiaires", "Stagiaires", "vueStagiairesAdmin", true],
   ["marche", "Marché", "vueMarcheAdmin", true],
   ["parametres", "Paramètres", "vueParametres", true],
 ];
@@ -1620,7 +1621,7 @@ function entete(){
   } else {
     const moi = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
     nav = (moi && trouverMembre(moi) ? '<a class="'+(etat.route==="payer"?"on":"")+'" href="#/payer?t='+encodeURIComponent(moi)+'" style="font-weight:800">👤 Mon espace</a>' : '')
-      + '<a href="#/">Accueil</a>'+(moi && trouverMembre(moi) ? '' : '<a href="#/adherer">Devenir membre</a>')+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.salon||"oui") !== "non" ? '<a href="#/salon">💬 Salon</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
+      + '<a href="#/">Accueil</a>'+(moi && trouverMembre(moi) ? '' : '<a href="#/adherer">Devenir membre</a>')+((etat.settings.annuaire||"oui") !== "non" && etat.membres.some(m => m.actif && m.annuaire) ? '<a href="#/annuaire">Annuaire</a>' : '')+((etat.settings.agenda||"oui") !== "non" && evenementsAVenir().length ? '<a href="#/agenda">Agenda</a>' : '')+((etat.settings.stagiaires||"oui") !== "non" ? '<a class="'+(etat.route==="stagiaires"?"on":"")+'" href="#/stagiaires">Stagiaires</a>' : '')+(etat.rencontres.length ? '<a href="#/rencontres">Nos rencontres</a>' : '')+((etat.formations||[]).some(f => f.publie !== false) ? '<a href="#/formation">Formation</a>' : '')+((etat.settings.questions||"oui") !== "non" ? '<a href="#/questions">Questions</a>' : '')+((etat.settings.salon||"oui") !== "non" ? '<a href="#/salon">💬 Salon</a>' : '')+((etat.settings.palmares||"oui") !== "non" ? '<a href="#/palmares">Palmarès</a>' : '')+(vitrinesActives().length ? '<a href="#/marche">Marché</a>' : '')+'<a href="#/connexion">Espace trésorier</a>';
   }
   return '<div class="topwrap'+(etat.menuOuvert ? ' menu' : '')+'"><div class="top">'
     + '<a class="marque" href="#/"><img src="logo.jpg" alt=""><span class="nom">COMPTA<b>CONNECT</b></span></a>'
@@ -1676,6 +1677,7 @@ function rendu(){
     else if(route === "questions") corps = vueQuestions(params);
     else if(route === "palmares") corps = vuePalmares(params);
     else if(route === "annuaire") corps = vueAnnuaire(params);
+    else if(route === "stagiaires"){ corps = vueStagiaires(params); setTimeout(() => chargerStagiaires(params), 0); }
     else if(route === "carte") corps = vueCarte(params);
     else if(route === "agenda") corps = vueAgenda(params);
     else if(route === "salon") corps = vueSalon(params);
@@ -2464,6 +2466,176 @@ function vueAnnuaire(params){
     + (L.length ? '<div class="grille g2">'+L.map(x => '<div class="carte" style="display:flex;gap:12px;align-items:flex-start;margin:0">'+avatar(x,"sm")+'<div style="min-width:0"><strong>'+ech(x.nom)+'</strong>'+(x.titre||x.specialite ? '<div>'+ech(x.titre||x.specialite)+'</div>' : '')+(x.employeur ? '<div class="mut">'+ech(x.employeur)+'</div>' : '')+'<div class="mut">'+ech([x.ville,x.pays].filter(Boolean).join(", "))+'</div>'
         + (aJour ? '<div style="margin-top:4px;font-size:13px">'+(x.telephone ? '<a href="https://wa.me/'+telephoneNormalise(x.telephone)+'" target="_blank" rel="noopener">📱 '+ech(x.telephone)+'</a> ' : '')+(x.email ? '<a href="mailto:'+ech(x.email)+'">✉️ '+ech(x.email)+'</a>' : '')+'</div>' : '')+'</div></div>').join("")+'</div>'
       : '<div class="carte"><p class="mut">Aucun membre'+(q ? ' pour « '+ech(params.q)+' »' : ' inscrit dans l’annuaire pour le moment — chaque membre peut cocher « Apparaître dans l’annuaire » dans sa fiche')+'.</p></div>')+'</main>';
+}
+
+/* --------------------------- Annuaire des stagiaires --------------------------- */
+const STAGE_TYPES = { benevole:"Stage bénévole", prise_en_charge:"Stage avec prise en charge (transport, repas)", remunere:"Stage rémunéré" };
+const STAGE_NIVEAUX = ["BTS / DUT","Licence","Master","DSCG / Expertise","Jeune diplômé(e)","Autre"];
+function stagiaireAJour(x){
+  if(x.type !== "membre") return true;
+  const m = (etat.membres||[]).find(mm => String(mm.id) === String(x.membre_id)); if(!m || !m.actif) return false;
+  try{ const l = pointage([Object.assign({}, m, { actif:true })], etat.paiements, moisCourant()).lignes[0]; return ["PAYE","AVANCE","EXONERE","NATURE"].includes(l.statut); }catch(_){ return false; }
+}
+function vueStagiaires(params){
+  if((etat.settings.stagiaires||"oui") === "non") return '<main><div class="carte"><p>L’annuaire des stagiaires est désactivé.</p></div></main>';
+  if(etat.session) return vueStagiairesAdmin(params);
+  const tarif = fcfa(etat.settings.stagiaires_tarif||2000), duree = etat.settings.stagiaires_duree_mois||6;
+  const moi = params.t || (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
+  const m = moi ? trouverMembre(moi) : null;
+  if(params.retour) setTimeout(() => verifierRetourStagiaire(moi), 0);
+  return '<main><div class="carte"><h3>🎓 Annuaire des stagiaires</h3>'
+    + '<p class="mut">Étudiants et jeunes diplômés en comptabilité, finance, audit et fiscalité qui cherchent un stage. Chaque fiche indique le niveau, les logiciels maîtrisés (ou l’envie d’apprendre), la durée souhaitée et la prétention : bénévole, avec prise en charge, ou rémunéré. '
+    + 'Les coordonnées sont remises aux <strong>membres du réseau à jour de cotisation</strong>, qui contactent directement le stagiaire.</p>'
+    + '<div class="grille g2" style="gap:10px">'
+    + '<div class="alerte al-ok" style="margin:0"><strong>Vous êtes membre du réseau ?</strong> Votre fiche stagiaire est <strong>gratuite</strong> et apparaît en tête de liste tant que vous êtes à jour de cotisation.</div>'
+    + '<div class="alerte al-info" style="margin:0"><strong>Vous n’êtes pas membre ?</strong> Inscription publique à <strong>'+tarif+' F</strong>, fiche visible pendant '+ech(duree)+' mois, après les membres. <a href="#/adherer">Devenir membre</a> est plus avantageux.</div></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn" onclick="ouvrirFicheStagiaire()">✍️ Créer ou modifier ma fiche</button>'
+    + '<input id="qStg" value="'+ech(params.q||"")+'" placeholder="Rechercher : école, ville, logiciel, filière…" style="flex:1;min-width:200px" onkeydown="if(event.key===\'Enter\')aller(\'#/stagiaires?q=\'+encodeURIComponent(this.value))"><button class="btn sec" onclick="aller(\'#/stagiaires?q=\'+encodeURIComponent(document.querySelector(\'#qStg\').value))">Rechercher</button></div>'
+    + (m ? '' : '<p class="mut" style="margin-top:8px">Membre du réseau ? <a href="#/">Identifiez-vous avec votre téléphone</a> pour voir les coordonnées.</p>')
+    + '</div><div id="ficheStg"></div><div id="listeStg"><div class="carte"><p class="mut">Chargement…</p></div></div></main>';
+}
+async function chargerStagiaires(params){
+  const zone = $("#listeStg"); if(!zone || etat.session) return;
+  try{
+    if(!etat.stagiaires || (Date.now() - (etat._stgQuand||0)) > 60000){ etat.stagiaires = await sb("cc_stagiaires_public?select=*&order=maj_le.desc"); etat._stgQuand = Date.now(); }
+    const q = accentMin(params.q||"");
+    const moi = params.t || (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
+    const m = moi ? trouverMembre(moi) : null;
+    const L = etat.stagiaires.filter(stagiaireAJour).filter(x => !q || accentMin([x.nom,x.ecole,x.niveau,x.filiere,x.ville,x.pays,x.logiciels,x.competences].join(" ")).includes(q))
+      .sort((a,b) => (a.type === "membre" ? 0 : 1) - (b.type === "membre" ? 0 : 1) || String(b.maj_le).localeCompare(String(a.maj_le)));
+    zone.innerHTML = L.length ? '<div class="grille g2">'+L.map(x => carteStagiaire(x, m)).join("")+'</div>'
+      : '<div class="carte"><p class="mut">Aucun stagiaire'+(q ? ' pour « '+ech(params.q)+' »' : ' inscrit pour le moment')+'.</p></div>';
+  }catch(e){ zone.innerHTML = '<div class="carte"><p class="mut">Liste indisponible : '+ech(e.message)+'</p></div>'; }
+}
+function carteStagiaire(x, m){
+  const pret = x.type_stage === "benevole" ? "Bénévole" : x.type_stage === "remunere" ? "Rémunéré"+(x.montant ? " · "+fcfa(x.montant)+" F/mois" : "") : "Prise en charge"+(x.montant ? " · "+fcfa(x.montant)+" F/mois" : "");
+  return '<div class="carte" style="margin:0;position:relative">'
+    + (x.type === "membre" ? '<span class="badge b-ok" style="position:absolute;right:12px;top:12px">Membre du réseau</span>' : '')
+    + '<strong>'+ech(x.nom)+'</strong><div>'+ech([x.niveau, x.filiere].filter(Boolean).join(" · "))+'</div>'
+    + (x.ecole ? '<div class="mut">'+ech(x.ecole)+'</div>' : '')+'<div class="mut">'+ech([x.ville,x.pays].filter(Boolean).join(", "))+'</div>'
+    + '<div style="margin:6px 0;font-size:13.5px">'+(x.apprendre ? '<span class="badge b-neutre">Débutant · veut apprendre</span> ' : '')+(x.logiciels ? '💻 '+ech(x.logiciels) : '')+(x.competences ? '<div>'+ech(x.competences)+'</div>' : '')+'</div>'
+    + '<div style="font-size:13.5px"><strong>'+pret+'</strong>'+(x.duree ? ' · '+ech(x.duree) : '')+(x.disponible_le ? ' · dès le '+new Date(x.disponible_le).toLocaleDateString("fr-FR") : '')+(x.a_cv ? ' · 📄 CV' : '')+'</div>'
+    + (x.message ? '<p class="mut" style="font-size:13px;margin:6px 0 0">'+ech(x.message)+'</p>' : '')
+    + '<div id="ctc'+x.id+'" style="margin-top:8px">'+(m ? '<button class="btn sec" onclick="contacterStagiaire('+x.id+',\''+ech(idMembre(m))+'\')">📱 Voir les coordonnées</button>' : '<span class="mut" style="font-size:13px">Coordonnées réservées aux membres à jour.</span>')+'</div></div>';
+}
+async function contacterStagiaire(id, tel){
+  const z = $("#ctc"+id); if(!z) return;
+  try{
+    const r = await sb("rpc/cc_stagiaire_contact", { method:"POST", body: JSON.stringify({ p_tel: tel, p_id: id }) });
+    if(!r.ok){ toast(r.motif === "a_jour" ? "Coordonnées réservées aux membres à jour de cotisation : régularisez depuis votre espace." : r.motif === "membre" ? "Réservé aux membres du réseau." : "Fiche indisponible.", "err"); return; }
+    z.innerHTML = '<div class="alerte al-ok" style="margin:0;font-size:13.5px">'+(r.telephone ? '<a href="https://wa.me/'+telephoneNormalise(r.telephone)+'?text='+encodeURIComponent("Bonjour "+r.nom+", je vous contacte via l’annuaire des stagiaires de "+(etat.settings.reseau||"ComptaConnect")+".")+'" target="_blank" rel="noopener">📱 '+ech(r.telephone)+' (WhatsApp)</a> ' : '')
+      + (r.email ? '<a href="mailto:'+ech(r.email)+'">✉️ '+ech(r.email)+'</a> ' : '')+(r.cv_url ? '<a href="'+ech(r.cv_url)+'" target="_blank" rel="noopener">📄 Télécharger le CV</a>' : '')+'</div>';
+  }catch(e){ toast(e.message, "err"); }
+}
+async function ouvrirFicheStagiaire(){
+  const z = $("#ficheStg"); if(!z) return;
+  const moi = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })();
+  z.innerHTML = '<div class="carte"><h3>Ma fiche stagiaire</h3><p class="mut">Indiquez votre numéro de téléphone : s’il correspond à un membre du réseau, la fiche est gratuite.</p>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="stgTel" inputmode="tel" value="'+ech(moi)+'" placeholder="Votre numéro de téléphone" style="flex:1;min-width:200px"><button class="btn" onclick="formulaireStagiaire()">Continuer</button></div></div>';
+  if(moi) formulaireStagiaire();
+  z.scrollIntoView({ behavior:"smooth" });
+}
+async function formulaireStagiaire(){
+  const z = $("#ficheStg"), tel = ($("#stgTel")||{}).value || ""; if(tel.replace(/\D/g,"").length < 8){ toast("Numéro invalide.", "err"); return; }
+  let f = {}, info = null;
+  try{ info = await sb("rpc/cc_stagiaire_ma_fiche", { method:"POST", body: JSON.stringify({ p_tel: tel }) }); if(info && info.ok) f = info.fiche || {}; }catch(_){}
+  const m = trouverMembre(tel);
+  const champ = (id, label, ph, val, type) => '<div class="champ"><span>'+label+'</span><input id="stg_'+id+'" type="'+(type||"text")+'" placeholder="'+(ph||"")+'" value="'+ech(val==null?"":String(val))+'"></div>';
+  z.innerHTML = '<div class="carte"><h3>Ma fiche stagiaire</h3>'
+    + (m ? '<div class="alerte al-ok">Membre du réseau reconnu : <strong>'+ech(m.nom)+'</strong>. Fiche gratuite, visible tant que vous êtes à jour de cotisation.</div>'
+         : '<div class="alerte al-info">Numéro non membre : inscription publique à <strong>'+fcfa(etat.settings.stagiaires_tarif||2000)+' F</strong> ('+ech(etat.settings.stagiaires_duree_mois||6)+' mois de visibilité), à régler après l’enregistrement. <a href="#/adherer">Devenir membre</a> vous donnerait aussi l’accès aux formations et aux offres.</div>')
+    + '<input type="hidden" id="stg_tel" value="'+ech(tel)+'">'
+    + champ("nom","Nom et prénoms *","Ex. KONAN Aya", f.nom || (m ? m.nom : ""))
+    + '<div class="grille g2">'+champ("ecole","École / université","Ex. INP-HB, UFHB, ESCA…", f.ecole)
+    + '<div class="champ"><span>Niveau</span><select id="stg_niveau">'+STAGE_NIVEAUX.map(x => '<option'+(f.niveau===x?' selected':'')+'>'+x+'</option>').join("")+'</select></div>'
+    + champ("filiere","Filière","Comptabilité, finance, audit, fiscalité…", f.filiere)
+    + champ("ville","Ville","Abidjan", f.ville || (m ? m.ville : ""))
+    + '<div class="champ"><span>Pays</span><select id="stg_pays">'+PAYS_LISTE.map(p => '<option'+((f.pays || (m && m.pays) || "Côte d’Ivoire")===p?' selected':'')+'>'+ech(p)+'</option>').join("")+'</select></div>'
+    + champ("duree","Durée souhaitée","Ex. 3 mois, 6 mois", f.duree)
+    + champ("disponible_le","Disponible à partir du","", f.disponible_le, "date")
+    + champ("logiciels","Logiciels maîtrisés","SAARI, Excel, FNE, Odoo…", f.logiciels)+'</div>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;margin:4px 0 8px"><input type="checkbox" id="stg_apprendre" style="width:auto"'+(f.apprendre?' checked':'')+'> Aucune maîtrise pour l’instant : je veux apprendre</label>'
+    + champ("competences","Compétences / points forts","Ex. tenue de caisse, rapprochements bancaires, déclarations TVA…", f.competences)
+    + '<div class="grille g2"><div class="champ"><span>Prétention *</span><select id="stg_type_stage">'+Object.entries(STAGE_TYPES).map(([k,v]) => '<option value="'+k+'"'+((f.type_stage||"prise_en_charge")===k?' selected':'')+'>'+v+'</option>').join("")+'</select></div>'
+    + champ("montant","Montant mensuel souhaité (F, facultatif)","Ex. 50000", f.montant || "", "number")+'</div>'
+    + champ("email","E-mail (facultatif)","", f.email, "email")
+    + '<div class="champ"><span>Mot aux recruteurs (facultatif, 600 caractères)</span><textarea id="stg_message" rows="3">'+ech(f.message||"")+'</textarea></div>'
+    + '<div class="champ"><span>CV (PDF, facultatif'+(f.cv_url ? ' — un CV est déjà joint' : '')+')</span><input type="file" id="stg_cv" accept="application/pdf,.doc,.docx"></div>'
+    + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin:6px 0 10px"><input type="checkbox" id="stg_consent" style="width:auto;margin-top:3px"><span>J’accepte que cette fiche soit publiée sans mes coordonnées, et que mon téléphone, mon e-mail et mon CV soient remis aux membres du réseau à jour qui souhaitent me contacter (<a href="#/legal" target="_blank">confidentialité</a>).</span></label>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" id="stgBtn" onclick="enregistrerStagiaire()">'+(f.id ? 'Mettre à jour ma fiche' : 'Publier ma fiche')+'</button>'
+    + (f.id && !f.trouve ? '<button class="btn sec" onclick="stagiaireTrouve(true)">🎉 J’ai trouvé mon stage (retirer ma fiche)</button>' : '')+(f.id && f.trouve ? '<button class="btn sec" onclick="stagiaireTrouve(false)">Remettre ma fiche en ligne</button>' : '')
+    + (info && info.ok && info.a_payer > 0 ? '<button class="btn" style="background:var(--or);color:#1b1b1b" onclick="payerStagiaire('+f.id+')">💳 Payer l’inscription · '+fcfa(info.a_payer)+' F</button>' : '')+'</div>'
+    + (info && info.ok && f.type === "public" && f.paye_jusqu ? '<p class="mut" style="margin-top:8px">Inscription publique valable jusqu’au '+new Date(f.paye_jusqu).toLocaleDateString("fr-FR")+'.</p>' : '')
+    + '</div>';
+}
+async function enregistrerStagiaire(){
+  const v = id => ($("#stg_"+id)||{}).value || "";
+  if(v("nom").trim().length < 3){ toast("Indiquez votre nom complet.", "err"); return; }
+  if(!$("#stg_consent").checked){ toast("Merci d’accepter la publication de votre fiche.", "err"); return; }
+  const b = $("#stgBtn"); b.disabled = true;
+  try{
+    let cv_url = "";
+    const fic = ($("#stg_cv")||{}).files; if(fic && fic[0]){ const d = await televerserDocument("stagiaires", fic[0]); cv_url = d.url; }
+    const fiche = { nom:v("nom").trim(), ecole:v("ecole"), niveau:v("niveau"), filiere:v("filiere"), ville:v("ville"), pays:v("pays"), duree:v("duree"), disponible_le:v("disponible_le"), logiciels:v("logiciels"),
+      apprendre: $("#stg_apprendre").checked, competences:v("competences"), type_stage:v("type_stage"), montant: parseInt(v("montant"),10)||0, email:v("email"), message:v("message"), cv_url };
+    const r = await sb("rpc/cc_stagiaire_enregistrer", { method:"POST", body: JSON.stringify({ p_tel: v("tel"), p_fiche: fiche }) });
+    etat.stagiaires = null;
+    if(r.type === "membre"){ toast(r.a_jour ? "Fiche publiée ✅ Elle apparaît en tête de l’annuaire." : "Fiche enregistrée. Elle sera visible dès que votre cotisation sera à jour.", "ok"); if(!r.a_jour){ const m = trouverMembre(v("tel")); if(m) aller(lienMembre(m)); return; } }
+    else if(r.a_payer > 0){ toast("Fiche enregistrée. Réglez l’inscription pour la publier.", "ok"); await payerStagiaire(r.id, v("tel")); return; }
+    else toast("Fiche mise à jour ✅", "ok");
+    aller("#/stagiaires?t="+encodeURIComponent(v("tel").replace(/\D/g,""))); 
+  }catch(e){ toast(e.message, "err"); }finally{ b.disabled = false; }
+}
+async function stagiaireTrouve(oui){
+  try{ await sb("rpc/cc_stagiaire_trouve", { method:"POST", body: JSON.stringify({ p_tel: $("#stg_tel").value, p_oui: oui }) }); etat.stagiaires = null; toast(oui ? "Félicitations ! Votre fiche est retirée." : "Fiche remise en ligne.", "ok"); aller("#/stagiaires"); }catch(e){ toast(e.message, "err"); }
+}
+async function payerStagiaire(id, tel){
+  tel = tel || ($("#stg_tel")||{}).value || "";
+  try{
+    const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-init", { method:"POST", headers:{ "Content-Type":"application/json", "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon },
+      body: JSON.stringify({ stagiaire: id, tel, retour: location.origin + location.pathname }) });
+    const j = await rep.json(); if(!rep.ok || !j.url) throw new Error(j.erreur || "Service indisponible");
+    sessionStorage.setItem("cc_tx", j.transaction_id); location.href = j.url;
+  }catch(e){ toast("Paiement en ligne impossible : " + e.message + ". Vous pouvez aussi régler par transfert au trésorier"+(etat.settings.tresorier_tel ? " ("+ech(etat.settings.tresorier_tel)+")" : "")+".", "err"); }
+}
+async function verifierRetourStagiaire(tel){
+  const tid = sessionStorage.getItem("cc_tx"); if(!tid) return;
+  toast("Vérification de votre paiement…", "ok");
+  for(let i = 0; i < 6; i++){
+    try{
+      const rep = await fetch(etat.cfg.url.replace(/\/$/,"") + "/functions/v1/cinetpay-notify?transaction_id=" + encodeURIComponent(tid), { headers:{ "apikey": etat.cfg.anon, "Authorization":"Bearer " + etat.cfg.anon } });
+      const j = await rep.json();
+      if(j.statut === "ACCEPTEE"){ sessionStorage.removeItem("cc_tx"); etat.stagiaires = null; toast("Paiement confirmé ✅ Votre fiche est publiée.", "ok"); aller("#/stagiaires"); return; }
+      if(j.statut === "REFUSEE"){ sessionStorage.removeItem("cc_tx"); toast("Paiement refusé ou annulé.", "err"); return; }
+    }catch(e){}
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  toast("Paiement en cours de confirmation : actualisez dans quelques instants.", "ok");
+}
+/* Trésorier / bureau : toutes les fiches, retrait, activation manuelle (paiement reçu par transfert) */
+function vueStagiairesAdmin(params){
+  setTimeout(async () => {
+    const z = $("#stgAdmin"); if(!z) return;
+    try{
+      const L = await sb("cc_stagiaires?select=*&order=maj_le.desc"), C = await sb("cc_stagiaires_contacts?select=stagiaire_id");
+      const nb = {}; for(const c of C) nb[c.stagiaire_id] = (nb[c.stagiaire_id]||0)+1;
+      const auj = new Date().toISOString().slice(0,10);
+      z.innerHTML = L.length ? '<div style="overflow:auto"><table><thead><tr><th>Nom</th><th>Type</th><th>Niveau · filière</th><th>Ville</th><th>Prétention</th><th>Téléphone</th><th>Statut</th><th>Contacts</th><th></th></tr></thead><tbody>'
+        + L.map(x => { const visible = x.publie && !x.trouve && (x.type === "membre" ? stagiaireAJour(x) : (x.paye_jusqu && x.paye_jusqu >= auj));
+          return '<tr><td><strong>'+ech(x.nom)+'</strong>'+(x.cv_url ? ' <a href="'+ech(x.cv_url)+'" target="_blank">📄</a>' : '')+'</td><td>'+(x.type === "membre" ? '<span class="badge b-ok">Membre</span>' : '<span class="badge b-neutre">Public</span>')+'</td><td>'+ech([x.niveau,x.filiere].filter(Boolean).join(" · "))+'</td><td>'+ech(x.ville)+'</td><td>'+ech(STAGE_TYPES[x.type_stage]||x.type_stage)+(x.montant ? ' · '+fcfa(x.montant)+' F' : '')+'</td><td>'+ech(x.telephone)+'</td>'
+          + '<td>'+(x.trouve ? '🎉 Stage trouvé' : !x.publie ? '<span class="badge b-err">Retirée</span>' : visible ? '<span class="badge b-ok">Visible</span>' : x.type === "membre" ? '<span class="badge b-warn">Membre pas à jour</span>' : '<span class="badge b-warn">Paiement attendu</span>')+(x.type === "public" && x.paye_jusqu ? '<div class="mut" style="font-size:12px">jusqu’au '+new Date(x.paye_jusqu).toLocaleDateString("fr-FR")+'</div>' : '')+'</td><td>'+(nb[x.id]||0)+'</td>'
+          + '<td style="white-space:nowrap">'+(x.type === "public" ? '<button class="btn sec" style="padding:4px 8px" onclick="stagiaireAdmin('+x.id+',\'activer\')" title="Paiement reçu hors ligne : activer / prolonger">💰 Activer</button> ' : '')+'<button class="btn sec" style="padding:4px 8px" onclick="stagiaireAdmin('+x.id+',\''+(x.publie ? 'retirer' : 'remettre')+'\')">'+(x.publie ? 'Retirer' : 'Remettre')+'</button></td></tr>'; }).join("")
+        + '</tbody></table></div>' : '<p class="mut">Aucune fiche pour le moment.</p>';
+    }catch(e){ z.innerHTML = '<p class="mut">'+ech(e.message)+'</p>'; }
+  }, 0);
+  return '<main><div class="carte"><h3>🎓 Annuaire des stagiaires</h3><p class="mut">Fiches des membres (gratuites, visibles si à jour) et du public (inscription '+fcfa(etat.settings.stagiaires_tarif||2000)+' F, '+ech(etat.settings.stagiaires_duree_mois||6)+' mois). « Activer » sert quand un non-membre a réglé par transfert ; le paiement en ligne active automatiquement. Les coordonnées ne sont jamais publiques : « Contacts » compte les membres qui les ont demandées.</p><div id="stgAdmin"><p class="mut">Chargement…</p></div></div></main>';
+}
+async function stagiaireAdmin(id, action){
+  try{
+    if(action === "activer"){ if(!confirm("Confirmer la réception du paiement et activer la fiche ?")) return; await sb("rpc/cc_stagiaire_activer", { method:"POST", body: JSON.stringify({ p_id: id }) }); }
+    else await sb("cc_stagiaires?id=eq."+id, { method:"PATCH", headers:{ "Prefer":"return=minimal" }, body: JSON.stringify({ publie: action === "remettre", maj_le: new Date().toISOString() }) });
+    toast("Fait.", "ok"); rendu();
+  }catch(e){ toast(e.message, "err"); }
 }
 
 /* --------------------------- Journal d'audit (trésorier) --------------------------- */
@@ -4112,6 +4284,9 @@ function vueParametres(){
     + sel("certificats","Certificats PDF téléchargeables par les membres (« Membre à jour », « Contributeur de l’année »)")
     + sel("parrainage","Parrainage (champ « parrainé par » à l’adhésion)")
     + sel("annuaire","Annuaire professionnel (chaque membre choisit d’y figurer)")
+    + sel("stagiaires","Annuaire des stagiaires (membres à jour gratuitement ; public sur inscription payante)")
+    + '<div class="champ"><span>Inscription publique à l’annuaire des stagiaires (F, non-membres)</span><input id="s_stagiaires_tarif" type="number" min="0" step="5" value="'+ech(s.stagiaires_tarif||"2000")+'"></div>'
+    + '<div class="champ"><span>Durée de visibilité d’une inscription publique (mois)</span><input id="s_stagiaires_duree_mois" type="number" min="1" max="24" value="'+ech(s.stagiaires_duree_mois||"6")+'"></div>'
     + sel("agenda","Agenda des événements (inscriptions, rappels, comptes rendus)")
     + sel("qr_revision","Révision annuelle des réponses Q/R (bandeau « à revérifier » dès janvier, confirmable par tout membre)")
     + '<div class="champ"><span>Témoignages saisis par le bureau (facultatif) — les membres proposent désormais les leurs depuis leur espace, à valider dans « Vie du réseau ». Une ligne : « Nom, fonction | texte »</span><textarea id="s_temoignages" rows="3" placeholder="KOUASSI Aya, comptable à Yamoussoukro | Grâce au réseau j’ai trouvé un confrère pour mon dossier CNPS en une heure.">'+ech(s.temoignages||"")+'</textarea></div>'
@@ -4190,7 +4365,7 @@ async function etatCles(){
 }
 async function enregistrerParametres(){
   const cles = ["reseau","slogan","cotisation","jour_echeance","tresorier","tresorier_tel",
-    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","palmares_hors_concours","salon","salon_notif","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
+    "contact_email","site_web","adhesion","whatsapp_lien","skool_lien","bienvenue","matricule_depart","matricule_auto","debut_cotisations","cotisation_tolerance","relance_jours","relance_email","liste_a_jour_visible","paiement_avance","anniversaires","anniversaires_reseau","palmares_hors_concours","stagiaires","stagiaires_tarif","stagiaires_duree_mois","salon","salon_notif","questions","qr_validateurs","qr_validations_min","palmares","palmares_prime","pts_reponse","pts_question","pts_validation","pts_paiement_mois","pts_paiement_avance","pts_fiche","defi","defi_objectif","defi_jour","defi_texte","honneur","honneur_membre_id","honneur_texte","sondages","certificats","parrainage","pts_parrainage","annuaire","nature_revision_mois","agenda","qr_revision","pts_revision","temoignages","charte_lien","replay_lien","fondateur","cinetpay_commission","pays_couverts","hors_zone_procedure","chariow_cotisation_lien","chariow_adhesion_lien","cinetpay_test_tel","reponse_email","recu_email","rapport_email","revision_email"];
   if($("#s_matricule_auto").value === "oui" && !(parseInt($("#s_matricule_depart").value,10) > 0)){ toast("Indiquez d’abord le dernier n° de carte imprimé pour activer l’attribution automatique.", "err"); return; }
   try{
     const lignes = cles.map(cle => ({ cle, valeur: $("#s_"+cle).value.trim() })).filter(l => (etat.settings[l.cle] ?? "") !== l.valeur);
