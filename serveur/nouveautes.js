@@ -69,14 +69,14 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
   }
   // Offres d'emploi / stage / mission validées : d'abord les membres (dès validation), puis les stagiaires inscrits (après la phase membres) ; le web suit sans notification
   const TYPE_OFFRE = { emploi: "💼 Offre d'emploi", stage: "🎓 Offre de stage", mission: "🧾 Mission" };
-  for (const o of await db(`cc_offres_tout?select=id,type,titre,entreprise,membre_nom,ville,valide_le,phase,apercu&valide_le=gte.${depuis}&order=id.desc`).catch(() => [])) {
+  for (const o of await db(`cc_offres_tout?select=id,type,titre,entreprise,membre_nom,ville,valide_le,phase,apercu,stagiaires_le&valide_le=gte.${depuis}&order=id.desc`).catch(() => [])) {
     const msg = { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + (o.entreprise || (o.membre_nom ? "partagée par " + o.membre_nom : "Réseau")).slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id };
     file.push({ cle: "offre:" + o.id, cible: "membres", msg: { ...msg, body: msg.body + " · en avant-première pour les membres" } });
-    // phase stagiaires (une candidature pendant la phase membres fige l'offre : pas de suite) ; emplois/missions : aperçu sans contact, invitation à rejoindre le réseau
+    // phase stagiaires ; emplois/missions : aperçu sans contact, invitation à rejoindre le réseau
+    // veille de la fin de l'avant-première : rappel aux membres
+    if (o.phase === "membres" && new Date(o.stagiaires_le) - Date.now() < 24 * 3600000) file.push({ cle: "offre:" + o.id + ":rappel", cible: "membres", msg: { ...msg, title: "⏳ Dernier jour en avant-première · " + msg.title.replace(/^[^·]*· /, "") } });
     if (o.phase !== "membres") file.push({ cle: "offre:" + o.id + ":stg", cible: "stagiaires", msg: o.apercu ? { ...msg, body: msg.body.slice(0, 60) + " · réservée aux membres : rejoignez le réseau pour postuler" } : msg });
   }
-  // Gels expirés : la diffusion reprend seule après offres_gel_h sans décision du recruteur
-  try { const n = await db("rpc/cc_offres_lever_gels", { method: "POST", body: "{}" }); if (n) console.log(new Date().toISOString(), "offres : " + n + " pause(s) levée(s) automatiquement"); } catch (e) { console.warn("lever gels :", e.message); }
   // Nouvelles candidatures : prévenir le recruteur (entreprise : e-mail ; membre : push + e-mail) avec nom et téléphone du candidat
   try {
     const C = await db("cc_candidatures?select=id,offre_id,nom,telephone,email,origine,quand&notifie=is.false&order=id.asc&limit=50");
@@ -86,7 +86,7 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
         const lien = o.entreprise_id ? "/#/entreprises" : "/#/entreprises#partageMembre";
         const orig = { membre: "membre du réseau", stagiaire: "stagiaire inscrit", public: "candidat" }[c.origine] || c.origine;
         const corps = `<p>Bonjour,</p><p>Nouvelle candidature pour votre offre <b>${o.titre}</b> :</p><p><b>${c.nom}</b> (${orig})<br>Téléphone : <a href="https://wa.me/225${String(c.telephone).replace(/\D/g, "").slice(-10)}">${c.telephone}</a>${c.email ? `<br>E-mail : ${c.email}` : ""}</p>` +
-          (o.fige_phase ? `<p>La diffusion de l'offre est <b>en pause</b> pour laisser la priorité à ce candidat. Dans votre espace, indiquez <b>« Pourvue »</b> si le poste est pris ou <b>« Poursuivre »</b> pour continuer la diffusion ; sans réponse sous ${S.offres_gel_h || 72} h, elle reprend automatiquement.</p>` : "") +
+          `<p>Dans votre espace, la liste des candidats est classée par priorité : membres du réseau d'abord, puis stagiaires inscrits, puis public. Quand le poste est pris, cliquez <b>« Pourvue »</b>.</p>` +
           `<p><a href="${(S.site_public || "https://comptaconnect.org/").replace(/\/$/, "")}${lien}">Ouvrir mon espace</a></p>`;
         if (!premiere) {
           if (o.entreprise_id) { const [e] = await db(`cc_entreprises?select=nom,email&id=eq.${o.entreprise_id}`); if (e && /@/.test(e.email || "")) await email(e.email, e.nom, "Nouvelle candidature — " + o.titre, corps).catch(() => null); }
