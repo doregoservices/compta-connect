@@ -69,10 +69,11 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
   }
   // Offres d'emploi / stage / mission validées : d'abord les membres (dès validation), puis les stagiaires inscrits (après la phase membres) ; le web suit sans notification
   const TYPE_OFFRE = { emploi: "💼 Offre d'emploi", stage: "🎓 Offre de stage", mission: "🧾 Mission" };
-  for (const o of await db(`cc_offres_tout?select=id,type,titre,entreprise,membre_nom,ville,valide_le,phase&valide_le=gte.${depuis}&order=id.desc`).catch(() => [])) {
+  for (const o of await db(`cc_offres_tout?select=id,type,titre,entreprise,membre_nom,ville,valide_le,phase,apercu&valide_le=gte.${depuis}&order=id.desc`).catch(() => [])) {
     const msg = { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + (o.entreprise || (o.membre_nom ? "partagée par " + o.membre_nom : "Réseau")).slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id };
     file.push({ cle: "offre:" + o.id, cible: "membres", msg: { ...msg, body: msg.body + " · en avant-première pour les membres" } });
-    if (o.phase !== "membres") file.push({ cle: "offre:" + o.id + ":stg", cible: "stagiaires", msg });
+    // phase stagiaires (une candidature pendant la phase membres fige l'offre : pas de suite) ; emplois/missions : aperçu sans contact, invitation à rejoindre le réseau
+    if (o.phase !== "membres") file.push({ cle: "offre:" + o.id + ":stg", cible: "stagiaires", msg: o.apercu ? { ...msg, body: msg.body.slice(0, 60) + " · réservée aux membres : rejoignez le réseau pour postuler" } : msg });
   }
   // Annuaire des stagiaires « vivant » : après 30 jours sans confirmation, rappel (push + e-mail) ; sans réponse sous 45 jours la fiche est masquée
   try {
