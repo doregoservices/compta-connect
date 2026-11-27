@@ -69,7 +69,7 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
   }
   // Offres d'emploi / stage / mission validées : notification à tous (membres + stagiaires inscrits)
   const TYPE_OFFRE = { emploi: "💼 Offre d'emploi", stage: "🎓 Offre de stage", mission: "🧾 Mission" };
-  for (const o of await db(`cc_offres_public?select=id,type,titre,entreprise,ville,cree_le&cree_le=gte.${depuis}&order=id.desc`).catch(() => [])) file.push({ cle: "offre:" + o.id, msg: { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + o.entreprise.slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id } });
+  for (const o of await db(`cc_offres_public?select=id,type,titre,entreprise,membre_nom,ville,cree_le&cree_le=gte.${depuis}&order=id.desc`).catch(() => [])) file.push({ cle: "offre:" + o.id, msg: { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + (o.entreprise || (o.membre_nom ? "partagée par " + o.membre_nom : "Réseau")).slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id } });
   // Annuaire des stagiaires « vivant » : après 30 jours sans confirmation, rappel (push + e-mail) ; sans réponse sous 45 jours la fiche est masquée
   try {
     const aRappeler = await db(`cc_stagiaires?select=id,nom,telephone,email,membre_id,confirme_le&publie=is.true&trouve=is.false&confirme_le=lt.${new Date(Date.now() - 30 * 86400000).toISOString()}&or=(rappele_le.is.null,rappele_le.lt.${new Date(Date.now() - 30 * 86400000).toISOString()})&limit=100`);
