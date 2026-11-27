@@ -6,6 +6,16 @@ const REST = URL.startsWith("http://127") ? URL : URL + "/rest/v1";
 const H = { apikey: KEY, Authorization: "Bearer " + KEY, "Content-Type": "application/json" };
 const db = async (p, o = {}) => { const r = await fetch(REST + "/" + p, { ...o, headers: { ...H, ...(o.headers || {}) } }); if (!r.ok) throw new Error(p + " → " + r.status + " " + await r.text()); const t = await r.text(); return t ? JSON.parse(t) : null; };
 const push = require("./push.js");
+// E-mail via Brevo (secrets brevo_api_key / brevo_expediteur) — ne lève jamais
+async function email(dest, nom, sujet, html) {
+  const SEC = Object.fromEntries((await db("cc_secrets?select=cle,valeur&cle=in.(brevo_api_key,brevo_expediteur)").catch(() => [])).map(x => [x.cle, x.valeur]));
+  const S = Object.fromEntries((await db("cc_settings?select=cle,valeur&cle=in.(reseau,contact_email)")).map(x => [x.cle, x.valeur]));
+  if (!SEC.brevo_api_key || !/@/.test(dest || "")) return false;
+  const reponse = S.contact_email || "supportcomptaconnect@gmail.com", reseau = S.reseau || "ComptaConnect";
+  const r = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": SEC.brevo_api_key, "Content-Type": "application/json" },
+    body: JSON.stringify({ sender: { name: reseau, email: SEC.brevo_expediteur || reponse }, replyTo: { email: reponse, name: reseau }, to: [{ email: dest, name: nom || "" }], subject: sujet, htmlContent: html }) });
+  return r.ok;
+}
 const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric", month: "long" }) : "";
 (async () => {
   const S = Object.fromEntries((await db("cc_settings?select=cle,valeur")).map(x => [x.cle, x.valeur]));
@@ -57,6 +67,24 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
       if (!premiere) console.log(new Date().toISOString(), "salon :", nouveauxMsgs.length, "message(s) notifiés");
     }
   }
+  // Offres d'emploi / stage / mission validées : notification à tous (membres + stagiaires inscrits)
+  const TYPE_OFFRE = { emploi: "💼 Offre d'emploi", stage: "🎓 Offre de stage", mission: "🧾 Mission" };
+  for (const o of await db(`cc_offres_public?select=id,type,titre,entreprise,ville,cree_le&cree_le=gte.${depuis}&order=id.desc`).catch(() => [])) file.push({ cle: "offre:" + o.id, msg: { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + o.entreprise.slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id } });
+  // Annuaire des stagiaires « vivant » : après 30 jours sans confirmation, rappel (push + e-mail) ; sans réponse sous 45 jours la fiche est masquée
+  try {
+    const aRappeler = await db(`cc_stagiaires?select=id,nom,telephone,email,membre_id,confirme_le&publie=is.true&trouve=is.false&confirme_le=lt.${new Date(Date.now() - 30 * 86400000).toISOString()}&or=(rappele_le.is.null,rappele_le.lt.${new Date(Date.now() - 30 * 86400000).toISOString()})&limit=100`);
+    for (const st of aRappeler) {
+      const lien = "/#/stagiaires?confirmer=1&t=" + encodeURIComponent(st.telephone);
+      const msg = { title: "🎓 Toujours à la recherche d'un stage ?", body: "Confirmez en un clic pour rester visible dans l'annuaire des stagiaires, ou indiquez que vous avez trouvé.", url: lien };
+      if (!premiere) {
+        if (st.membre_id) await push.envoyer([st.membre_id], msg).catch(() => null);
+        else await push.envoyerStagiaires([st.id], msg).catch(() => null);
+        if (/@/.test(st.email || "")) await email(st.email, st.nom, "Toujours à la recherche d'un stage ?", `<p>Bonjour ${st.nom},</p><p>Votre fiche est dans l'annuaire des stagiaires de ${S.reseau || "ComptaConnect"} depuis plus d'un mois. Êtes-vous toujours à la recherche d'un stage ?</p><p><a href="${(S.site_public || "https://comptaconnect.org/").replace(/\/$/, "")}${lien}" style="background:#0B5A38;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none">Oui, je cherche toujours</a></p><p>Sans réponse sous 15 jours, votre fiche sera masquée ; vous pourrez la réactiver à tout moment. Si vous avez trouvé : félicitations, indiquez-le sur la même page.</p>`).catch(() => null);
+      }
+      await db(`cc_stagiaires?id=eq.${st.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ rappele_le: new Date().toISOString() }) });
+    }
+    if (aRappeler.length) console.log(new Date().toISOString(), "stagiaires : " + aRappeler.length + " rappel(s) de confirmation");
+  } catch (e) { console.warn("rappel stagiaires :", e.message); }
   const nouveaux = file.filter(x => !vus.has(x.cle));
   let total = 0;
   for (const x of nouveaux.slice(0, 20)) {               // 20 notifications max par passage

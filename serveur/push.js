@@ -37,5 +37,17 @@ async function envoyer(membreIds, msg) {
   }));
   return { envoyes, echecs, desactives, appareils: subs.length };
 }
-module.exports = { envoyer, init, config };
+/** Envoie aux appareils de stagiaires inscrits non membres (ids cc_stagiaires). */
+async function envoyerStagiaires(stagiaireIds, msg) {
+  const cfg = await config(); if (!cfg || !stagiaireIds.length) return { envoyes: 0, echecs: 0, desactives: 0 };
+  const subs = await db("cc_push?select=id,endpoint,p256dh,auth&actif=is.true&stagiaire_id=in.(" + stagiaireIds.join(",") + ")&limit=1000");
+  const payload = JSON.stringify({ title: msg.title || cfg.reseau, body: msg.body || "", url: msg.url || "/" });
+  let envoyes = 0, echecs = 0, desactives = 0;
+  await Promise.all(subs.map(async s => {
+    try { await webpush.sendNotification({ endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } }, payload, { TTL: 86400 }); envoyes++; }
+    catch (e) { if (e.statusCode === 404 || e.statusCode === 410) { desactives++; await db(`cc_push?id=eq.${s.id}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ actif: false }) }).catch(() => null); } else echecs++; }
+  }));
+  return { envoyes, echecs, desactives };
+}
+module.exports = { envoyer, envoyerStagiaires, init, config };
 if (require.main === module) { const cmd = process.argv[2]; (cmd === "init" ? init() : cmd === "test" ? envoyer(null, { title: "ComptaConnect", body: "Test de notification ✅", url: "/" }).then(r => console.log(r)) : Promise.resolve(console.log("usage : node push.js init|test"))).catch(e => { console.error(e.message); process.exit(1); }); }

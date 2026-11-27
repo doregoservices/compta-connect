@@ -4,13 +4,24 @@ import { CINETPAY_API, SB_URL, cors, db, jetonV1, json, reference, secrets, sett
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   try {
-    const { code, mois, retour, appel, stagiaire, tel: telStagiaire } = await req.json();
+    const { code, mois, retour, appel, stagiaire, tel: telStagiaire, entreprise, code_acces, objet } = await req.json();
     const codeN = String(code || "").replace(/\D/g, "").padStart(3, "0");
     const moisN = /^\d{4}-\d{2}$/.test(String(mois || "")) ? String(mois) : new Date().toISOString().slice(0, 7);
     const cfg = await settings();
     let m: Record<string, unknown>;
-    let aPayer = 0, appelId: number | null = null, libelle = "", stagiaireId: number | null = null;
-    if (stagiaire) {
+    let aPayer = 0, appelId: number | null = null, libelle = "", stagiaireId: number | null = null, entrepriseId: number | null = null, objetTx = "";
+    if (entreprise) {
+      // Entreprise : abonnement annuel ou contact à l'unité ; identifiée par téléphone + code d'accès
+      const telN = String(telStagiaire || "").replace(/\D/g, "").replace(/^225(\d{10})$/, "$1");
+      const [en] = await db(`cc_entreprises?select=*&id=eq.${Number(entreprise) || 0}&telephone=eq.${encodeURIComponent(telN)}&code=eq.${encodeURIComponent(String(code_acces || "").toUpperCase().trim())}`) as Record<string, unknown>[];
+      if (!en) return json({ erreur: "Entreprise introuvable ou code incorrect" }, 404);
+      entrepriseId = Number(en.id);
+      objetTx = objet === "contact" ? "contact" : "abonnement";
+      aPayer = objetTx === "contact" ? Number(cfg.entreprises_contact_tarif || 5000) : Number(cfg.entreprises_tarif || 150000);
+      if (aPayer % 5 !== 0 || aPayer < 100) return json({ erreur: "Montant invalide" }, 400);
+      libelle = objetTx === "contact" ? "contact annuaire (entreprise)" : "abonnement entreprise partenaire";
+      m = { id: null, code: "000", nom: en.contact_nom || en.nom, telephone: en.telephone, email: en.email, ville: en.ville, actif: true, matricule: "" };
+    } else if (stagiaire) {
       // Inscription à l'annuaire public des stagiaires (non-membre) : montant fixe, aucun mois de cotisation, caisse « stagiaires »
       const telN = String(telStagiaire || "").replace(/\D/g, "").replace(/^225(\d{10})$/, "$1");
       const [s] = await db(`cc_stagiaires?select=*&id=eq.${Number(stagiaire) || 0}&membre_id=is.null`) as Record<string, unknown>[];
@@ -25,7 +36,7 @@ Deno.serve(async (req) => {
       if (!m) return json({ erreur: "Code membre introuvable" }, 404);
     }
     const cot = Number(m.cotisation || cfg.cotisation || 5000);
-    if (stagiaireId) {
+    if (stagiaireId || entrepriseId) {
       // rien d'autre à calculer
     } else if (appel) {
       // Appel à paiement (formation, document, carte membre…) : montant de l'appel moins ce qui est déjà versé
@@ -61,17 +72,17 @@ Deno.serve(async (req) => {
     const matricule = String(m.matricule || codeN);
     const tel = String(m.telephone || "").replace(/\D/g, "");
     const ident = tel.length >= 8 ? `t=${encodeURIComponent(tel)}` : `m=${encodeURIComponent(String(m.matricule || ""))}`;
-    const retourHash = stagiaireId ? `#/stagiaires?retour=1&t=${encodeURIComponent(tel)}` : appelId ? `#/payer?${ident}&retour=1&appel=${appelId}` : `#/payer?${ident}&retour=1`;
-    const caisseTx = stagiaireId ? "stagiaires" : !appelId && !m.actif ? "inscription" : "cotisation";
+    const retourHash = entrepriseId ? `#/entreprises?retour=1` : stagiaireId ? `#/stagiaires?retour=1&t=${encodeURIComponent(tel)}` : appelId ? `#/payer?${ident}&retour=1&appel=${appelId}` : `#/payer?${ident}&retour=1`;
+    const caisseTx = entrepriseId ? "entreprises" : stagiaireId ? "stagiaires" : !appelId && !m.actif ? "inscription" : "cotisation";
 
     const sec = await secrets();
     const { apikey, site_id } = sec;
-    const transaction_id = "CC" + Date.now().toString(36).toUpperCase() + codeN;
+    const transaction_id = "CC" + Date.now().toString(36).toUpperCase() + (entrepriseId ? "E" + entrepriseId : stagiaireId ? "S" + stagiaireId : codeN);
     const sitePublic = String(retour || cfg.site_public || "");
     if (apikey === "SIMULATION") {
       // Mode démonstration : aucune transaction réelle, page de paiement simulée dans l'application
       await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, entreprise_id: entrepriseId, objet: objetTx, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
         statut: "EN_ATTENTE", payment_token: "SIMULATION" }) });
       return json({ url: sitePublic + "#/simulation?tx=" + transaction_id + "&retour=" + encodeURIComponent(retourHash) + "&montant=" + aPayer + "&libelle=" + encodeURIComponent(libelle), transaction_id, montant: aPayer, simulation: true });
     }
@@ -100,13 +111,13 @@ Deno.serve(async (req) => {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j?.payment_url) return json({ erreur: "CinetPay a refusé la création : " + (j?.description || j?.message || j?.status || r.status) }, 502);
       await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+        transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, entreprise_id: entrepriseId, objet: objetTx, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
         statut: "EN_ATTENTE", payment_token: String(j.payment_token || ""), notify_token: String(j.notify_token || ""), cinetpay_id: String(j.transaction_id || "") }) });
       return json({ url: j.payment_url, transaction_id, montant: aPayer });
     }
     const corps = {
       apikey, site_id, transaction_id, amount: aPayer, currency: "XOF",
-      description: `${cfg.reseau || "ComptaConnect"} — ${libelle} — ${stagiaireId ? "STG" + stagiaireId : appelId ? matricule : reference(moisN, codeN)}`,
+      description: `${cfg.reseau || "ComptaConnect"} — ${libelle} — ${entrepriseId ? "ENT" + entrepriseId : stagiaireId ? "STG" + stagiaireId : appelId ? matricule : reference(moisN, codeN)}`,
       notify_url, return_url, channels: "MOBILE_MONEY", lang: "fr",
       metadata: JSON.stringify({ code: codeN, mois: appelId || !m.actif ? "" : moisN, appel: appelId, caisse: caisseTx, stagiaire: stagiaireId }),
       customer_name: nomParts[0], customer_surname: nomParts.slice(1).join(" ") || nomParts[0],
@@ -118,7 +129,7 @@ Deno.serve(async (req) => {
     if (j?.code !== "201" || !j?.data?.payment_url) return json({ erreur: "CinetPay a refusé la création : " + (j?.message || j?.description || j?.code) }, 502);
 
     await db("cc_transactions", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({
-      transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
+      transaction_id, membre_id: m.id, code: codeN, mois: appelId || !m.actif ? "" : moisN, appel_id: appelId, caisse: caisseTx, stagiaire_id: stagiaireId, entreprise_id: entrepriseId, objet: objetTx, montant: aPayer, telephone: m.telephone || "", nom: m.nom,
       statut: "EN_ATTENTE", payment_token: j.data.payment_token || "" }) });
     return json({ url: j.data.payment_url, transaction_id, montant: aPayer });
   } catch (e) {
