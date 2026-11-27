@@ -24,9 +24,10 @@ async function init() {
   console.log("clés VAPID générées");
 }
 /** Envoie { title, body, url } aux appareils des membres donnés (ids) ou à tous (null). Renvoie { envoyes, echecs, desactives }. */
-async function envoyer(membreIds, msg) {
+async function envoyer(membreIds, msg, opts) {
   const cfg = await config(); if (!cfg) return { envoyes: 0, echecs: 0, desactives: 0, motif: "VAPID non configuré" };
-  const filtre = membreIds ? "&membre_id=in.(" + membreIds.join(",") + ")" : "";
+  // membreIds null = tous les appareils (membres + stagiaires) ; opts.cible = "membres" | "stagiaires" pour restreindre
+  const filtre = membreIds ? "&membre_id=in.(" + membreIds.join(",") + ")" : opts && opts.cible === "membres" ? "&membre_id=not.is.null" : opts && opts.cible === "stagiaires" ? "&stagiaire_id=not.is.null" : "";
   const subs = await db("cc_push?select=id,membre_id,endpoint,p256dh,auth&actif=is.true" + filtre + "&limit=5000");
   const payload = JSON.stringify({ title: msg.title || cfg.reseau, body: msg.body || "", url: msg.url || "/" });
   let envoyes = 0, echecs = 0, desactives = 0;

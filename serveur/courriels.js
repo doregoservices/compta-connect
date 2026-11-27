@@ -19,15 +19,15 @@ const ech = t => String(t || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "
   // Destinataires : membres actifs avec e-mail + stagiaires inscrits visibles avec e-mail (dédoublonnés par adresse)
   const membres = await db("cc_membres?select=nom,email&actif=is.true&email=like.*@*");
   const stag = await db("cc_stagiaires?select=nom,email&publie=is.true&trouve=is.false&email=like.*@*").catch(() => []);
-  const dest = new Map(); for (const x of [...membres, ...stag]) { const e = String(x.email).trim().toLowerCase(); if (/@/.test(e) && !dest.has(e)) dest.set(e, x.nom); }
+  const dest = new Map(); for (const x of [...membres.map(m => ({ ...m, type: "membres" })), ...stag.map(s => ({ ...s, type: "stagiaires" }))]) { const e = String(x.email).trim().toLowerCase(); if (/@/.test(e) && !dest.has(e)) dest.set(e, { nom: x.nom, type: x.type }); }
   // Ce que chacun a déjà reçu (30 derniers jours)
   const envois = await db(`cc_courriels_envois?select=dest,cles&quand=gte.${new Date(Date.now() - 30 * 86400000).toISOString()}&limit=100000`);
   const recu = new Map(); for (const e of envois) { if (!recu.has(e.dest)) recu.set(e.dest, new Set()); for (const c of e.cles) recu.get(e.dest).add(c); }
   const dejaAuj = await db(`cc_courriels_envois?select=id&quand=gte.${new Date().toISOString().slice(0, 10)}`);
   let budget = plafond - dejaAuj.length, envoyes = 0, erreurs = 0, reportes = 0;
   const reponse = S.contact_email || "supportcomptaconnect@gmail.com";
-  for (const [email, nom] of dest) {
-    const items = file.filter(f => !(recu.get(email) || new Set()).has(f.cle));
+  for (const [email, { nom, type }] of dest) {
+    const items = file.filter(f => ((f.cible || "tous") === "tous" || f.cible === type) && !(recu.get(email) || new Set()).has(f.cle));
     if (!items.length) continue;
     if (budget <= 0) { reportes++; continue; }
     const prenom = String(nom || "").trim().split(/\s+/).pop() || "cher membre";

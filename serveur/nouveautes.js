@@ -67,9 +67,13 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
       if (!premiere) console.log(new Date().toISOString(), "salon :", nouveauxMsgs.length, "message(s) notifiés");
     }
   }
-  // Offres d'emploi / stage / mission validées : notification à tous (membres + stagiaires inscrits)
+  // Offres d'emploi / stage / mission validées : d'abord les membres (dès validation), puis les stagiaires inscrits (après la phase membres) ; le web suit sans notification
   const TYPE_OFFRE = { emploi: "💼 Offre d'emploi", stage: "🎓 Offre de stage", mission: "🧾 Mission" };
-  for (const o of await db(`cc_offres_public?select=id,type,titre,entreprise,membre_nom,ville,cree_le&cree_le=gte.${depuis}&order=id.desc`).catch(() => [])) file.push({ cle: "offre:" + o.id, msg: { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + (o.entreprise || (o.membre_nom ? "partagée par " + o.membre_nom : "Réseau")).slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id } });
+  for (const o of await db(`cc_offres_tout?select=id,type,titre,entreprise,membre_nom,ville,valide_le,phase&valide_le=gte.${depuis}&order=id.desc`).catch(() => [])) {
+    const msg = { title: (TYPE_OFFRE[o.type] || "💼 Offre") + " · " + (o.entreprise || (o.membre_nom ? "partagée par " + o.membre_nom : "Réseau")).slice(0, 40), body: o.titre.slice(0, 90) + (o.ville ? " · " + o.ville : ""), url: "/#/entreprises?offre=" + o.id };
+    file.push({ cle: "offre:" + o.id, cible: "membres", msg: { ...msg, body: msg.body + " · en avant-première pour les membres" } });
+    if (o.phase !== "membres") file.push({ cle: "offre:" + o.id + ":stg", cible: "stagiaires", msg });
+  }
   // Annuaire des stagiaires « vivant » : après 30 jours sans confirmation, rappel (push + e-mail) ; sans réponse sous 45 jours la fiche est masquée
   try {
     const aRappeler = await db(`cc_stagiaires?select=id,nom,telephone,email,membre_id,confirme_le&publie=is.true&trouve=is.false&confirme_le=lt.${new Date(Date.now() - 30 * 86400000).toISOString()}&or=(rappele_le.is.null,rappele_le.lt.${new Date(Date.now() - 30 * 86400000).toISOString()})&limit=100`);
@@ -88,9 +92,9 @@ const dateFR = d => d ? new Date(d).toLocaleDateString("fr-FR", { day: "numeric"
   const nouveaux = file.filter(x => !vus.has(x.cle));
   let total = 0;
   for (const x of nouveaux.slice(0, 20)) {               // 20 notifications max par passage
-    if (!premiere) { const r = await push.envoyer(null, x.msg); total += r.envoyes || 0; console.log(new Date().toISOString(), x.cle, "→", r.envoyes, "appareil(s)");
+    if (!premiere) { const r = await push.envoyer(null, x.msg, { cible: x.cible }); total += r.envoyes || 0; console.log(new Date().toISOString(), x.cle, "→", r.envoyes, "appareil(s)" + (x.cible ? " (" + x.cible + ")" : ""));
       // Publications publiques (annonces, événements, offres) : aussi par e-mail, groupées dans le courriel quotidien (courriels.js)
-      if (/^(annonce|evenement|offre):/.test(x.cle)) await db("cc_courriels_file", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ cle: x.cle, titre: x.msg.title, corps: x.msg.body, url: x.msg.url }) }).catch(() => null); }
+      if (/^(annonce|evenement|offre):/.test(x.cle)) await db("cc_courriels_file", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ cle: x.cle, titre: x.msg.title, corps: x.msg.body, url: x.msg.url, cible: x.cible || "tous" }) }).catch(() => null); }
     await db("cc_notifies", { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ cle: x.cle }) });
   }
   if (premiere) console.log("première exécution : " + nouveaux.length + " élément(s) existants marqués comme déjà notifiés");
