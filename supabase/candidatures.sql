@@ -20,23 +20,23 @@ insert into cc_settings (cle, valeur) values ('offres_gel_h', '72') on conflict 
 -- Postuler = candidature nominative (téléphone obligatoire) ; gèle la phase ; le gel expire après offres_gel_h
 create or replace function cc_offre_postuler(p_id bigint, p_tel text default '', p_nom text default '', p_email text default '')
 returns json language plpgsql security definer set search_path = public as $$
-declare v_t record; v_c text; v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_m record; v_s record; v_orig text := 'public'; v_nom text := trim(coalesce(p_nom,''));
+declare v_t record; v_c text; v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_mid bigint; v_mnom text; v_memail text; v_sid bigint; v_snom text; v_semail text; v_orig text := 'public'; v_nom text := trim(coalesce(p_nom,''));
 begin
   if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
   select * into v_t from cc_offres_liste(p_tel) where id = p_id;
   if v_t.id is null then return json_build_object('ok', false, 'motif', 'phase'); end if;
   if v_t.apercu then return json_build_object('ok', false, 'motif', 'membres'); end if;
   if length(v_tel) < 8 then return json_build_object('ok', false, 'motif', 'tel'); end if;
-  select id, nom, email into v_m from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
-  if v_m.id is not null then v_orig := 'membre'; v_nom := v_m.nom;
-  else select id, nom, email into v_s from cc_stagiaires where publie and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
-       if v_s.id is not null then v_orig := 'stagiaire'; v_nom := v_s.nom; end if; end if;
+  select id, nom, email into v_mid, v_mnom, v_memail from cc_membres where actif and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if v_mid is not null then v_orig := 'membre'; v_nom := v_mnom;
+  else select id, nom, email into v_sid, v_snom, v_semail from cc_stagiaires where publie and regexp_replace(telephone, '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+       if v_sid is not null then v_orig := 'stagiaire'; v_nom := v_snom; end if; end if;
   if length(v_nom) < 2 then return json_build_object('ok', false, 'motif', 'nom'); end if;
   if exists (select 1 from cc_candidatures where offre_id = p_id and telephone = v_tel) then
     select comment_postuler into v_c from cc_offres where id = p_id; return json_build_object('ok', true, 'deja', true, 'comment_postuler', coalesce(v_c, ''));
   end if;
   insert into cc_candidatures (offre_id, nom, telephone, email, origine, membre_id, stagiaire_id)
-  values (p_id, v_nom, v_tel, coalesce(nullif(trim(p_email),''), v_m.email, v_s.email, ''), v_orig, v_m.id, v_s.id);
+  values (p_id, v_nom, v_tel, coalesce(nullif(trim(p_email),''), v_memail, v_semail, ''), v_orig, v_mid, v_sid);
   update cc_offres set candidatures = candidatures + 1, maj_le = now(),
          fige_phase = case when fige_phase is null and v_t.phase in ('membres','stagiaires') then v_t.phase else fige_phase end,
          fige_le = case when fige_phase is null and v_t.phase in ('membres','stagiaires') then now() else fige_le end
