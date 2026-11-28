@@ -5106,7 +5106,7 @@ if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){
 }
 /* Version affichée = date du fichier de l'application réellement chargé (utile pour vérifier qu'une mise à jour est bien arrivée sur le téléphone) */
 function versionApp(){ try{ const d = new Date(document.lastModified); return isNaN(d) ? "?" : d.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit" })+" "+d.toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" }); }catch(_){ return "?"; } }
-async function forcerMaj(){ toast("Recherche de la dernière version…", "ok"); try{ const r = await fetch("./index.html", { cache: "no-store" }); if(r.ok){ const c = await caches.open("cc-v4"); await c.put("./index.html", r.clone()); } const reg = await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(_){} location.reload(); }
+async function forcerMaj(){ toast("Recherche de la dernière version…", "ok"); try{ const r = await fetch("./index.html", { cache: "no-store" }); if(r.ok){ for(const k of await caches.keys()){ const c = await caches.open(k); await c.put("./index.html", r.clone()); } } const reg = await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(_){} location.reload(); }
 let _installPrompt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); _installPrompt = e; const b = $("#btnInstaller"); if(b) b.style.display = ""; });
 async function installerApp(){ if(!_installPrompt){ toast("Sur iPhone : Partager → « Sur l’écran d’accueil ». Sur Android : menu ⋮ → « Installer l’application ».", "ok"); return; } _installPrompt.prompt(); await _installPrompt.userChoice; _installPrompt = null; }
