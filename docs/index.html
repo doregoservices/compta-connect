@@ -1342,13 +1342,44 @@ async function rafraichirSession(){
   }catch(e){ return false; }
 }
 
+/* Fiche complète + paiements du membre identifié (téléphone ou matricule), fusionnés dans les listes publiques */
+etat._moiTentes = etat._moiTentes || {};
+async function chargerMoi(cle, tableau){
+  const k = String(cle||"").replace(/[^0-9A-Za-z]/g,"");
+  if(!k) return false;
+  if(etat.session) return !!trouverMembre(cle);
+  if(etat._moiCle === k && trouverMembre(cle)) return true;
+  etat._moiTentes[k] = Date.now();
+  const r = await sb_("rpc/cc_mon_espace", { method:"POST", body: JSON.stringify({ p_cle: k }) }, true);
+  if(!r || !r.ok || !r.membre) return false;
+  const m = Object.assign({ actif:true, exonere:false }, r.membre);
+  const i = etat.membres.findIndex(x => String(x.id) === String(m.id));
+  if(i >= 0) etat.membres[i] = m; else etat.membres.push(m);
+  const miens = r.paiements || [];
+  const fusion = (L) => { const sans = (L||[]).filter(p => String(p.membre_id) !== String(m.id)); return sans.concat(miens.filter(p => (L === etat.inscriptions) === (p.caisse === "inscription"))); };
+  if(tableau){ for(let j = tableau.length - 1; j >= 0; j--) if(String(tableau[j].membre_id) === String(m.id)) tableau.splice(j, 1); miens.forEach(p => tableau.push(p)); }
+  else { etat.paiements = fusion(etat.paiements); etat.inscriptions = fusion(etat.inscriptions); }
+  etat._moiCle = k;
+  return true;
+}
+/* Identification asynchrone depuis un champ : on cherche en local, sinon on interroge le serveur, puis on continue */
+async function identifierPuis(saisie, suite, message){
+  let m = trouverMembre(saisie);
+  if(!m){ try{ if(await chargerMoi(saisie)) m = trouverMembre(saisie); }catch(e){ toast(e.message, "err"); return; } }
+  if(m) suite(m); else toast(message || "Numéro inconnu : utilisez le téléphone connu du réseau.", "err");
+}
 async function chargerDonnees(){
+  /* Confidentialité : un visiteur ne reçoit que les vues publiques (sans téléphone, e-mail, matricule, expéditeur) ;
+     sa propre fiche complète arrive ensuite par cc_mon_espace (chargerMoi). Le bureau connecté lit les tables complètes. */
+  const complet = !!etat.session;
   const [membres, paiements, settings] = await Promise.all([
-    sb("cc_membres?select=*&order=code.asc"),
-    sb("cc_paiements?select=*"),
+    sb(complet ? "cc_membres?select=*&order=code.asc" : "cc_membres_public?select=*&order=code.asc"),
+    sb(complet ? "cc_paiements?select=*" : "cc_paiements_public?select=*"),
     sb("cc_settings?select=*"),
   ]);
   etat.membres = membres.map(m => Object.assign({ actif:true, exonere:false }, m));
+  etat._moiCle = null;
+  if(!complet){ const cle = (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })(); if(cle){ etat.inscriptions = []; etat.paiements = paiements; try{ await chargerMoi(cle, paiements); }catch(_){} } }
   etat.depenses = []; etat.roles = [];
   const opt = async (req, defaut) => { try{ return await sb(req); }catch(e){ return defaut; } };
   const pSession = etat.session ? Promise.all([etat.session.role ? null : chargerRole(), opt("cc_depenses?select=*&order=date.desc,id.desc", []), opt("cc_roles?select=*&order=cree_le.asc", [])]).then(([, d, r]) => { etat.depenses = d; etat.roles = r; }) : null;
@@ -1564,7 +1595,7 @@ async function chargerRole(){
   localStorage.setItem("cc_session", JSON.stringify(etat.session));
 }
 async function rafraichir(){ try{ await chargerDonnees(); rendu(); toast("Situation actualisée.", "ok"); }catch(e){ toast(e.message, "err"); } }
-function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); etat.depenses = []; aller("#/"); rendu(); }
+function deconnexion(){ etat.session = null; localStorage.removeItem("cc_session"); etat.depenses = []; etat.membres = []; etat.paiements = []; etat.inscriptions = []; aller("#/"); chargerDonnees().then(rendu).catch(rendu); rendu(); }
 
 function aller(hash){ if(location.hash === hash) rendu(); else location.hash = hash; }
 
@@ -1667,6 +1698,8 @@ function rendu(){
   if(etat._derniereRoute !== undefined && (etat._derniereRoute !== route || etat._derniersParams !== JSON.stringify(params))) window.scrollTo(0, 0);
   etat._derniereRoute = route; etat._derniersParams = JSON.stringify(params);
   etat.route = route; etat.params = params;
+  if(!etat.session){ const cle = params.t || params.m || (() => { try{ return localStorage.getItem("cc_moi")||""; }catch(_){ return ""; } })(); const k = String(cle||"").replace(/[^0-9A-Za-z]/g,"");
+    if(k && !trouverMembre(cle) && !etat._moiTentes[k] && !etat.horsLigne){ chargerMoi(cle).then(ok => { if(ok) rendu(); }).catch(() => {}); } }
   const app = $("#app");
   let corps = "";
   try{
@@ -1874,9 +1907,10 @@ function ressourcesOfficielles(membre){
   return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">'+l.join("")+'</div>'
     + (s.contact_email ? '<p class="mut" style="margin:8px 0 0">Une question ? <a href="mailto:'+ech(s.contact_email)+'">'+ech(s.contact_email)+'</a>'+(s.tresorier_tel ? ' · WhatsApp <a href="https://wa.me/'+ech(String(s.tresorier_tel).replace(/\D/g,""))+'" target="_blank" rel="noopener">'+ech(s.tresorier_tel)+'</a>' : '')+'</p>' : '');
 }
-function verifierMatricule(){
+async function verifierMatricule(){
   const v = ($("#matAccueil").value||"").trim();
-  const m = trouverMembre(v);
+  let m = trouverMembre(v);
+  if(!m && !etat.session){ try{ if(await chargerMoi(v)) m = trouverMembre(v); }catch(e){ toast(e.message, "err"); return; } }
   if(!m){ toast(matriculeNormaliser(v) ? "N° de carte inconnu : entrez plutôt votre numéro de téléphone." : (v.replace(/\D/g,"").length >= 8 ? "Aucun membre avec ce numéro de téléphone. Contactez le trésorier : "+(etat.settings.tresorier_tel||"") : "Saisissez votre numéro de téléphone ou votre matricule."), "err"); return; }
   aller(lienMembre(m));
 }
@@ -1949,7 +1983,7 @@ function vueCarte(params){
     return '<main>'+carteMembreHTML(m, l.statut)+'<p class="mut" style="text-align:center">Carte mémorisée sur cet appareil : elle s’ouvre même sans connexion (application installée → « Ma carte de membre »). <a href="'+lienMembre(m)+'">Ma situation</a></p></main>'; }
   let memo = null; try{ memo = JSON.parse(localStorage.getItem("cc_carte")||"null"); }catch(_){}
   if(memo && memo.m){ if(!etat.settings.reseau) etat.settings = Object.assign({}, memo.settings, etat.settings); return '<main>'+carteMembreHTML(memo.m, memo.statut)+'<p class="mut" style="text-align:center">'+(etat.horsLigne ? '📴 Hors ligne — ' : '')+'situation enregistrée le '+dateFR(memo.date)+'.</p></main>'; }
-  return '<main><div class="carte"><h3>Ma carte de membre</h3><p class="mut">Identifiez-vous une première fois avec votre téléphone (connexion nécessaire) ; la carte sera ensuite disponible hors ligne.</p><div style="display:flex;gap:8px"><input id="telCarte" placeholder="Votre numéro de téléphone" inputmode="tel"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telCarte\').value);if(x)aller(\'#/carte?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">Afficher</button></div></div></main>';
+  return '<main><div class="carte"><h3>Ma carte de membre</h3><p class="mut">Identifiez-vous une première fois avec votre téléphone (connexion nécessaire) ; la carte sera ensuite disponible hors ligne.</p><div style="display:flex;gap:8px"><input id="telCarte" placeholder="Votre numéro de téléphone" inputmode="tel"><button class="btn" onclick="identifierPuis(document.querySelector(\'#telCarte\').value,function(x){aller(\'#/carte?t=\'+encodeURIComponent(idMembre(x)))},\'Numéro inconnu.\')">Afficher</button></div></div></main>';
 }
 function vuePayer(params){
   const saisie = params.m || params.t || "";
@@ -1958,7 +1992,7 @@ function vuePayer(params){
   if(m){ try{ localStorage.setItem("cc_moi", String(m.telephone||saisie).replace(/\D/g,"")); }catch(_){} pushParDefaut(m); }
   let corps = '<main><div class="carte"><h3>Vérifier ma situation</h3>'
     + '<div style="display:flex;gap:8px"><input id="matPayer" value="'+ech(saisie)+'" placeholder="Votre numéro de téléphone" autocapitalize="characters" autocomplete="off">'
-    + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matPayer\').value);if(m)aller(lienMembre(m));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">Vérifier</button></div></div>';
+    + '<button class="btn" onclick="identifierPuis(document.querySelector(\'#matPayer\').value,function(m){aller(lienMembre(m))},\'Numéro inconnu : utilisez le téléphone connu du réseau.\')">Vérifier</button></div></div>';
   if(!m){
     if(saisie) corps += '<div class="alerte al-err">« '+ech(saisie)+' » introuvable. Entrez le numéro de téléphone connu du réseau, ou contactez le trésorier ('+ech(etat.settings.tresorier_tel||"")+').</div>';
     return corps + '</main>';
@@ -2202,7 +2236,7 @@ function vueAppelPublic(params){
     + '<div class="kpi"><div class="t">'+(a.date_limite ? 'Date limite' : 'Statut')+'</div><div class="v" style="font-size:16px">'+(a.date_limite ? dateFR(a.date_limite) : (a.ouvert ? 'Ouvert' : 'Clôturé'))+'</div></div></div>'
     + (a.ouvert ? '<p style="margin-top:12px"><strong>Entrez votre numéro de téléphone pour payer :</strong></p>'
         + '<div style="display:flex;gap:8px"><input id="matAppel" placeholder="Votre téléphone (ou n° de carte)" autocapitalize="characters" autocomplete="off">'
-        + '<button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#matAppel\').value);if(m)aller(lienMembre(m,\'&appel='+a.id+'\'));else toast(\'Numéro inconnu.\',\'err\')})()">Continuer</button></div>'
+        + '<button class="btn" onclick="identifierPuis(document.querySelector(\'#matAppel\').value,function(m){aller(lienMembre(m,\'&appel='+a.id+'\'))},\'Numéro inconnu.\')">Continuer</button></div>'
         + '<p class="mut" style="margin-top:8px">Pas encore membre ? <a href="#/adherer">Adhérez d’abord</a>, puis revenez sur ce lien.</p>'
       : '<div class="alerte al-info" style="margin-top:12px">Cet appel à paiement est clôturé.</div>')
     + '</div></main>';
@@ -2466,7 +2500,7 @@ function vueAnnuaire(params){
   const lienT = m ? '&t='+encodeURIComponent(idMembre(m)) : '';
   return '<main><div class="carte"><h3>📇 Annuaire professionnel</h3>'
     + '<p class="mut">Tous les membres qui ont choisi d’y figurer (à jour ou non). '+(m ? (aJour ? 'Vous êtes à jour : les coordonnées sont visibles.' : 'Coordonnées visibles pour les membres à jour de cotisation — <a href="'+lienMembre(m)+'">régulariser</a>.') : 'Identifiez-vous avec votre téléphone pour voir les coordonnées.')+'</p>'
-    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'+(m ? '' : '<input id="telAnn" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:200px"><button class="btn sec" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telAnn\').value);if(x)aller(\'#/annuaire?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">Me connecter</button>')
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'+(m ? '' : '<input id="telAnn" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:200px"><button class="btn sec" onclick="identifierPuis(document.querySelector(\'#telAnn\').value,function(x){aller(\'#/annuaire?t=\'+encodeURIComponent(idMembre(x)))},\'Numéro inconnu.\')">Me connecter</button>')
     + '<input id="qAnn" value="'+ech(params.q||"")+'" placeholder="Rechercher : nom, fonction, cabinet, ville…" style="flex:1;min-width:220px" onkeydown="if(event.key===\'Enter\')aller(\'#/annuaire?q=\'+encodeURIComponent(this.value)+\''+lienT+'\')"><button class="btn" onclick="aller(\'#/annuaire?q=\'+encodeURIComponent(document.querySelector(\'#qAnn\').value)+\''+lienT+'\')">Rechercher</button></div>'
     + '<p style="margin-top:8px">'+Object.entries(specs).sort((a,b) => b[1]-a[1]).slice(0,10).map(([k,n]) => '<a class="badge b-neutre" style="margin:2px;text-decoration:none" href="#/annuaire?q='+encodeURIComponent(k)+lienT+'">'+ech(k)+' · '+n+'</a>').join(" ")+'</p></div>'
     + (L.length ? '<div class="grille g2">'+L.map(x => '<div class="carte" style="display:flex;gap:12px;align-items:flex-start;margin:0">'+avatar(x,"sm")+'<div style="min-width:0"><strong>'+ech(x.nom)+'</strong>'+(x.titre||x.specialite ? '<div>'+ech(x.titre||x.specialite)+'</div>' : '')+(x.employeur ? '<div class="mut">'+ech(x.employeur)+'</div>' : '')+'<div class="mut">'+ech([x.ville,x.pays].filter(Boolean).join(", "))+'</div>'
@@ -2993,7 +3027,7 @@ function vueSalon(params){
   salonPoll(); setTimeout(() => { const f = $("#salonFil"); if(f) f.scrollTop = f.scrollHeight; }, 50);
   return '<main style="max-width:760px"><div class="carte" data-ouvert="1"><h3 style="margin-top:0">💬 Le salon du réseau</h3>'
     + '<p class="mut">Échanges entre membres, visibles par tous les membres identifiés. Restez courtois et professionnel (Charte) ; le bureau peut retirer un message. Les documents joints sont téléchargeables par tous.</p>'
-    + (moi ? '' : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input id="telSalon" placeholder="Votre numéro de téléphone pour écrire" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telSalon\').value);if(x)aller(\'#/salon?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">M’identifier</button></div>')
+    + (moi ? '' : '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input id="telSalon" placeholder="Votre numéro de téléphone pour écrire" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="identifierPuis(document.querySelector(\'#telSalon\').value,function(x){aller(\'#/salon?t=\'+encodeURIComponent(idMembre(x)))},\'Numéro inconnu.\')">M’identifier</button></div>')
     + filSalon()
     + (moi ? '<div id="salonRep" class="mut" style="margin-top:8px"></div><div style="display:flex;gap:8px;align-items:flex-end;margin-top:6px"><textarea id="salonTexte" rows="2" placeholder="Écrire au réseau…" style="flex:1;min-height:44px" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey&&!/Mobi|Android/i.test(navigator.userAgent)){event.preventDefault();salonEnvoyer()}"></textarea><button class="btn" onclick="salonEnvoyer()">Envoyer</button></div>'+zonePJ("salon_"+moi.id) : '')
     + '</div></main>';
@@ -3034,7 +3068,7 @@ function vueAgenda(params){
       + (passe && r && (r.photos||[]).length ? '<p style="margin:6px 0 0"><a class="btn sm sec" href="#/rencontres?id='+r.id+'">📷 Photos de la rencontre ('+r.photos.length+')</a></p>' : '')
       + '</div></div></div>'; };
   return '<main><div class="carte"><h3>📅 Agenda du réseau</h3><p class="mut">Rencontres, formations, assemblées : inscrivez-vous en un clic, recevez un rappel la veille, et retrouvez les comptes rendus après coup.</p>'
-    + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>.</p>' : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telAg" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const x=trouverMembre(document.querySelector(\'#telAg\').value);if(x)aller(\'#/agenda?t=\'+encodeURIComponent(idMembre(x)));else toast(\'Numéro inconnu.\',\'err\')})()">M’identifier</button></div>')+'</div>'
+    + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>.</p>' : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telAg" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="identifierPuis(document.querySelector(\'#telAg\').value,function(x){aller(\'#/agenda?t=\'+encodeURIComponent(idMembre(x)))},\'Numéro inconnu.\')">M’identifier</button></div>')+'</div>'
     + (avenir.length ? avenir.map(e => carteEvt(e, false)).join("") : etatVide("📅", "Aucun événement programmé", "Le bureau publie ici les prochaines rencontres, formations et assemblées. Vous recevrez un rappel la veille si vous êtes inscrit.", (etat.settings.whatsapp_lien ? '<a class="btn sm sec" href="#/" >Retour à l’accueil</a>' : '')))
     + (passes.length ? '<h3 style="margin:18px 0 10px">Événements passés &amp; comptes rendus</h3>'+passes.map(e => carteEvt(e, true)).join("") : '')+'</main>';
 }
@@ -3301,7 +3335,7 @@ function vueQuestions(params){
           + zonePJ("rep_0")
           + '<div class="champ"><span>Mots-clés (séparés par des virgules)</span><input id="qTags" placeholder="tva, déclaration, dgi"></div>'
           + '<label class="mut" style="display:block;margin-bottom:8px"><input type="checkbox" id="qAnonyme"> Publier ma question sans mon nom</label><button class="btn" onclick="poserQuestion(\''+ech(m.telephone)+'\')">Publier</button></details>'
-         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telQuestion\').value);if(m)aller(\'#/questions?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier pour participer</button></div>')
+         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telQuestion" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="identifierPuis(document.querySelector(\'#telQuestion\').value,function(m){aller(\'#/questions?t=\'+encodeURIComponent(m.telephone))},\'Numéro inconnu : utilisez le téléphone connu du réseau.\')">M’identifier pour participer</button></div>')
     + '</div>'
     + (valid && attente.length ? '<div class="carte"><h3>À valider ('+attente.length+')</h3>'+attente.map(blocAttente).join("")+'</div>' : '')
     + (miennes.length ? '<div class="carte"><h3>Mes réponses en attente de validation ('+miennes.length+')</h3>'+miennes.map(r => '<p class="mut">'+ech((qs.find(x=>x.id===r.question_id)||{}).question||"")+' → '+ech(r.texte).slice(0,120)+' ('+(r.validations||[]).length+'/'+minV+')</p>').join("")+'</div>' : '')
@@ -3394,7 +3428,7 @@ function vueFormation(params){
   return '<main><div class="carte"><h3>🎓 Formation</h3>'
     + '<p class="mut">Vidéos, documents et ateliers du réseau. Les ressources réservées s’ouvrent après identification par votre numéro de téléphone.</p>'
     + (m ? '<p>Bienvenue <strong>'+ech(m.nom)+'</strong>'+(aJour ? ' <span class="badge b-paye">à jour</span>' : ' <span class="badge b-partiel">cotisation à régulariser</span> — <a href="'+lienMembre(m)+'">ma situation</a>')+'</p>'
-         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telFormation" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="(function(){const m=trouverMembre(document.querySelector(\'#telFormation\').value);if(m)aller(\'#/formation?t=\'+encodeURIComponent(m.telephone));else toast(\'Numéro inconnu : utilisez le téléphone connu du réseau.\',\'err\')})()">M’identifier</button></div>')
+         : '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="telFormation" placeholder="Votre numéro de téléphone" inputmode="tel" style="width:auto;min-width:220px"><button class="btn" onclick="identifierPuis(document.querySelector(\'#telFormation\').value,function(m){aller(\'#/formation?t=\'+encodeURIComponent(m.telephone))},\'Numéro inconnu : utilisez le téléphone connu du réseau.\')">M’identifier</button></div>')
     + (m && s.skool_lien ? '<p style="margin-top:10px"><a class="btn sec" href="'+ech(s.skool_lien)+'" target="_blank" rel="noopener">📚 Plateforme Skool — formations gratuites</a> '+(s.replay_lien ? '<a class="btn sec" href="'+ech(s.replay_lien)+'" target="_blank" rel="noopener">▶️ Replay de présentation</a>' : '')+'</p>' : '')
     + '</div>'
     + (liste.length ? liste.map(f => '<div class="carte"><div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap"><div style="flex:1"><div class="mut">'+(TYPES_FORMATION[f.type]||f.type)+' · '+dateFR(f.date)+'</div><h3 style="margin:4px 0">'+ech(f.titre)+'</h3>'+(f.description ? '<p>'+ech(f.description).replace(/\n/g,"<br>")+'</p>' : '')+'</div>'
