@@ -41,3 +41,18 @@ grant execute on function cc_mon_espace(text) to anon, authenticated;
 drop policy if exists "lecture publique cc_membres" on cc_membres;
 drop policy if exists "lecture publique cc_paiements" on cc_paiements;
 notify pgrst, 'reload schema';
+
+-- Coordonnées de l'annuaire : uniquement pour un membre à jour (vérifié côté serveur), uniquement les membres ayant consenti.
+create or replace function cc_annuaire_coordonnees(p_tel text) returns json
+language plpgsql security definer set search_path = public as $$
+declare v_tel text := regexp_replace(coalesce(p_tel,''), '\D', '', 'g'); v_mid bigint;
+begin
+  if length(v_tel) = 13 and v_tel like '225%' then v_tel := substr(v_tel, 4); end if;
+  select id into v_mid from cc_membres where actif and regexp_replace(coalesce(telephone,''), '\D', '', 'g') in (v_tel, '225' || v_tel) limit 1;
+  if v_mid is null then return json_build_object('ok', false, 'motif', 'membre'); end if;
+  if not cc_membre_a_jour(v_mid) then return json_build_object('ok', false, 'motif', 'a_jour'); end if;
+  return json_build_object('ok', true, 'coordonnees',
+    coalesce((select json_agg(json_build_object('id', id, 'telephone', telephone, 'email', email)) from cc_membres where actif and annuaire), '[]'::json));
+end $$;
+grant execute on function cc_annuaire_coordonnees(text) to anon, authenticated;
+notify pgrst, 'reload schema';
