@@ -56,3 +56,7 @@ begin
 end $$;
 grant execute on function cc_annuaire_coordonnees(text) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- cc_offres_tout est une vue interne (fonctions) : pas de lecture directe par les visiteurs (comment_postuler non masqué).
+revoke all on cc_offres_tout from anon;
+notify pgrst, 'reload schema';
