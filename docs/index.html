@@ -1710,7 +1710,7 @@ function rendu(){
     corps = '<main><div class="alerte al-err">Erreur : '+ech(e.message)+'</div></main>';
   }
   app.innerHTML = bandeauHorsLigne() + (etat.horsLigne && !(etat.membres||[]).length ? "" : entete()) + corps + (etat.cfg && (etat.membres||[]).length ? ongletsMobile() : "")
-    + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="/decouvrir.html" style="color:inherit">Découvrir le réseau</a> · <a href="/q/" style="color:inherit">Base de connaissances</a> · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+'<br>'
+    + '<p class="pied">ComptaConnect · pointage automatique des cotisations · <a href="/decouvrir.html" style="color:inherit">Découvrir le réseau</a> · <a href="/q/" style="color:inherit">Base de connaissances</a> · <a href="#/legal" style="color:inherit">Mentions légales &amp; confidentialité</a> · <a href="javascript:void(0)" onclick="basculerTheme()" style="color:inherit">🌓 Mode sombre / clair</a> · <a href="javascript:void(0)" id="btnInstaller" onclick="installerApp()" style="color:inherit">📲 Installer l’application</a>'+(etat.session ? ' · <a href="#/journal" style="color:inherit">Journal d’audit</a>' : '')+' · <a href="javascript:void(0)" onclick="forcerMaj()" style="color:inherit" title="Recharger la dernière version">🔄 Version du '+versionApp()+'</a><br>'
     + '<span style="font-size:11.5px;opacity:.85">Application conçue et développée par <a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit;font-weight:700">Nabil DOREGO</a> — Comptable senior &amp; développeur d’outils de gestion · '
     + '<a href="https://wa.me/2250717579556" target="_blank" rel="noopener" style="color:inherit">WhatsApp</a> · <a href="mailto:nabildorego@gmail.com" style="color:inherit">Email</a></span></p>';
   paginer(); iconiserTitres(); plierMobile(); animerCompteurs();
@@ -5091,8 +5091,22 @@ appliquerTheme();
 /* Application installable (PWA) : service worker + invitation à installer */
 if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){
   navigator.serviceWorker.register("sw.js").catch(() => {});
+  // Mise à jour : la nouvelle version est téléchargée en arrière-plan ; on propose « Actualiser », et on recharge seul au prochain changement de page
+  // (jamais au milieu d'une saisie) ou quand l'application revient au premier plan après plus d'une minute.
   navigator.serviceWorker.addEventListener("message", e => { if(e.data && e.data.type === "maj" && !etat._majProposee){ etat._majProposee = true; const t = $("#toast"); t.innerHTML = 'Nouvelle version disponible · <a href="javascript:location.reload()" style="color:#fff;text-decoration:underline">Actualiser</a>'; t.className = "ok on"; clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 12000); } });
+  const saisieEnCours = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.value; };
+  window.addEventListener("hashchange", () => { if(etat._majProposee && !saisieEnCours()) location.reload(); });
+  let _cache = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "hidden"){ _cache = Date.now(); return; }
+    if(etat._majProposee && !saisieEnCours() && Date.now() - _cache > 60000){ location.reload(); return; }
+    // retour au premier plan : on redemande la coquille (le service worker compare et prévient s'il y a du neuf) et on vérifie le service worker lui-même
+    if(Date.now() - _cache > 60000){ fetch("./index.html", { cache: "no-store" }).catch(() => {}); navigator.serviceWorker.getRegistration().then(r => r && r.update()).catch(() => {}); }
+  });
 }
+/* Version affichée = date du fichier de l'application réellement chargé (utile pour vérifier qu'une mise à jour est bien arrivée sur le téléphone) */
+function versionApp(){ try{ const d = new Date(document.lastModified); return isNaN(d) ? "?" : d.toLocaleDateString("fr-FR", { day:"2-digit", month:"2-digit" })+" "+d.toLocaleTimeString("fr-FR", { hour:"2-digit", minute:"2-digit" }); }catch(_){ return "?"; } }
+async function forcerMaj(){ toast("Recherche de la dernière version…", "ok"); try{ const r = await fetch("./index.html", { cache: "no-store" }); if(r.ok){ const c = await caches.open("cc-v4"); await c.put("./index.html", r.clone()); } const reg = await navigator.serviceWorker.getRegistration(); if(reg) await reg.update(); }catch(_){} location.reload(); }
 let _installPrompt = null;
 window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); _installPrompt = e; const b = $("#btnInstaller"); if(b) b.style.display = ""; });
 async function installerApp(){ if(!_installPrompt){ toast("Sur iPhone : Partager → « Sur l’écran d’accueil ». Sur Android : menu ⋮ → « Installer l’application ».", "ok"); return; } _installPrompt.prompt(); await _installPrompt.userChoice; _installPrompt = null; }
