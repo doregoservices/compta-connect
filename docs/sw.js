@@ -1,16 +1,9 @@
 /* ComptaConnect — service worker : l'application s'ouvre instantanément (coquille servie depuis le cache) et se met à jour en arrière-plan ;
    quand une nouvelle version arrive, la page affiche « Nouvelle version disponible · Actualiser ». Données (API, photos) : jamais mises en cache ici. */
-const CACHE = "cc-v5";
+const CACHE = "cc-v6";
 const COQUILLE = ["./", "./index.html", "./logo.jpg", "./manifest.webmanifest", "./icon-192.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(COQUILLE)).then(() => self.skipWaiting())); });
-// À l'activation d'une nouvelle version du service worker : anciens caches supprimés, puis toutes les fenêtres ouvertes sont rechargées
-// (c'est ce qui garantit qu'une application installée depuis longtemps repart sur la version du jour).
-self.addEventListener("activate", e => { e.waitUntil((async () => {
-  const ks = await caches.keys(); await Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)));
-  await self.clients.claim();
-  const cs = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-  for (const c of cs) { try { if ("navigate" in c) await c.navigate(c.url); } catch (_) {} }
-})()); });
+self.addEventListener("activate", e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()).then(prevenir)); });
 async function prevenir(){ const cs = await self.clients.matchAll({ type:"window" }); for(const c of cs) c.postMessage({ type:"maj" }); }
 self.addEventListener("fetch", e => {
   const u = new URL(e.request.url);

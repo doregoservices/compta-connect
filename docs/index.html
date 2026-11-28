@@ -5091,6 +5091,9 @@ appliquerTheme();
 /* Application installable (PWA) : service worker + invitation à installer */
 if("serviceWorker" in navigator && /^https?:/.test(location.protocol)){
   navigator.serviceWorker.register("sw.js").catch(() => {});
+  // Nouvelle version activée (nouveau contrôleur) : rechargement immédiat et unique, sauf saisie en cours (alors au prochain changement de page).
+  let _ctrl = !!navigator.serviceWorker.controller, _recharge = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if(_recharge) return; _recharge = true; etat._majProposee = true; if(_ctrl && !saisieEnCours()) location.reload(); _ctrl = true; });
   // Mise à jour : la nouvelle version est téléchargée en arrière-plan ; on propose « Actualiser », et on recharge seul au prochain changement de page
   // (jamais au milieu d'une saisie) ou quand l'application revient au premier plan après plus d'une minute.
   navigator.serviceWorker.addEventListener("message", e => { if(e.data && e.data.type === "maj" && !etat._majProposee){ etat._majProposee = true; const t = $("#toast"); t.innerHTML = 'Nouvelle version disponible · <a href="javascript:location.reload()" style="color:#fff;text-decoration:underline">Actualiser</a>'; t.className = "ok on"; clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 12000); } });
